@@ -20,14 +20,15 @@ export function sessionsDir(): string {
 }
 
 /**
- * Sockets du bus de pairs, là où Claude Code met les siens : `/tmp/cc-socks` sous macOS ;
- * sous Linux `$XDG_RUNTIME_DIR/cc-socks`, sinon `$CLAUDE_CODE_TMPDIR`, sinon le dossier temporaire
- * (lu dans le binaire de Claude Code 2.1.317 et sondé, 03/11/2026).
+ * Sockets du bus de pairs, là où Claude Code met les siens : `$XDG_RUNTIME_DIR/cc-socks`, sinon
+ * `$CLAUDE_CODE_TMPDIR/cc-socks`, sinon `/tmp/cc-socks` sous macOS et `<os.tmpdir()>/cc-socks` sous Linux
+ * (lu dans les binaires macOS et Linux de Claude Code 2.1.317, sondé sous Linux, 03/11/2026).
+ * Une variable vide compte comme absente, comme chez Claude.
  */
 export function socketsDir(): string {
   if (process.env.IDNMA_SOCKETS_DIR !== undefined) return process.env.IDNMA_SOCKETS_DIR;
-  if (process.platform === "darwin") return "/tmp/cc-socks";
-  return join(process.env.XDG_RUNTIME_DIR || process.env.CLAUDE_CODE_TMPDIR || tmpdir(), "cc-socks");
+  const fallback = process.platform === "darwin" ? "/tmp" : tmpdir();
+  return join(process.env.XDG_RUNTIME_DIR || process.env.CLAUDE_CODE_TMPDIR || fallback, "cc-socks");
 }
 
 // Longueur maximale d'un chemin de socket retenue par Claude Code (`sun_path` : 104 octets sous macOS, 108 sous Linux).

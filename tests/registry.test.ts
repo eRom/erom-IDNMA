@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pidDomain, procStart, procStarts } from "../src/bus/proc.ts";
 import { listLiveEntries, removeEntry, writeEntry, type SessionEntry } from "../src/bus/registry.ts";
@@ -137,10 +137,15 @@ test("pidDomain has the shape Claude writes: darwin on macOS, linux:<machine-id>
 
 test("procStarts reads a Linux comm with spaces and parentheses without shifting fields", () => {
   if (process.platform === "darwin") return;
-  // Un `comm` piégé : le découpage naïf sur les espaces décalerait le champ 22.
-  const tricky = Bun.spawn(["sh", "-c", "exec -a 'a) b (c' sleep 30"]);
+  // Un `comm` piégé : le noyau le prend du nom de l'exécutable, d'où le lien vers `sleep`.
+  // Un découpage à la première `)` ou sur les espaces décalerait le champ 22.
+  const name = "a) 1 2 (c";
+  const link = join(dir, name);
+  symlinkSync(Bun.which("sleep") ?? "/usr/bin/sleep", link);
+  const tricky = Bun.spawn([link, "30"]);
   try {
     Bun.sleepSync(100);
+    expect(readFileSync(`/proc/${tricky.pid}/comm`, "utf8").trim()).toBe(name);
     const expected = Bun.spawnSync(["sh", "-c", `sed 's/.*) //' /proc/${tricky.pid}/stat | cut -d' ' -f20`]).stdout.toString().trim();
     expect(expected).toMatch(/^\d+$/);
     expect(procStart(tricky.pid)).toBe(expected);

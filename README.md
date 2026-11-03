@@ -50,7 +50,7 @@ When idle, nothing runs: zero tokens, zero polling, no screen scraping.
 
 Claude's peer protocol is versioned (`peerProtocol: 1`); an understudy refuses to register if it sees another version.
 
-Linux is supported for Claude Code and Codex, measured on Ubuntu 24.04 with Claude Code 2.1.317 and Codex 0.166.0 (arm64 by hand, x86_64 in CI). Grok, agy, opencode and dst have not been probed on Linux yet. The one-line installer below is macOS only: on Linux, use the manual installation.
+Linux is supported for Claude Code and Codex, measured on Ubuntu 24.04 with Claude Code 2.1.317 and Codex 0.166.0 (both agents tested on arm64; the unit tests also run on x86_64 in CI). Grok, agy, opencode and dst have not been probed on Linux yet. The one-line installer below is macOS only: on Linux, use the manual installation.
 
 ## Installation
 
@@ -119,6 +119,15 @@ Run the installer again: it moves the same checkout to the latest release, and r
 ```sh
 curl -fsSL https://erom.cloud/install_idnma.sh | bash
 idnma --version   # matches the release tag, without the leading v
+```
+
+On Linux, update the checkout by hand:
+
+```sh
+cd ~/.idnma
+git fetch --tags
+git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"
+bun install --frozen-lockfile --production
 ```
 
 ### Uninstalling

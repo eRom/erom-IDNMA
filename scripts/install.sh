@@ -50,8 +50,8 @@ version_at_least() {
 }
 
 check_platform() {
-  [ "$(uname -s)" = "Darwin" ] || die "IdnmA supports macOS only for now." \
-    "Linux support is on the roadmap: https://github.com/eRom/erom-IDNMA"
+  [ "$(uname -s)" = "Darwin" ] || die "This installer supports macOS only." \
+    "On Linux, follow the manual installation: https://github.com/eRom/erom-IDNMA#installation"
   local macos
   macos=$(sw_vers -productVersion)
   version_at_least "$macos" "$MIN_MACOS_MAJOR.0" || die "IdnmA needs macOS $MIN_MACOS_MAJOR or later (found $macos)."
