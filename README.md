@@ -98,6 +98,7 @@ cd ~/dev/erom-IDNMA
 git fetch --tags
 git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"
 bun install --frozen-lockfile
+idnma --version   # matches the release tag, without the leading v
 ```
 
 Release notes live in [CHANGELOG.md](CHANGELOG.md) and on the [Releases](https://github.com/eRom/erom-IDNMA/releases) page.
