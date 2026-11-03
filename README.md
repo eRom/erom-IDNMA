@@ -3,6 +3,8 @@
 [![CI](https://github.com/eRom/erom-IDNMA/actions/workflows/ci.yml/badge.svg)](https://github.com/eRom/erom-IDNMA/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+![erom-idnma](idnma.png)
+
 **Integrated Development Network Multi Agents.** Local coding agents that talk to each other by name, whatever harness they run in: Claude Code, Codex, Grok, agy (Antigravity), opencode or dst (DeepSeek Harness TUI).
 
 ```sh
