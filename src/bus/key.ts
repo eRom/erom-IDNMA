@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { sessionsDir } from "../paths.ts";
-import { isValidPid, procStarts } from "./proc.ts";
+import { isValidPid, pidDomain, procStarts } from "./proc.ts";
 
 /** Nom du fichier de clé que Claude lit : `<pid>.<sha256(chemin résolu du socket)>.key`. */
 export function keyFileName(pid: number, socketPath: string): string {
@@ -20,7 +20,7 @@ export function publishKey(pid: number, socketPath: string, peerToken: string, p
   const path = join(dir, keyFileName(pid, socketPath));
   // Le suffixe `.tmp` évite que le temporaire soit pris pour une clé (`*.key`).
   const tmp = `${path}.tmp`;
-  writeFileSync(tmp, JSON.stringify({ peerToken, procStart, pidDomain: "darwin" }), { mode: 0o600 });
+  writeFileSync(tmp, JSON.stringify({ peerToken, procStart, pidDomain: pidDomain() }), { mode: 0o600 });
   // Le umask peut avoir retiré des droits à la création : on force le mode avant de publier.
   chmodSync(tmp, 0o600);
   renameSync(tmp, path);

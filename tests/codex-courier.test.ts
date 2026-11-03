@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { addressOf, buildEnvelope } from "../src/bus/envelope.ts";
 import type { InboundMessage, Priority } from "../src/bus/inbox.ts";
@@ -200,8 +200,9 @@ describe("adoption", () => {
   });
 
   test("compares resolved paths", async () => {
-    // `mkdtempSync("/tmp/…")` : sur macOS /tmp est un lien vers /private/tmp.
-    const viaLink = workDir;
+    // Un lien explicite vers le dossier de travail : discriminant aussi sous Linux, où /tmp n'est pas un lien.
+    const viaLink = join(dir, "work-link");
+    symlinkSync(workDir, viaLink);
     const resolved = realpathSync(workDir);
     expect(resolved).not.toBe(viaLink);
     const { courier } = makeCourier({ cwd: viaLink });

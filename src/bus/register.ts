@@ -1,12 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { errorMessage, logEvent } from "../log.ts";
-import { sessionsDir, socketsDir } from "../paths.ts";
+import { peerSocketPath, sessionsDir } from "../paths.ts";
 import { addressOf } from "./envelope.ts";
 import { startInboxServer, type InboundMessage } from "./inbox.ts";
 import { keyFileName, publishKey } from "./key.ts";
-import { procStart } from "./proc.ts";
+import { pidDomain, procStart } from "./proc.ts";
 import { listLiveEntries, removeEntry, writeEntry, type SessionEntry } from "./registry.ts";
 
 /** Version du protocole de pairs que cette inscription sait parler. */
@@ -96,11 +96,11 @@ export async function registerPeer(o: {
   }
 
   const start = procStart(process.pid);
-  if (start === undefined) throw new Error(`démarrage du process ${process.pid} introuvable (ps)`);
+  if (start === undefined) throw new Error(`démarrage du process ${process.pid} introuvable (ps ou /proc)`);
 
-  const dir = socketsDir();
+  const socketPath = peerSocketPath();
+  const dir = dirname(socketPath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const socketPath = join(dir, `${process.pid}.sock`);
 
   const peerToken = randomBytes(16).toString("hex");
   const keyPath = join(sessionsDir(), keyFileName(process.pid, socketPath));
@@ -126,7 +126,7 @@ export async function registerPeer(o: {
     peerFeatures: [],
     kind: "interactive",
     entrypoint: "cli",
-    pidDomain: "darwin",
+    pidDomain: pidDomain(),
     messagingSocketPath: socketPath,
     name: o.name,
     nameSource: "user",

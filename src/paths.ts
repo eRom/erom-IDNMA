@@ -1,4 +1,4 @@
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Chaque chemin est relu à l'appel : les variables IDNMA_* sont le seul mécanisme
@@ -19,9 +19,25 @@ export function sessionsDir(): string {
   return process.env.IDNMA_CLAUDE_DIR ?? join(homedir(), ".claude", "sessions");
 }
 
-/** Sockets du bus de pairs. */
+/**
+ * Sockets du bus de pairs, là où Claude Code met les siens : `/tmp/cc-socks` sous macOS ;
+ * sous Linux `$XDG_RUNTIME_DIR/cc-socks`, sinon `$CLAUDE_CODE_TMPDIR`, sinon le dossier temporaire
+ * (lu dans le binaire de Claude Code 2.1.317 et sondé, 03/11/2026).
+ */
 export function socketsDir(): string {
-  return process.env.IDNMA_SOCKETS_DIR ?? "/tmp/cc-socks";
+  if (process.env.IDNMA_SOCKETS_DIR !== undefined) return process.env.IDNMA_SOCKETS_DIR;
+  if (process.platform === "darwin") return "/tmp/cc-socks";
+  return join(process.env.XDG_RUNTIME_DIR || process.env.CLAUDE_CODE_TMPDIR || tmpdir(), "cc-socks");
+}
+
+// Longueur maximale d'un chemin de socket retenue par Claude Code (`sun_path` : 104 octets sous macOS, 108 sous Linux).
+const MAX_SOCKET_PATH_BYTES = 103;
+
+/** Socket du bus pour `pid` ; trop long, il se replie comme chez Claude sur `/tmp/cc-socks-<uid>`. */
+export function peerSocketPath(pid: number = process.pid): string {
+  const path = join(socketsDir(), `${pid}.sock`);
+  if (Buffer.byteLength(path) <= MAX_SOCKET_PATH_BYTES) return path;
+  return join("/tmp", `cc-socks-${process.getuid?.() ?? 0}`, `${pid}.sock`);
 }
 
 /** Sockets de contrôle privés d'idnma, un dossier par utilisateur. */

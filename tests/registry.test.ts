@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { procStart, procStarts } from "../src/bus/proc.ts";
+import { pidDomain, procStart, procStarts } from "../src/bus/proc.ts";
 import { listLiveEntries, removeEntry, writeEntry, type SessionEntry } from "../src/bus/registry.ts";
 
 let dir: string;
@@ -110,16 +110,43 @@ test("removeEntry deletes the file and tolerates a second call", () => {
   expect(() => removeEntry(sleeper.pid)).not.toThrow();
 });
 
-test("procStarts maps live pids and procStart matches ps output", () => {
+test("procStarts maps live pids and procStart matches what Claude writes (ps lstart on macOS, /proc stat field 22 on Linux)", () => {
   const starts = procStarts([sleeper.pid, 1]);
   expect([...starts.keys()].sort((a, b) => a - b)).toEqual([1, sleeper.pid]);
-  const expected = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(sleeper.pid)], {
-    env: { ...process.env, TZ: "UTC", LC_ALL: "C" },
-  })
+  const command =
+    process.platform === "darwin" ? ["ps", "-o", "lstart=", "-p", String(sleeper.pid)] : ["sh", "-c", `cut -d' ' -f22 /proc/${sleeper.pid}/stat`];
+  const expected = Bun.spawnSync(command, { env: { ...process.env, TZ: "UTC", LC_ALL: "C" } })
     .stdout.toString()
     .trim();
+  expect(expected).not.toBe("");
   expect(procStart(sleeper.pid)).toBe(expected);
   expect(starts.get(sleeper.pid)).toBe(expected);
+});
+
+test("pidDomain has the shape Claude writes: darwin on macOS, linux:<machine-id>:<pid namespace> on Linux", () => {
+  if (process.platform === "darwin") {
+    expect(pidDomain()).toBe("darwin");
+    return;
+  }
+  // Calculé à part par le shell, comme le relève une session Claude réelle (sonde du 03/11/2026).
+  const expected = Bun.spawnSync(["sh", "-c", 'printf "linux:%s:%s" "$(cat /etc/machine-id)" "$(readlink /proc/$$/ns/pid)"'])
+    .stdout.toString();
+  expect(expected).toMatch(/^linux:[0-9a-f]{32}:pid:\[\d+\]$/);
+  expect(pidDomain()).toBe(expected);
+});
+
+test("procStarts reads a Linux comm with spaces and parentheses without shifting fields", () => {
+  if (process.platform === "darwin") return;
+  // Un `comm` piégé : le découpage naïf sur les espaces décalerait le champ 22.
+  const tricky = Bun.spawn(["sh", "-c", "exec -a 'a) b (c' sleep 30"]);
+  try {
+    Bun.sleepSync(100);
+    const expected = Bun.spawnSync(["sh", "-c", `sed 's/.*) //' /proc/${tricky.pid}/stat | cut -d' ' -f20`]).stdout.toString().trim();
+    expect(expected).toMatch(/^\d+$/);
+    expect(procStart(tricky.pid)).toBe(expected);
+  } finally {
+    tricky.kill();
+  }
 });
 
 test("procStarts handles an empty list and unknown pids without throwing", () => {

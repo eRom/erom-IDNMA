@@ -15,9 +15,18 @@ export interface Terminal {
 export interface PtyChild {
   process: Bun.Subprocess;
   terminal: Terminal;
+  /**
+   * Attend que la sortie du PTY se taise (`SETTLE_QUIET_MS` sans donnée, `SETTLE_CAP_MS` au plus).
+   * À appeler après la sortie de l'enfant et avant `release` : sous Linux, son dernier bloc de sortie
+   * arrive après l'événement de sortie (mesuré sous Bun 1.4.0, 03/11/2026) et serait perdu à la fermeture.
+   */
+  settle(): Promise<void>;
   /** Idempotent : désabonne stdin et `resize`, rend le mode d'origine du terminal, ferme le PTY. */
   release(): void;
 }
+
+const SETTLE_QUIET_MS = 20;
+const SETTLE_CAP_MS = 200;
 
 export function spawnUnderPty(o: {
   argv: string[];
@@ -30,11 +39,13 @@ export function spawnUnderPty(o: {
   const [bin, ...args] = o.argv;
   if (bin === undefined) throw new Error("idnma : argv vide, rien à lancer sous PTY.");
   const size = () => ({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
+  let lastOutputAt = 0;
 
   const ptyTerminal = new Bun.Terminal({
     ...size(),
     name: process.env.TERM || "xterm-256color",
     data(_terminal, data) {
+      lastOutputAt = Date.now();
       stdout.write(data);
     },
   });
@@ -99,6 +110,13 @@ export function spawnUnderPty(o: {
     },
   };
 
+  const settle = async (): Promise<void> => {
+    const deadline = Date.now() + SETTLE_CAP_MS;
+    do {
+      await Bun.sleep(SETTLE_QUIET_MS);
+    } while (Date.now() - lastOutputAt < SETTLE_QUIET_MS && Date.now() < deadline);
+  };
+
   const release = (): void => {
     if (released) return;
     released = true;
@@ -120,5 +138,5 @@ export function spawnUnderPty(o: {
     step("close", () => ptyTerminal.close());
   };
 
-  return { process: proc, terminal, release };
+  return { process: proc, terminal, settle, release };
 }
