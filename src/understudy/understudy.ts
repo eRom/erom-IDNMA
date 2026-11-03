@@ -220,8 +220,10 @@ export async function runUnderstudy(o: {
     // Un enfant qui survit à une sortie sur signal ne doit pas retenir le process.
     child.unref();
     const exited = child.exited.then((code) => {
-      const signalName = child?.signalCode;
-      return code ?? 128 + (signalName ? (constants.signals[signalName] ?? 0) : 0);
+      // `@types/bun` 1.4.4 type `signalCode` en `number | Signals` : un numéro sert tel quel.
+      const signal = child?.signalCode;
+      const signalNumber = typeof signal === "number" ? signal : signal ? (constants.signals[signal] ?? 0) : 0;
+      return code ?? 128 + signalNumber;
     });
     const code = await Promise.race([exited, signalExit]);
     await sayFarewell();
