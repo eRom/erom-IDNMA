@@ -1,0 +1,12 @@
+{
+  "artifactDirectoryPath": "/Users/recarnot/.gemini/antigravity-cli/brain/8d4dcdbc-4426-41f3-94fd-fcc4e502d8c5",
+  "conversationId": "8d4dcdbc-4426-41f3-94fd-fcc4e502d8c5",
+  "initialNumSteps": 5,
+  "invocationNum": 0,
+  "lastUserInput": "📨 idnma read",
+  "modelName": "gemini-4-argon-medium",
+  "transcriptPath": "/Users/recarnot/.gemini/antigravity-cli/brain/8d4dcdbc-4426-41f3-94fd-fcc4e502d8c5/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/Users/recarnot/dev/tmp/idnma-p3-probe"
+  ]
+}

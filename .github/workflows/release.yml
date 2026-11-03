@@ -1,0 +1,25 @@
+name: Release
+
+# release-please lit les commits conventionnels de main, tient une PR de release à jour
+# (version, CHANGELOG.md), puis crée le tag et la GitHub Release quand la PR est fusionnée.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

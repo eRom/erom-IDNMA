@@ -1,0 +1,210 @@
+agents:
+  claude:
+    label: Claude Agent
+    info: Claude 5.x
+    cell: 1
+    engines:
+      default:
+        harness: claude
+        model: opus
+        options:
+          - --effort
+          - medium
+          - --dangerously-skip-permissions
+          - --remote-control
+  glm:
+    label: GLM Agent
+    info: GLM 5.3
+    cell: 2
+    engines:
+      default:
+        harness: claude
+        model: glm-5.3-flash:cloud[1m]
+        options:
+          - --effort
+          - max
+          - --dangerously-skip-permissions
+        env:
+          ANTHROPIC_BASE_URL: "http://localhost:11434"
+          ANTHROPIC_AUTH_TOKEN: "ollama" # résolu depuis l'environnement
+          ANTHROPIC_API_KEY: ""
+          ANTHROPIC_MODEL: "glm-5.3-flash:cloud[1m]"
+          ANTHROPIC_DEFAULT_FABLE_MODEL: "glm-5.3:cloud[1m]"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-5.3:cloud[1m]"
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "glm-5.3-flash:cloud[1m]"
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "glm-5.3-flash:cloud[1m]"
+          CLAUDE_CODE_EFFORT_LEVEL: "max"
+  deepseek:
+    label: Deepseek Agent
+    info: Deepseek v4
+    cell: 3
+    engines:
+      default:
+        harness: claude
+        model: deepseek-v4.1-flash:cloud[1m]
+        options:
+          - --effort
+          - max
+          - --dangerously-skip-permissions
+        env:
+          ANTHROPIC_BASE_URL: "http://localhost:11434"
+          ANTHROPIC_AUTH_TOKEN: "ollama" # résolu depuis l'environnement
+          ANTHROPIC_API_KEY: ""
+          ANTHROPIC_MODEL: "deepseek-v4.1-flash:cloud[1m]"
+          ANTHROPIC_DEFAULT_FABLE_MODEL: "deepseek-v4-pro:cloud[1m]"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "deepseek-v4.1-flash:cloud[1m]"
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "deepseek-v4.1-flash:cloud[1m]"
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "deepseek-v4.1-flash:cloud[1m]"
+          CLAUDE_CODE_AUTO_COMPACT_WINDOW: "786432"
+  qwen:
+    label: QWEN Agent
+    info: Qwen 3.8
+    cell: 4
+    engines:
+      default:
+        harness: claude
+        model: qwen/qwen3.8-flash[1m]
+        options:
+          - --effort
+          - max
+          - --dangerously-skip-permissions
+        env:
+          ANTHROPIC_BASE_URL: "https://openrouter.ai/api"
+          ANTHROPIC_AUTH_TOKEN: "$OPENROUTER_API_KEY"
+          ANTHROPIC_API_KEY: ""
+          ANTHROPIC_MODEL: "qwen/qwen3.8-flash[1m]"
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "qwen/qwen3.8-flash[1m]"
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "qwen/qwen3.8-flash[1m]"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "qwen/qwen3.8-max-0902[1m]"
+          ANTHROPIC_DEFAULT_FABLE_MODEL: "qwen/qwen3.8-max-0902[1m]"
+  kimi:
+    label: Kimi Agent
+    info: K3
+    cell: 5
+    engines:
+      default:
+        harness: claude
+        model: kimi-k3:cloud[1m]
+        options:
+          - --effort
+          - max
+          - --dangerously-skip-permissions
+        env:
+          ANTHROPIC_BASE_URL: "http://localhost:11434"
+          ANTHROPIC_AUTH_TOKEN: "ollama" # résolu depuis l'environnement
+          ANTHROPIC_API_KEY: ""
+          ANTHROPIC_MODEL: "kimi-k3:cloud[1m]"
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "kimi-k3:cloud[1m]"
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "kimi-k3:cloud[1m]"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "kimi-k3:cloud[1m]"
+          ANTHROPIC_DEFAULT_FABLE_MODEL: "kimi-k3:cloud[1m]"
+  muse:
+    label: Muse Spark Agent
+    info: Spark 1.3
+    cell: 6
+    engines:
+      default:
+        harness: claude
+        model: meta/muse-spark-1.3[1m]
+        options:
+          - --effort
+          - max
+          - --dangerously-skip-permissions
+        env:
+          ANTHROPIC_BASE_URL: "https://openrouter.ai/api"
+          ANTHROPIC_AUTH_TOKEN: "$OPENROUTER_API_KEY"
+          ANTHROPIC_API_KEY: ""
+          ANTHROPIC_MODEL: "meta/muse-spark-1.3[1m]"
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "meta/muse-spark-1.3[1m]"
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "meta/muse-spark-1.3[1m]"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "meta/muse-spark-1.3[1m]"
+          ANTHROPIC_DEFAULT_FABLE_MODEL: "meta/muse-spark-1.3[1m]"
+  grok:
+    label: Grok Agent
+    info: 4.7
+    cell: 0
+    engines:
+      default:
+        harness: grok
+        model: grok-4.7
+        options:
+          - --effort
+          - high
+          - --always-approve
+  agy:
+    label: AGY Agent
+    info: 3.8
+    cell: 0
+    avatar: gemini.png
+    engines:
+      default:
+        harness: agy
+        model: gemini-4-argon-medium
+  codex:
+    label: Codex Agent
+    info: GPT 6
+    cell: 0
+    engines:
+      default:
+        harness: codex
+        options:
+          - --dangerously-bypass-approvals-and-sandbox
+      luna:
+        harness: codex
+        model: gpt-6-luna
+        options:
+          - --dangerously-bypass-approvals-and-sandbox
+      tuned:
+        harness: codex
+        options:
+          - --config
+          - model_reasoning_effort="high"
+          - --dangerously-bypass-approvals-and-sandbox
+  opencode:
+    label: Opencode Agent
+    info: 2.2
+    cell: 0
+    engines:
+      default:
+        harness: opencode
+        model: opencode/big-pickle
+      auto:
+        harness: opencode
+        model: ollama-cloud/deepseek-v4.1-flash
+        options:
+          - --auto
+      bare:
+        harness: opencode
+      server:
+        harness: opencode
+        model: opencode/big-pickle
+        options:
+          - --server
+          - http://127.0.0.1:1
+  dst:
+    label: DST Agent
+    info: DeepSeek TUI
+    cell: 0
+    engines:
+      default:
+        harness: dst
+      full:
+        harness: dst
+        env:
+          DSH_PERMISSION_MODE: danger-full-access
+      launchpad:
+        harness: dst
+        env:
+          DSH_TUI_NO_LAUNCHPAD: "0"
+      withmodel:
+        harness: dst
+        model: deepseek-v4.1-flash
+      badbackend:
+        harness: dst
+        options:
+          - --backend
+          - codex
+      otherhome:
+        harness: dst
+        env:
+          DSH_HOME: /tmp/idnma-t-dsthome-from-engine

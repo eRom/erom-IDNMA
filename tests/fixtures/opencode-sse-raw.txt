@@ -1,0 +1,10 @@
+data: {"id":"evt_184519098001Kv7mE9evASkHf3","type":"server.connected","data":{}}
+
+: heartbeat
+
+data: {"id":"evt_1845191d4001S3BQc7ljX2aj6S","created":1793221300692,"type":"session.created","location":{"directory":"/private/tmp/claude-501/-Users-recarnot-dev-erom-agence-network/f3c4744e-7e6a-46d4-80ef-acda3692b02d/scratchpad/oc-work"},"data":{"sessionID":"ses_e7bae6e32ffetIyiqgxuXdM4sO","slug":"curious-garden","version":"2.2.0","projectID":"hexscrubbed","location":{"directory":"/private/tmp/claude-501/-Users-recarnot-dev-erom-agence-network/f3c4744e-7e6a-46d4-80ef-acda3692b02d/scratchpad/oc-work"},"subpath":""},"durable":{"aggregateID":"ses_e7bae6e32ffetIyiqgxuXdM4sO","seq":0,"version":1}}
+
+data: {"id":"evt_1845191e3001Z4k23QiNpJcsQz","created":1793221300707,"type":"session.deleted","data":{"sessionID":"ses_e7bae6e32ffetIyiqgxuXdM4sO"},"durable":{"aggregateID":"ses_e7bae6e32ffetIyiqgxuXdM4sO","seq":1,"version":2}}
+
+: heartbeat
+

@@ -1,0 +1,12 @@
+[
+  { "key": "réponse DA1 du terminal au lancement", "hex": "1b5b3f313b323b3463", "expected": "noise" },
+  { "key": "Entrée, invite vide", "hex": "0d", "expected": "enter" },
+  { "key": "abc", "hex": "616263", "expected": "keystroke" },
+  { "key": "3 × Retour arrière", "hex": "7f7f7f", "expected": "keystroke" },
+  { "key": "flèche haut", "hex": "1b5b41", "expected": "keystroke" },
+  { "key": "x", "hex": "78", "expected": "keystroke" },
+  { "key": "Ctrl+C", "hex": "03", "expected": "keystroke" },
+  { "key": "y", "hex": "79", "expected": "keystroke" },
+  { "key": "Alt+Entrée (nouvelle ligne)", "hex": "1b0d", "expected": "keystroke" },
+  { "key": "collage entre crochets", "hex": "1b5b3230307e636f6c6cc3a9206c69676e65311b5b3230317e", "expected": "keystroke" }
+]

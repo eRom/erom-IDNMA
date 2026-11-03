@@ -1,0 +1,12 @@
+{
+  "hookEventName": "session_start",
+  "sessionId": "01a17c41-b2d3-7f80-9e52-f2434504e234",
+  "cwd": "/Users/recarnot/dev/tmp/idnma-p3-probe",
+  "workspaceRoot": "/Users/recarnot/dev/tmp/idnma-p3-probe",
+  "timestamp": "2026-10-27T07:27:25.220419+00:00",
+  "permissionMode": "bypassPermissions",
+  "source": "new",
+  "hook_event_name": "SessionStart",
+  "session_id": "01a17c41-b2d3-7f80-9e52-f2434504e234",
+  "permission_mode": "bypassPermissions"
+}

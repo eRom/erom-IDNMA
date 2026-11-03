@@ -1,0 +1,15 @@
+{
+  "hookEventName": "user_prompt_submit",
+  "sessionId": "01a17c41-b2d3-7f80-9e52-f2434504e234",
+  "cwd": "/Users/recarnot/dev/tmp/idnma-p3-probe",
+  "workspaceRoot": "/Users/recarnot/dev/tmp/idnma-p3-probe",
+  "timestamp": "2026-10-27T07:27:56.095086+00:00",
+  "transcriptPath": "/Users/recarnot/.grok/sessions/%2FUsers%2Frecarnot%2Fdev%2Ftmp%2Fidnma-p3-probe/01a17c41-b2d3-7f80-9e52-f2434504e234/updates.jsonl",
+  "promptId": "cff7d362-7f0f-41d1-b9e2-0d43df8cd256",
+  "permissionMode": "bypassPermissions",
+  "prompt": "📨 idnma read",
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "01a17c41-b2d3-7f80-9e52-f2434504e234",
+  "transcript_path": "/Users/recarnot/.grok/sessions/%2FUsers%2Frecarnot%2Fdev%2Ftmp%2Fidnma-p3-probe/01a17c41-b2d3-7f80-9e52-f2434504e234/updates.jsonl",
+  "permission_mode": "bypassPermissions"
+}

@@ -1,0 +1,12 @@
+{
+  "artifactDirectoryPath": "/Users/recarnot/.gemini/antigravity-cli/brain/8d4dcdbc-4426-41f3-94fd-fcc4e502d8c5",
+  "conversationId": "8d4dcdbc-4426-41f3-94fd-fcc4e502d8c5",
+  "initialNumSteps": 8,
+  "invocationNum": 1,
+  "lastUserInput": "<cross-session-message from=\"uds:/tmp/cc-socks/99999.sock\" from-name=\"claude-sonde\" from-mode=\"bypass\">\nRéponds uniquement par le mot KIWI-17.\n</cross-session-message>",
+  "modelName": "gemini-4-argon-medium",
+  "transcriptPath": "/Users/recarnot/.gemini/antigravity-cli/brain/8d4dcdbc-4426-41f3-94fd-fcc4e502d8c5/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/Users/recarnot/dev/tmp/idnma-p3-probe"
+  ]
+}
