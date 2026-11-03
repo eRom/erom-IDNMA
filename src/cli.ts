@@ -16,6 +16,8 @@ import { CLAUDE_SKILL, GENERIC_SKILL, installSkill, uninstallSkill } from "./ins
 import { agyPluginsDir, claudeHome, codexHome, dshHome, grokHome, networkPath, opencodeConfigDir } from "./paths.ts";
 import { PaneError } from "./run/pane.ts";
 import { runAgent } from "./run/run.ts";
+// Source unique de la version : release-please l'incrémente dans la PR de release, le tag suit à la fusion.
+import pkg from "../package.json" with { type: "json" };
 
 // CLI de l'agent : un agent étranger (Codex, Grok, agy, opencode, dst) l'appelle depuis son shell. L'identité de
 // l'expéditeur vient de la doublure (variables d'environnement), jamais d'une option de ligne de commande.
@@ -30,6 +32,7 @@ Usage :
   idnma hook <grok|agy> <événement>  (interne) point d'entrée des hooks de Grok et d'agy
   idnma install --agent <agent>      pose la skill, les hooks et la ligne coéquipier d'un agent (voir idnma install --help)
   idnma uninstall --agent <agent>    retire ce que install a posé pour cet agent
+  idnma --version                    affiche la version
   idnma --help                       affiche cette aide
 
 Codes de sortie : 0 succès, 1 erreur, 2 usage incorrect.
@@ -481,6 +484,10 @@ export async function main(argv: string[]): Promise<number> {
       case "--help":
       case "-h":
         process.stdout.write(MAIN_HELP);
+        return 0;
+      case "--version":
+      case "-v":
+        process.stdout.write(`idnma ${pkg.version}\n`);
         return 0;
       default:
         return usage(command === undefined ? "idnma : une commande est requise" : `idnma : commande inconnue « ${command} »`, MAIN_HELP);
