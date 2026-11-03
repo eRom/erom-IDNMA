@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/eRom/erom-IDNMA/compare/v0.3.0...v0.4.0) (2026-11-03)
+
+
+### Features
+
+* **linux:** support Linux for Claude Code and Codex ([#6](https://github.com/eRom/erom-IDNMA/issues/6)) ([ec21fc6](https://github.com/eRom/erom-IDNMA/commit/ec21fc6d0230e9e82235471c2d22d0ddef76261c))
+
 ## [0.3.0](https://github.com/eRom/erom-IDNMA/compare/v0.2.0...v0.3.0) (2026-11-03)
 
 
