@@ -54,16 +54,37 @@ Linux is not supported yet: the bus relies on macOS process and socket primitive
 
 ## Installation
 
-Install from a release tag:
+```sh
+curl -fsSL https://erom.cloud/install_idnma.sh | bash
+```
+
+The installer checks macOS, Bun, tmux and git, clones the latest release into `~/.idnma`, installs the locked dependencies, links the `idnma` command and creates `~/.idnma.yml` from the example if it is missing. It installs no prerequisite itself: when one is missing, it says which and how to get it. Optional variables:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `IDNMA_VERSION` | latest release | tag (or commit) to install, e.g. `v0.2.0` |
+| `IDNMA_HOME` | `~/.idnma` | where the checkout lives |
+| `IDNMA_RELINK` | unset | `1` to take over an `idnma` command linked to another checkout |
 
 ```sh
-git clone https://github.com/eRom/erom-IDNMA.git ~/dev/erom-IDNMA
-cd ~/dev/erom-IDNMA
-git checkout "$(git describe --tags --abbrev=0)"   # latest release
-bun install --frozen-lockfile
-bun link                                           # puts `idnma` on your PATH
-bun scripts/install-config.ts                      # creates ~/.idnma.yml from the example
+curl -fsSL https://erom.cloud/install_idnma.sh | IDNMA_VERSION=v0.2.0 bash
 ```
+
+The source is [`scripts/install.sh`](scripts/install.sh): read it before piping it to a shell.
+
+<details>
+<summary>Manual installation</summary>
+
+```sh
+git clone https://github.com/eRom/erom-IDNMA.git ~/.idnma
+cd ~/.idnma
+git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"   # latest release
+bun install --frozen-lockfile --production
+bun link                          # puts `idnma` on your PATH
+bun scripts/install-config.ts     # creates ~/.idnma.yml from the example
+```
+
+</details>
 
 Then, once per harness:
 
@@ -89,17 +110,25 @@ Each call only touches the named agent, reports a missing harness without creati
 
 `idnma uninstall --agent <agent>` removes exactly what was installed. The `AGENTS.md` files of Codex, opencode and dst go back to their previous bytes. So does dst's `cordis.patch.yml`, as long as you did not edit around the idnma block; a file created by idnma is deleted. No permission rule is ever added anywhere.
 
-Hooks point to the checkout that ran the install: always install from the checkout linked with `bun link`, never from a throwaway worktree.
+Hooks point to the checkout that ran the install (`~/.idnma` by default): never run `idnma install` from a throwaway worktree.
 
 ### Updating
 
+Run the installer again: it moves the same checkout to the latest release, and refuses if you changed files in it.
+
 ```sh
-cd ~/dev/erom-IDNMA
-git fetch --tags
-git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"
-bun install --frozen-lockfile
+curl -fsSL https://erom.cloud/install_idnma.sh | bash
 idnma --version   # matches the release tag, without the leading v
 ```
+
+### Uninstalling
+
+```sh
+idnma uninstall --agent <agent>   # once per installed agent
+bun unlink                        # from ~/.idnma: removes the idnma command
+```
+
+Then delete `~/.idnma`, and `~/.idnma.yml` if you no longer need your configuration.
 
 Release notes live in [CHANGELOG.md](CHANGELOG.md) and on the [Releases](https://github.com/eRom/erom-IDNMA/releases) page.
 
@@ -152,6 +181,28 @@ agents:
 - `model`, `options` and `env` are optional. For opencode, `model` is written `<provider>/<model>` (optional `#<variant>`); without it, the service applies its default.
 - An `env` value of the form `$NAME` is read from your shell environment and nowhere else. Keep API keys in your shell profile (for example `~/.zshenv`), never in this file.
 - dst takes no `model`: `idnma run` refuses it. Pick the model with `/model` inside dst, which remembers it. The permission mode is set per engine: `DSH_PERMISSION_MODE=danger-full-access` (engine `full` above) lifts the macOS sandbox, and idnma then announces `from-mode="bypass"` to peers.
+
+Repeated blocks (a proxy `env`, a set of `options`) can be written once with YAML anchors, aliases and `<<` merge keys. idnma only reads `agents:`, so a top-level `presets:` key can hold them; it must come first, since an alias refers to an anchor defined above it.
+
+```yaml
+presets:
+  ollama: &ollama
+    ANTHROPIC_BASE_URL: "http://localhost:11434"
+    ANTHROPIC_AUTH_TOKEN: "ollama"
+    ANTHROPIC_API_KEY: ""
+
+agents:
+  kimi:
+    engines:
+      default:
+        harness: claude
+        model: &kimi kimi-k3:cloud[1m]
+        env:
+          <<: *ollama            # keys written next to it win
+          ANTHROPIC_MODEL: *kimi
+```
+
+A merge is shallow: merge presets into `env`, never into a whole engine, or the engine's own `env` would replace the preset's in one block.
 
 Full example: [`.idnma.example.yml`](.idnma.example.yml).
 

@@ -2,11 +2,12 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { loadAgentEngine } from "../src/config/network.ts";
+import { listAgentKeys, loadAgentEngine, readYaml } from "../src/config/network.ts";
 import { controlDir, dshHome, dstBridgeSocketPath, opencodeConfigDir, opencodeServiceFile } from "../src/paths.ts";
 import { resolveEnv } from "../src/config/secrets.ts";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "network.yml");
+const EXAMPLE = join(import.meta.dir, "..", ".idnma.example.yml");
 
 let dir: string;
 let previousConfigDir: string | undefined;
@@ -50,6 +51,53 @@ test("a broken agent does not prevent launching another one", () => {
 test("unknown agent or engine: the message lists the available choices", () => {
   expect(() => loadAgentEngine("nobody")).toThrow(/agy.*claude.*codex/);
   expect(() => loadAgentEngine("claude", "turbo")).toThrow(/default/);
+});
+
+test("presets: a `<<` merge key fills an engine env, an alias reuses options, explicit keys win", () => {
+  writeFileSync(
+    join(dir, ".idnma.yml"),
+    [
+      "presets:",
+      "  proxy: &proxy",
+      '    ANTHROPIC_BASE_URL: "http://localhost:11434"',
+      '    ANTHROPIC_API_KEY: ""',
+      "  max: &max [--effort, max]",
+      "agents:",
+      "  kimi:",
+      "    engines:",
+      "      default:",
+      "        harness: claude",
+      "        model: &kimi kimi-k3:cloud[1m]",
+      "        options: *max",
+      "        env:",
+      "          <<: *proxy",
+      '          ANTHROPIC_API_KEY: "explicit-wins"',
+      "          ANTHROPIC_MODEL: *kimi",
+      "",
+    ].join("\n"),
+  );
+  expect(loadAgentEngine("kimi").engine).toEqual({
+    harness: "claude",
+    model: "kimi-k3:cloud[1m]",
+    options: ["--effort", "max"],
+    env: {
+      ANTHROPIC_BASE_URL: "http://localhost:11434",
+      ANTHROPIC_API_KEY: "explicit-wins",
+      ANTHROPIC_MODEL: "kimi-k3:cloud[1m]",
+    },
+  });
+});
+
+test("every agent and engine of .idnma.example.yml loads", () => {
+  copyFileSync(EXAMPLE, join(dir, ".idnma.yml"));
+  const raw = readYaml(EXAMPLE, ".idnma.example.yml") as { agents: Record<string, { engines: Record<string, unknown> }> };
+  const agents = listAgentKeys();
+  expect(agents.length).toBeGreaterThan(0);
+  for (const agent of agents) {
+    for (const engine of Object.keys(raw.agents[agent]!.engines)) {
+      expect(loadAgentEngine(agent, engine).engineKey).toBe(engine);
+    }
+  }
 });
 
 test("resolveEnv: references resolve from the environment only, literals pass through", () => {
