@@ -1,6 +1,6 @@
 {
   "name": "idnma",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local coding agents (Claude Code, Codex, Grok, agy, opencode, dst) talking to each other by name over Claude Code's peer bus.",
   "license": "MIT",
   "author": "eRom",
