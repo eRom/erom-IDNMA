@@ -69,12 +69,11 @@ jobs:
           IDNMA_HOME: ${{ runner.temp }}/idnma
         run: /bin/bash scripts/install.sh
 
-  # Linux n'est pas supporté : ce job mesure l'écart sans bloquer la CI.
-  probe-linux:
-    name: Probe (Linux, informational)
+  # Linux supporté pour Claude et Codex depuis la recette du 03/11/2026 : ce job bloque la CI.
+  test-linux:
+    name: Test (Linux)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
