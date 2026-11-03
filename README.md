@@ -153,6 +153,28 @@ agents:
 - An `env` value of the form `$NAME` is read from your shell environment and nowhere else. Keep API keys in your shell profile (for example `~/.zshenv`), never in this file.
 - dst takes no `model`: `idnma run` refuses it. Pick the model with `/model` inside dst, which remembers it. The permission mode is set per engine: `DSH_PERMISSION_MODE=danger-full-access` (engine `full` above) lifts the macOS sandbox, and idnma then announces `from-mode="bypass"` to peers.
 
+Repeated blocks (a proxy `env`, a set of `options`) can be written once with YAML anchors, aliases and `<<` merge keys. idnma only reads `agents:`, so a top-level `presets:` key can hold them; it must come first, since an alias refers to an anchor defined above it.
+
+```yaml
+presets:
+  ollama: &ollama
+    ANTHROPIC_BASE_URL: "http://localhost:11434"
+    ANTHROPIC_AUTH_TOKEN: "ollama"
+    ANTHROPIC_API_KEY: ""
+
+agents:
+  kimi:
+    engines:
+      default:
+        harness: claude
+        model: &kimi kimi-k3:cloud[1m]
+        env:
+          <<: *ollama            # keys written next to it win
+          ANTHROPIC_MODEL: *kimi
+```
+
+A merge is shallow: merge presets into `env`, never into a whole engine, or the engine's own `env` would replace the preset's in one block.
+
 Full example: [`.idnma.example.yml`](.idnma.example.yml).
 
 ## Running an agent

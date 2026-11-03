@@ -38,13 +38,16 @@ const AgentSchema = z.object({
   engines: z.record(z.string(), EngineSchema),
 });
 
-/** Lit un fichier YAML. */
+/**
+ * Lit un fichier YAML. Les clés de fusion `<<` sont actives (désactivées par défaut en YAML 1.2) :
+ * un gabarit d'env commun (Ollama, OpenRouter) s'écrit une fois et se fusionne dans chaque engine.
+ */
 export function readYaml(path: string, name: string): unknown {
   if (!existsSync(path)) {
     throw new ConfigError(`${name} introuvable : ${path}.`);
   }
   try {
-    return parse(readFileSync(path, "utf-8"));
+    return parse(readFileSync(path, "utf-8"), { merge: true });
   } catch (e) {
     throw new ConfigError(`${name} invalide (${path}) : ${e instanceof Error ? e.message : e}`);
   }

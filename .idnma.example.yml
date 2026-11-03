@@ -1,3 +1,22 @@
+# Gabarits partagés : un bloc nommé par une ancre (&nom) se reprend par alias (*nom) ;
+# dans un env, la clé de fusion `<<` l'injecte et les clés écrites à côté l'emportent.
+# Seule la section agents: est lue : presets: ne fait que porter les ancres, et doit la précéder.
+# Attention, la fusion est superficielle : garder les gabarits au niveau d'env, jamais d'un engine
+# entier, sinon l'env propre de l'agent remplacerait celui du gabarit en bloc.
+presets:
+  ollama: &ollama
+    ANTHROPIC_BASE_URL: "http://localhost:11434"
+    ANTHROPIC_AUTH_TOKEN: "ollama"
+    ANTHROPIC_API_KEY: ""
+  openrouter: &openrouter
+    ANTHROPIC_BASE_URL: "https://openrouter.ai/api"
+    ANTHROPIC_AUTH_TOKEN: "$OPENROUTER_API_KEY" # résolu depuis l'environnement
+    ANTHROPIC_API_KEY: ""
+  claude-max: &claude-max
+    - --effort
+    - max
+    - --dangerously-skip-permissions
+
 agents:
   claude:
     label: Claude Agent
@@ -19,20 +38,15 @@ agents:
     engines:
       default:
         harness: claude
-        model: glm-5.3-flash:cloud[1m]
-        options:
-          - --effort
-          - max
-          - --dangerously-skip-permissions
+        model: &glm-flash glm-5.3-flash:cloud[1m]
+        options: *claude-max
         env:
-          ANTHROPIC_BASE_URL: "http://localhost:11434"
-          ANTHROPIC_AUTH_TOKEN: "ollama" # résolu depuis l'environnement
-          ANTHROPIC_API_KEY: ""
-          ANTHROPIC_MODEL: "glm-5.3-flash:cloud[1m]"
-          ANTHROPIC_DEFAULT_FABLE_MODEL: "glm-5.3:cloud[1m]"
-          ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-5.3:cloud[1m]"
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "glm-5.3-flash:cloud[1m]"
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "glm-5.3-flash:cloud[1m]"
+          <<: *ollama
+          ANTHROPIC_MODEL: *glm-flash
+          ANTHROPIC_DEFAULT_FABLE_MODEL: &glm glm-5.3:cloud[1m]
+          ANTHROPIC_DEFAULT_OPUS_MODEL: *glm
+          ANTHROPIC_DEFAULT_SONNET_MODEL: *glm-flash
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: *glm-flash
           CLAUDE_CODE_EFFORT_LEVEL: "max"
   deepseek:
     label: Deepseek Agent
@@ -41,20 +55,15 @@ agents:
     engines:
       default:
         harness: claude
-        model: deepseek-v4.1-flash:cloud[1m]
-        options:
-          - --effort
-          - max
-          - --dangerously-skip-permissions
+        model: &deepseek-flash deepseek-v4.1-flash:cloud[1m]
+        options: *claude-max
         env:
-          ANTHROPIC_BASE_URL: "http://localhost:11434"
-          ANTHROPIC_AUTH_TOKEN: "ollama" # résolu depuis l'environnement
-          ANTHROPIC_API_KEY: ""
-          ANTHROPIC_MODEL: "deepseek-v4.1-flash:cloud[1m]"
+          <<: *ollama
+          ANTHROPIC_MODEL: *deepseek-flash
           ANTHROPIC_DEFAULT_FABLE_MODEL: "deepseek-v4-pro:cloud[1m]"
-          ANTHROPIC_DEFAULT_OPUS_MODEL: "deepseek-v4.1-flash:cloud[1m]"
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "deepseek-v4.1-flash:cloud[1m]"
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "deepseek-v4.1-flash:cloud[1m]"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: *deepseek-flash
+          ANTHROPIC_DEFAULT_SONNET_MODEL: *deepseek-flash
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: *deepseek-flash
           CLAUDE_CODE_AUTO_COMPACT_WINDOW: "786432"
   qwen:
     label: QWEN Agent
@@ -63,20 +72,15 @@ agents:
     engines:
       default:
         harness: claude
-        model: qwen/qwen3.8-flash[1m]
-        options:
-          - --effort
-          - max
-          - --dangerously-skip-permissions
+        model: &qwen-flash qwen/qwen3.8-flash[1m]
+        options: *claude-max
         env:
-          ANTHROPIC_BASE_URL: "https://openrouter.ai/api"
-          ANTHROPIC_AUTH_TOKEN: "$OPENROUTER_API_KEY"
-          ANTHROPIC_API_KEY: ""
-          ANTHROPIC_MODEL: "qwen/qwen3.8-flash[1m]"
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "qwen/qwen3.8-flash[1m]"
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "qwen/qwen3.8-flash[1m]"
-          ANTHROPIC_DEFAULT_OPUS_MODEL: "qwen/qwen3.8-max-0902[1m]"
-          ANTHROPIC_DEFAULT_FABLE_MODEL: "qwen/qwen3.8-max-0902[1m]"
+          <<: *openrouter
+          ANTHROPIC_MODEL: *qwen-flash
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: *qwen-flash
+          ANTHROPIC_DEFAULT_SONNET_MODEL: *qwen-flash
+          ANTHROPIC_DEFAULT_OPUS_MODEL: &qwen-max qwen/qwen3.8-max-0902[1m]
+          ANTHROPIC_DEFAULT_FABLE_MODEL: *qwen-max
   kimi:
     label: Kimi Agent
     info: K3
@@ -84,20 +88,15 @@ agents:
     engines:
       default:
         harness: claude
-        model: kimi-k3:cloud[1m]
-        options:
-          - --effort
-          - max
-          - --dangerously-skip-permissions
+        model: &kimi kimi-k3:cloud[1m]
+        options: *claude-max
         env:
-          ANTHROPIC_BASE_URL: "http://localhost:11434"
-          ANTHROPIC_AUTH_TOKEN: "ollama" # résolu depuis l'environnement
-          ANTHROPIC_API_KEY: ""
-          ANTHROPIC_MODEL: "kimi-k3:cloud[1m]"
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "kimi-k3:cloud[1m]"
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "kimi-k3:cloud[1m]"
-          ANTHROPIC_DEFAULT_OPUS_MODEL: "kimi-k3:cloud[1m]"
-          ANTHROPIC_DEFAULT_FABLE_MODEL: "kimi-k3:cloud[1m]"
+          <<: *ollama
+          ANTHROPIC_MODEL: *kimi
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: *kimi
+          ANTHROPIC_DEFAULT_SONNET_MODEL: *kimi
+          ANTHROPIC_DEFAULT_OPUS_MODEL: *kimi
+          ANTHROPIC_DEFAULT_FABLE_MODEL: *kimi
   muse:
     label: Muse Spark Agent
     info: Spark 1.3
@@ -105,20 +104,15 @@ agents:
     engines:
       default:
         harness: claude
-        model: meta/muse-spark-1.3[1m]
-        options:
-          - --effort
-          - max
-          - --dangerously-skip-permissions
+        model: &muse meta/muse-spark-1.3[1m]
+        options: *claude-max
         env:
-          ANTHROPIC_BASE_URL: "https://openrouter.ai/api"
-          ANTHROPIC_AUTH_TOKEN: "$OPENROUTER_API_KEY"
-          ANTHROPIC_API_KEY: ""
-          ANTHROPIC_MODEL: "meta/muse-spark-1.3[1m]"
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "meta/muse-spark-1.3[1m]"
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "meta/muse-spark-1.3[1m]"
-          ANTHROPIC_DEFAULT_OPUS_MODEL: "meta/muse-spark-1.3[1m]"
-          ANTHROPIC_DEFAULT_FABLE_MODEL: "meta/muse-spark-1.3[1m]"
+          <<: *openrouter
+          ANTHROPIC_MODEL: *muse
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: *muse
+          ANTHROPIC_DEFAULT_SONNET_MODEL: *muse
+          ANTHROPIC_DEFAULT_OPUS_MODEL: *muse
+          ANTHROPIC_DEFAULT_FABLE_MODEL: *muse
   grok:
     label: Grok Agent
     info: 4.7
