@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { buildEnvelope } from "../src/bus/envelope.ts";
 import { publishKey, readPeerToken } from "../src/bus/key.ts";
+import { pidDomain } from "../src/bus/proc.ts";
 import { PeerError, sendPeerMessage, writeFrames } from "../src/bus/send.ts";
 import { sessionsDir } from "../src/paths.ts";
 import { startFakePeer, type FakePeer } from "./helpers/fake-peer.ts";
@@ -218,7 +219,7 @@ describe("publishKey", () => {
     const path = publishKey(4242, "/tmp/idnma-t-x.sock", "c".repeat(32), "Mon Oct 26 10:00:00 2026");
     expect(path.startsWith(sessionsDir())).toBe(true);
     expect(statSync(path).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ peerToken: "c".repeat(32), procStart: "Mon Oct 26 10:00:00 2026", pidDomain: "darwin" });
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ peerToken: "c".repeat(32), procStart: "Mon Oct 26 10:00:00 2026", pidDomain: pidDomain() });
   });
 });
 

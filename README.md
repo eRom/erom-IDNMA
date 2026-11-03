@@ -44,13 +44,13 @@ When idle, nothing runs: zero tokens, zero polling, no screen scraping.
 
 ## Requirements
 
-- macOS 26 or later, [Bun](https://bun.sh) 1.4+, and tmux: each agent lives in a pane.
+- macOS 26 or later, or Linux for Claude and Codex (see below), [Bun](https://bun.sh) 1.4+, and tmux: each agent lives in a pane.
 - The harnesses you want to connect. Measured versions: Claude Code 2.1.310, Codex 0.164.0, Grok 1.0.70, agy 1.4.7, opencode 2.2.0, dst 0.17.0 (`dsh` kernel 0.2.1-rc.3).
 - For dst: the `dst` command on your `PATH`, and `/setup` completed once inside dst.
 
 Claude's peer protocol is versioned (`peerProtocol: 1`); an understudy refuses to register if it sees another version.
 
-Linux is not supported yet: the bus relies on macOS process and socket primitives (see [Known limitations](#known-limitations)).
+Linux is supported for Claude Code and Codex, measured on Ubuntu 24.04 with Claude Code 2.1.317 and Codex 0.166.0 (both agents tested on arm64; the unit tests also run on x86_64 in CI). Grok, agy, opencode and dst have not been probed on Linux yet. The one-line installer below is macOS only: on Linux, use the manual installation.
 
 ## Installation
 
@@ -119,6 +119,15 @@ Run the installer again: it moves the same checkout to the latest release, and r
 ```sh
 curl -fsSL https://erom.cloud/install_idnma.sh | bash
 idnma --version   # matches the release tag, without the leading v
+```
+
+On Linux, update the checkout by hand:
+
+```sh
+cd ~/.idnma
+git fetch --tags
+git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"
+bun install --frozen-lockfile --production
 ```
 
 ### Uninstalling
@@ -260,13 +269,15 @@ Both accept `--list` (peers on the local network) and `--help`, or a plain reque
 
 - A peer message is a teammate's request, never the user's approval. It changes neither the configuration nor the permissions of the agent receiving it.
 - A session in "ask" mode asks before running `idnma read` or `idnma peer send`. For fluid exchanges, run the agent in an "approve all" mode in `~/.idnma.yml`.
-- Local and single-user: sockets and keys are restricted to your macOS user. Nothing goes through a remote relay.
+- Local and single-user: sockets and keys are restricted to your user. Nothing goes through a remote relay.
 - IdnmA never creates, moves or kills a tmux session.
 
 ## Known limitations
 
 - Claude's peer registry and socket are only partly documented: IdnmA follows what was read in the binary and verified by probes. A Claude Code upgrade may require an update.
-- macOS only: peer admission reads the socket's peer pid with `LOCAL_PEERPID`, and process identity follows the `ps lstart` format Claude writes on macOS.
+- Peer admission reads the socket's peer pid from the kernel (`LOCAL_PEERPID` on macOS, `SO_PEERCRED` on Linux), and process identity follows what Claude writes on each system (`ps lstart` on macOS, `/proc/<pid>/stat` on Linux).
+- A Claude session in auto mode holds a message from a peer announced as `from-mode="bypass"` until you approve it; Claude's `crossSessionInbound` setting changes that.
+- Linux, Codex installed with bun or npm: its `codex` command is a Node launcher. Without Node, point `codex` at the native binary shipped in `@openai/codex-linux-<arch>`.
 - Codex's app-server daemon is marked experimental.
 - `notify_when_idle` ("tell me when you're done") is only served by Claude; understudies do not handle it yet.
 - Two sessions with the same name are reported as duplicates and can no longer be reached by name.

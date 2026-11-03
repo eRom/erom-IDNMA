@@ -225,7 +225,11 @@ export async function runUnderstudy(o: {
       const signalNumber = typeof signal === "number" ? signal : signal ? (constants.signals[signal] ?? 0) : 0;
       return code ?? 128 + signalNumber;
     });
-    const code = await Promise.race([exited, signalExit]);
+    let childExited = false;
+    const code = await Promise.race([exited.then((value) => ((childExited = true), value)), signalExit]);
+    // Sortie de l'enfant : son dernier bloc de sortie peut encore être en route dans le PTY (Linux).
+    // Sur un signal, l'enfant vit peut-être encore : pas d'attente.
+    if (childExited) await ptyChild?.settle();
     await sayFarewell();
     return code;
   } finally {

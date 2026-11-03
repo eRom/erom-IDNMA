@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unl
 import { join } from "node:path";
 import type { InboundMessage } from "../src/bus/inbox.ts";
 import { keyFileName } from "../src/bus/key.ts";
-import { procStart } from "../src/bus/proc.ts";
+import { pidDomain, procStart } from "../src/bus/proc.ts";
 import { listLiveEntries, type SessionEntry } from "../src/bus/registry.ts";
 import { claudeVersion, ProtocolMismatchError, registerPeer, type Registration } from "../src/bus/register.ts";
 import { sendPeerMessage } from "../src/bus/send.ts";
@@ -11,6 +11,8 @@ import { sessionsDir, socketsDir } from "../src/paths.ts";
 import { startFakePeer, type FakePeer } from "./helpers/fake-peer.ts";
 
 const ENV_KEYS = ["IDNMA_CLAUDE_DIR", "IDNMA_SOCKETS_DIR", "IDNMA_CONFIG_DIR"] as const;
+// Retrait d'un dossier non vide par `unlink` : macOS répond EPERM, Linux EISDIR.
+const UNLINK_DIR_CODE = process.platform === "darwin" ? "EPERM" : "EISDIR";
 let previousEnv: Record<string, string | undefined>;
 let tempDirs: string[];
 let registrations: Registration[];
@@ -71,7 +73,7 @@ describe("registerPeer", () => {
       peerFeatures: [],
       kind: "interactive",
       entrypoint: "cli",
-      pidDomain: "darwin",
+      pidDomain: pidDomain(),
       messagingSocketPath: join(socketsDir(), `${process.pid}.sock`),
       name: "codex-janus",
       nameSource: "user",
@@ -179,7 +181,7 @@ describe("registerPeer", () => {
     const registration = await register("codex-janus");
     const entryPath = join(sessionsDir(), `${process.pid}.json`);
     const keyPath = join(sessionsDir(), keyFileName(process.pid, registration.socketPath));
-    // Un dossier non vide à la place de l'entrée : son retrait échoue (EPERM), la clé reste retirable.
+    // Un dossier non vide à la place de l'entrée : son retrait échoue (UNLINK_DIR_CODE), la clé reste retirable.
     unlinkSync(entryPath);
     mkdirSync(join(entryPath, "occupied"), { recursive: true });
     let error: unknown;
@@ -188,7 +190,7 @@ describe("registerPeer", () => {
     } catch (caught) {
       error = caught;
     }
-    expect((error as NodeJS.ErrnoException).code).toBe("EPERM");
+    expect((error as NodeJS.ErrnoException).code).toBe(UNLINK_DIR_CODE);
     expect((error as Error).message).toContain(`${process.pid}.json`);
     // Les étapes suivantes ont tourné malgré l'échec : clé et socket retirés.
     expect(existsSync(keyPath)).toBe(false);
@@ -199,7 +201,7 @@ describe("registerPeer", () => {
 
   test("a failed registration rethrows the original error, not the rollback one, and rolls back the key and socket", async () => {
     // Un dossier à la place de <pid>.json : le renommage final échoue (EISDIR), puis le retrait de
-    // l'entrée échoue aussi (EPERM) pendant le rollback.
+    // l'entrée échoue aussi (UNLINK_DIR_CODE) pendant le rollback.
     mkdirSync(join(sessionsDir(), `${process.pid}.json`, "occupied"), { recursive: true });
     const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
     let error: unknown;
@@ -214,7 +216,7 @@ describe("registerPeer", () => {
     expect(existsSync(join(socketsDir(), `${process.pid}.sock`))).toBe(false);
     expect(existsSync(join(sessionsDir(), keyFileName(process.pid, join(socketsDir(), `${process.pid}.sock`))))).toBe(false);
     expect(written).toContain("nettoyage incomplet");
-    expect(written).toContain("EPERM");
+    expect(written).toContain(UNLINK_DIR_CODE);
   });
 });
 

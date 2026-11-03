@@ -41,6 +41,17 @@ describe("spawnUnderPty", () => {
     }
   });
 
+  childTest("settle keeps the last output of an exited child when the PTY is released right after", async () => {
+    // Sous Linux, ce dernier bloc arrive après `exited` : fermer aussitôt le PTY le perdait.
+    const streams = fakeStreams();
+    const child = spawnUnderPty({ argv: READ_LINE, env: { PATH: process.env.PATH ?? "" }, stdin: streams.stdin, stdout: streams.stdout });
+    child.terminal.write("bye\r");
+    expect(await child.process.exited).toBe(0);
+    await child.settle();
+    child.release();
+    await waitFor(() => streams.output().includes("got:bye"), "last output kept");
+  });
+
   childTest("terminal writes reach the child", async () => {
     const streams = fakeStreams();
     const child = spawnUnderPty({ argv: READ_LINE, env: { PATH: process.env.PATH ?? "" }, stdin: streams.stdin, stdout: streams.stdout });
