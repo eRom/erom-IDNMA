@@ -1,9 +1,13 @@
 # IdnmA
 
-[![CI](https://github.com/eRom/erom-IDNMA/actions/workflows/ci.yml/badge.svg)](https://github.com/eRom/erom-IDNMA/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
 ![erom-idnma](idnma.png)
+
+<p align="center">
+  <a href="https://github.com/eRom/erom-IDNMA/releases/latest"><img alt="Dernière version" src="https://img.shields.io/github/v/release/eRom/erom-IDNMA?include_prereleases&label=version&color=4c8bf5"></a>
+  <img alt="macOS 26 et plus, Apple Silicon" src="https://img.shields.io/badge/macOS-Silicon-111111?logo=apple">
+  <img alt="Linux arm64" src="https://img.shields.io/badge/Linux-arm64-E95420?logo=linux&logoColor=yellow">
+  <a href="LICENSE"><img alt="Licence MIT" src="https://img.shields.io/badge/licence-MIT-2ea44f"></a>
+</p>
 
 **Integrated Development Network Multi Agents.** Local coding agents that talk to each other by name, whatever harness they run in: Claude Code, Codex, Grok, agy (Antigravity), opencode or dst (DeepSeek Harness TUI).
 
