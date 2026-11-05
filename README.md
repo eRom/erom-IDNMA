@@ -64,7 +64,7 @@ Linux is supported for Claude Code and Codex, measured on Ubuntu 24.04 with Clau
 curl -fsSL https://erom.cloud/install_idnma.sh | bash
 ```
 
-The installer checks macOS, Bun, tmux and git, clones the latest release into `~/.idnma`, installs the locked dependencies and links the `idnma` command. It never creates or touches `~/.idnma.yml`: you write it with `idnma configure` (see [Configuration](#configuration)). It installs no prerequisite itself: when one is missing, it says which and how to get it. Optional variables:
+The installer checks macOS, Bun, tmux and git, clones the latest release into `~/.idnma`, installs the locked dependencies and links the `idnma` command. It never creates or touches `~/.idnma.yml`: you write it with `idnma configure` (see [Configure your agents](#configure-your-agents)). It installs no prerequisite itself: when one is missing, it says which and how to get it. Optional variables:
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -87,7 +87,7 @@ cd ~/.idnma
 git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"   # latest release
 bun install --frozen-lockfile --production
 bun link                          # puts `idnma` on your PATH
-idnma configure                  # creates ~/.idnma.yml
+idnma configure                   # writes ~/.idnma.yml on Save
 ```
 
 </details>

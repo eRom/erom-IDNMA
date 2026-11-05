@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: implemented
 date: 2026-11-05
 ---
 
@@ -84,7 +84,7 @@ Maquette de référence : `commands.html` (deux états : un agent, un provider).
 
 ## 6. Validation
 
-**Une seule source de règles.** Aujourd'hui, le schéma est dans `src/config/network.ts` (`EngineSchema` strict, `AgentSchema`) mais quatre règles ne vivent que dans `runAgent` (`src/run/run.ts:322-341`) : flags qui sortent Codex de son serveur partagé (`CODEX_EMBEDDED_FLAGS`), flags refusés par opencode (`parseOpencodeArgv(...).refused`), `model` en `<fournisseur>/<modèle>` pour opencode (`parseModelRef`, `run.ts:236`), pas de `model` ni d'option refusée pour dst (`DST_MODEL_REASON`, `dstRefusal`). Ces contrôles qui ne dépendent que de l'engine sont extraits dans un module pur de `src/config/` (par exemple `engineIssues(engine)`), appelé par `runAgent` pour le contenu du fichier et par l'app ; les contrôles des arguments tapés (`a.passthrough`) restent dans `runAgent`. Le périmètre est **tout** contrôle de `runAgent` et de `prepareOpencode` qui ne lit que l'engine, avec ses priorités exactes : pour opencode, un `-m` dans les options l'emporte sur `model:` (`parsed.model ?? engine.model`), un `-s` ou un `-m` mal formé est refusé. Ce qui dépend du disque, du réseau ou du service (dossier positionnel d'opencode, présence du plugin dst, modèle connu du service) reste hors du module. Les classes d'erreur (`ConfigError`, `UsageError`) et les messages actuels sont conservés : `tests/run.test.ts` passe sans modification. Critère : un fichier que l'app dit valide est accepté par `loadAgentEngine` et par ces contrôles pour chacun de ses engines, et réciproquement.
+**Une seule source de règles.** Aujourd'hui, le schéma est dans `src/config/network.ts` (`EngineSchema` strict, `AgentSchema`) mais quatre règles ne vivent que dans `runAgent` (aujourd'hui `engineIssues` et `opencodeArgvIssues` de `src/config/engine-rules.ts`) : flags qui sortent Codex de son serveur partagé (`CODEX_EMBEDDED_FLAGS`), flags refusés par opencode (`parseOpencodeArgv(...).refused`), `model` en `<fournisseur>/<modèle>` pour opencode (`parseModelRef`, contrôlé par `engineIssues`), pas de `model` ni d'option refusée pour dst (`DST_MODEL_REASON`, `dstRefusal`). Ces contrôles qui ne dépendent que de l'engine sont extraits dans un module pur de `src/config/` (par exemple `engineIssues(engine)`), appelé par `runAgent` pour le contenu du fichier et par l'app ; les contrôles des arguments tapés (`a.passthrough`) restent dans `runAgent`. Le périmètre est **tout** contrôle de `runAgent` et de `prepareOpencode` qui ne lit que l'engine, avec ses priorités exactes : pour opencode, un `-m` dans les options l'emporte sur `model:` (`parsed.model ?? engine.model`), un `-s` ou un `-m` mal formé est refusé. Ce qui dépend du disque, du réseau ou du service (dossier positionnel d'opencode, présence du plugin dst, modèle connu du service) reste hors du module. Les classes d'erreur (`ConfigError`, `UsageError`) et les messages actuels sont conservés : `tests/run.test.ts` passe sans modification. Critère : un fichier que l'app dit valide est accepté par `loadAgentEngine` et par ces contrôles pour chacun de ses engines, et réciproquement.
 
 **Règles propres à l'app** (en plus) : `label` présent et non vide ; clé d'agent non vide, unique, de forme `[A-Za-z0-9._-]+` et ne commençant pas par `-` (elle se tape en argument) ; nom d'engine de même forme, unique dans l'agent ; valeurs d'env et d'options en texte (un nombre YAML comme `0` est une erreur, correction proposée « Quote it ») ; tout alias pointe vers une ancre existante. Avertissement, non bloquant : deux agents portent le même `label`.
 
@@ -109,7 +109,7 @@ Maquette de référence : `commands.html` (deux états : un agent, un provider).
 
 - `Bun.serve` sur `127.0.0.1`, port libre choisi par le système.
 - Jeton aléatoire de 32 octets dans l'URL imprimée. *(Écart assumé à la tâche 1 du plan.)* Pas de cookie : le jeton passe par l'en-tête `x-idnma-token` (et `?token=` pour le flux SSE), la page le garde en `sessionStorage` pour survivre à un rechargement. La page et ses fichiers statiques ne portent aucune donnée et ne sont pas gardés par le jeton ; toutes les routes `/api/` le sont (403 sans jeton valide).
-- En-tête `Host` restreint à `127.0.0.1:<port>` et `localhost:<port>` (rebinding DNS) ; requête modifiante dont l'`Origin` n'est pas celle de la page : 403. Pas de CORS.
+- En-tête `Host` restreint à `127.0.0.1:<port>` et `localhost:<port>` (rebinding DNS) ; requête modifiante dont l'`Origin` n'est pas celle de la page : 403. Pas de CORS. Ces gardes (jeton, `Host`, `Origin`) s'appliquent aux routes `/api/` ; la page et ses fichiers statiques ne portent aucune donnée et sont servis sans garde.
 - API minimale : lire le fichier (texte et empreinte), écrire (texte et empreinte de base). Le serveur ne lit jamais l'environnement pour le renvoyer, ne lit aucun fichier d'env, ne lance aucun processus hormis l'ouverture du navigateur.
 - Cycle de vie : la page garde une connexion ouverte (SSE ou WebSocket) ; quand plus aucune page n'est connectée pendant 10 secondes (marge pour un rechargement), le serveur s'arrête ; Ctrl-C l'arrête aussitôt. Modifications non sauvées à la fermeture de l'onglet : demande de confirmation native du navigateur (`beforeunload`).
 
@@ -180,7 +180,7 @@ Découpage des modules et noms exacts ; forme de l'API HTTP ; SSE ou WebSocket ;
 
 **AC-9 - Modification concurrente.** Quand le fichier change sur le disque après l'ouverture de la page, alors Save refuse, le fichier garde le contenu écrit à la main, et la page propose Reload. *Vérifié par* : test (écriture externe entre lecture et Save) ; recette à la main.
 
-**AC-10 - Origine et jeton.** Quand une requête arrive sans jeton valide (en-tête `x-idnma-token`, ou `?token=` pour le flux), avec un `Host` autre que `127.0.0.1:<port>` ou `localhost:<port>`, ou avec une `Origin` étrangère sur une route modifiante, alors le serveur répond 403 et n'écrit rien. *Vérifié par* : tests HTTP sur le serveur démarré ; `curl -H 'Host: evil.test'` en recette.
+**AC-10 - Origine et jeton.** Quand une requête vers `/api/` arrive sans jeton valide (en-tête `x-idnma-token`, ou `?token=` pour le flux), avec un `Host` autre que `127.0.0.1:<port>` ou `localhost:<port>`, ou avec une `Origin` étrangère sur une route modifiante, alors le serveur répond 403 et n'écrit rien. *Vérifié par* : tests HTTP sur le serveur démarré ; `curl -H 'Host: evil.test'` en recette.
 
 **AC-11 - Arrêt.** Quand on ferme le dernier onglet, alors le serveur s'arrête en moins de 15 secondes et libère son port ; Ctrl-C l'arrête aussitôt. *Vérifié par* : test du cycle de vie (connexion fermée, délai) ; `lsof` après fermeture en recette.
 

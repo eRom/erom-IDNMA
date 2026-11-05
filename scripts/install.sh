@@ -3,8 +3,9 @@
 #
 # Clone la dernière release dans ~/.idnma (ou $IDNMA_HOME), installe les dépendances figées,
 # rend la commande `idnma` disponible par `bun link`. Il ne crée ni ne touche ~/.idnma.yml :
-# `idnma configure` s'en charge. Relancé, il met à jour le même checkout vers la dernière release. Il n'installe aucun
-# prérequis lui-même : il dit lequel manque et la commande pour l'installer.
+# `idnma configure` s'en charge. Relancé, il met à jour le même checkout vers la dernière
+# release. Il n'installe aucun prérequis lui-même : il dit lequel manque et la commande pour
+# l'installer.
 #
 # Variables :
 #   IDNMA_VERSION  tag (ou commit) à installer ; défaut : la dernière release
