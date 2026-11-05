@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/eRom/erom-IDNMA/compare/v0.4.0...v0.5.0) (2026-11-05)
+
+
+### Features
+
+* **config:** fill missing model tier vars from model: for proxied claude engines ([3fb29b2](https://github.com/eRom/erom-IDNMA/commit/3fb29b2c8f94edae0e6e95ade4c41cbe155be087))
+
 ## [0.4.0](https://github.com/eRom/erom-IDNMA/compare/v0.3.0...v0.4.0) (2026-11-03)
 
 
