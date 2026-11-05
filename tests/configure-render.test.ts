@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { ConfigDocument } from "../src/configure/document.ts";
 import { escapeHtml, renderApp, type UiState } from "../src/configure/page/render.ts";
@@ -176,13 +177,51 @@ describe("configure render", () => {
 
   test("save and revert follow the dirty flag, with one primary action", () => {
     const clean = renderApp(viewOf(romain, false), agentsTab());
-    const dirty = renderApp(viewOf(romain, true), agentsTab());
+    const doc = ConfigDocument.parse(romain);
+    doc.apply({ op: "setAgentField", key: "opus", field: "label", value: "Opus 2" });
+    const dirty = renderApp(buildView(doc, "/tmp/.idnma.yml", true), agentsTab());
     expect(clean).toMatch(/data-action="save"[^>]*disabled/);
     expect(clean).toMatch(/data-action="revert"[^>]*disabled/);
     expect(dirty).not.toMatch(/data-action="save"[^>]*disabled/);
     expect(dirty).not.toMatch(/data-action="revert"[^>]*disabled/);
     expect(dirty.match(/btn pri/g)?.length).toBe(1);
     expect(dirty).toContain("⌘S");
+  });
+
+  test("Revert stays disabled on an untouched new file, whose Create is enabled", () => {
+    const html = renderApp(viewOf(undefined, true), agentsTab());
+    expect(html).toMatch(/data-action="revert"[^>]*disabled/);
+    expect(html).not.toMatch(/data-action="save"[^>]*disabled/);
+  });
+
+  test("shows the display path, with ~ for the home directory, in the toolbar", () => {
+    const view = buildView(ConfigDocument.parse(romain), join(homedir(), ".idnma.yml"), false);
+    const html = renderApp(view, agentsTab());
+    expect(html).toContain('<span class="path">~/.idnma.yml</span>');
+    expect(html).not.toContain(homedir());
+  });
+
+  test("gives a file without agent a first-agent screen with its own primary action", () => {
+    const html = renderApp(viewOf(undefined, true), agentsTab());
+    expect(textOf(html)).toContain("Add your first agent");
+    expect(textOf(html)).toContain("An agent is a model: give it a key, then choose how it runs.");
+    expect(html).not.toContain("No agents yet");
+    const form = html.slice(html.indexOf('<form class="addrow first"'), html.indexOf("</form>"));
+    expect(form).toContain('data-add="addAgent"');
+    for (const id of ["add:key", "add:label", "add:harness"]) expect(form).toContain(`id="${id}"`);
+    expect(form).toContain('class="btn pri">Add agent</button>');
+    // Une seule ligne de création d'agent à l'écran, même si la barre latérale en demande une.
+    const asked = renderApp(viewOf(undefined, true), { ...agentsTab(), adding: { action: "addAgent" } });
+    expect(asked.split('data-add="addAgent"').length).toBe(2);
+    expect(asked.split(' id="add:key"').length).toBe(2);
+    // Avec des agents, l'écran d'accueil n'apparaît pas.
+    expect(textOf(renderApp(viewOf(romain), agentsTab()))).not.toContain("Add your first agent");
+  });
+
+  test("gives the Harness select the same chevron as the menu triggers", () => {
+    const html = renderApp(viewOf(romain), agentsTab("deepseek-flash"));
+    const selects = [...html.matchAll(/<span class="sel"><select[^>]*>.*?<\/select><span class="cv" aria-hidden="true">⌄<\/span><\/span>/g)];
+    expect(selects.length).toBe(3);
   });
 
   test("parse error screen", () => {

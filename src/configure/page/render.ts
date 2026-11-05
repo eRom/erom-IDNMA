@@ -33,7 +33,9 @@
  *      sans nom ni clé, la page doit les demander à l'utilisateur avant d'envoyer l'opération. La page
  *      pose `UiState.adding` (même action, mêmes `data-*`) : le bouton est alors remplacé par un
  *      `<form class="addrow" data-add="<action>" …>` dont les champs ont les ids `add:key|label|name|harness|option` ;
- *      son `submit` fournit les noms, `cancelAdd` (bouton Cancel) l'abandonne.
+ *      son `submit` fournit les noms, `cancelAdd` (bouton Cancel) l'abandonne. Le formulaire d'agent a une clé, un label et un
+ *      harnais ; la page envoie `addAgent` puis `addEngine` (`default`). Un fichier sans agent montre ce même formulaire
+ *      comme écran d'accueil (`form.addrow.first`, son bouton `Add agent` est l'action primaire du panneau).
  *    - `duplicateAgent`, `deleteAgent`, `deleteEngine`, `makeDefault`, `removeMerge`, `deletePreset` :
  *      boutons, paramètres en `data-*`.
  *
@@ -47,7 +49,7 @@
  *    - `quote` : bouton « Quote it », `data-path` = chemin de la valeur à passer en texte, à envoyer en
  *      `quoteValue`.
  *    - `addEnvVar` (`data-agent`, `data-engine`), `addPresetVar` (`data-preset`) : ajoutent une variable,
- *      le nom est à demander (ligne de saisie ci-dessus) puis envoyé en `setEnvVar` / `setPresetVar`. Sans
+ *      le nom est à demander (ligne de saisie ci-dessus) puis envoyé en `setEnvVar` / `setPresetVar` avec `create: true`. Sans
  *      variable propre, l'engine n'affiche que ce bouton (section Env repliée).
  *    - `addOption` (ligne de saisie), `removeOption`, `moveOption` (`data-preset`, `data-index`, `data-dir`) :
  *      sur un option set ; calculer le nouveau tableau et envoyer `setPresetOptions`.
@@ -155,6 +157,11 @@ function buttonHtml(label: string, classes: string, attrs: DataAttrs, disabled =
   return `<button type="button" class="${classes}"${data(attrs)}${ariaLabel ? ` aria-label="${esc(ariaLabel)}"` : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
 }
 
+/** Un `<select>` natif avec le même chevron que les déclencheurs de menu (le chevron n'intercepte pas le clic). */
+function selectHtml(select: string): string {
+  return `<span class="sel">${select}<span class="cv" aria-hidden="true">⌄</span></span>`;
+}
+
 // --- Création en cours ----------------------------------------------------------------------------
 
 function sameAdding(current: AddingState | undefined, target: AddingState): boolean {
@@ -169,18 +176,20 @@ function sameAdding(current: AddingState | undefined, target: AddingState): bool
 }
 
 /** Ligne de saisie d'un nom (et de ce que l'opération exige en plus) ; `app.ts` l'envoie au `submit`. */
-function addForm(target: AddingState): string {
+function addForm(target: AddingState, firstAgent = false): string {
   const text = (id: string, label: string, placeholder: string): string => inputHtml({ id: `add:${id}`, value: "", label, placeholder, mono: true });
+  const harness = (): string => {
+    const options = HARNESS_NAMES.map((h) => `<option value="${h}">${h}</option>`).join("");
+    return selectHtml(`<select class="pop" id="add:harness" data-focus-id="add:harness" aria-label="Harness">${options}</select>`);
+  };
   let inputs: string;
   switch (target.action) {
     case "addAgent":
-      inputs = text("key", "Agent key", "Key") + text("label", "Agent label", "Label");
+      inputs = text("key", "Agent key", "Key") + text("label", "Agent label", "Label") + harness();
       break;
-    case "addEngine": {
-      const harness = HARNESS_NAMES.map((h) => `<option value="${h}">${h}</option>`).join("");
-      inputs = text("name", "Engine name", "Engine name") + `<select class="pop" id="add:harness" data-focus-id="add:harness" aria-label="Harness">${harness}</select>`;
+    case "addEngine":
+      inputs = text("name", "Engine name", "Engine name") + harness();
       break;
-    }
     case "addPreset":
       inputs = text("name", target.kind === "options" ? "Option set name" : "Provider name", "Name");
       break;
@@ -191,6 +200,8 @@ function addForm(target: AddingState): string {
       inputs = text("name", "Variable name", "NAME");
   }
   const attrs = data({ add: target.action, agent: target.agent, engine: target.engine, preset: target.preset, kind: target.kind });
+  // Premier agent d'un fichier : le formulaire est la page, son bouton est l'action du panneau.
+  if (firstAgent) return `<form class="addrow first"${attrs} novalidate>${inputs}<button type="submit" class="btn pri">Add agent</button></form>`;
   return `<form class="addrow"${attrs} novalidate>${inputs}<button type="submit" class="btn pill sm">Add</button>${buttonHtml("Cancel", "btn pill sm", { action: "cancelAdd" })}</form>`;
 }
 
@@ -259,7 +270,7 @@ function dotHtml(label: string): string {
 // --- Barre d'outils -------------------------------------------------------------------------------
 
 function toolbar(view: ConfigView): string {
-  const path = `<span class="path">${esc(view.path)}</span>${view.isNew ? '<span class="tag">New file</span>' : ""}`;
+  const path = `<span class="path">${esc(view.displayPath)}</span>${view.isNew ? '<span class="tag">New file</span>' : ""}`;
   const head = `<span class="prod">idnma configure</span>${path}<span class="grow"></span>`;
   if (view.parseError) return `<header class="bar">${head}</header>`;
 
@@ -272,7 +283,7 @@ function toolbar(view: ConfigView): string {
   const dirty = view.dirty;
   return (
     `<header class="bar">${head}<span class="status" role="status">${status}</span>` +
-    buttonHtml("Revert", "btn sec", { action: "revert" }, !dirty) +
+    buttonHtml("Revert", "btn sec", { action: "revert" }, !view.canRevert) +
     `<button type="button" class="btn pri"${data({ action: "save" })}${dirty ? "" : " disabled"}>${view.isNew ? "Create" : "Save"} <span class="kt">⌘S</span></button>` +
     "</header>"
   );
@@ -402,9 +413,13 @@ function engineBlock(view: ConfigView, ui: UiState, agent: AgentView, engine: En
   const harnessIssues = take(issues, (i) => i.field === "harness");
   const harness =
     `<span class="c"><label class="k" for="${esc(id("harness"))}">Harness</label>` +
-    `<select class="pop${hasError(harnessIssues) ? " invalid" : ""}" id="${esc(id("harness"))}" data-focus-id="${esc(id("harness"))}" aria-label="Harness of engine ${esc(engine.name)}"${data({ action: "setHarness", ...base })}${ro ? " disabled" : ""}>${harnessOptions}</select></span>`;
+    selectHtml(
+      `<select class="pop${hasError(harnessIssues) ? " invalid" : ""}" id="${esc(id("harness"))}" data-focus-id="${esc(id("harness"))}" aria-label="Harness of engine ${esc(engine.name)}"${data({ action: "setHarness", ...base })}${ro ? " disabled" : ""}>${harnessOptions}</select>`,
+    ) +
+    "</span>";
 
-  const provider = claude ? providerControl(view, ui, engine, base, id("provider"), ro) : "";  const optionsIssues = take(issues, (i) => i.field === "options" || (i.field ?? "").startsWith("options."));
+  const provider = claude ? providerControl(view, ui, engine, base, id("provider"), ro) : "";
+  const optionsIssues = take(issues, (i) => i.field === "options" || (i.field ?? "").startsWith("options."));
   const options = optionsControl(view, ui, engine, base, id, ro, optionsIssues);
   const dst = engine.harness === "dst" ? '<span class="c"><span class="k dim">Model is chosen inside dst with /model</span></span>' : "";
   const controls = `<div class="ctl">${harness}${provider}${dst}${options}</div>${issuesHtml(harnessIssues)}${issuesHtml(optionsIssues)}`;
@@ -717,7 +732,7 @@ function parseErrorScreen(view: ConfigView): string {
   if (!error) return "";
   return (
     `<main class="main parse-error"><h2>This file cannot be read</h2>` +
-    `<p class="path">${esc(view.path)}</p><p class="message" role="alert">${esc(error.message)}</p>` +
+    `<p class="path">${esc(view.displayPath)}</p><p class="message" role="alert">${esc(error.message)}</p>` +
     `<p class="where">Line ${error.line}, column ${error.col}</p>` +
     `<p class="hint">Fix the file in your editor, then reload. Nothing can be edited until it parses.</p>` +
     `${buttonHtml("Reload", "btn sec", { action: "reload" })}</main>`
@@ -726,8 +741,21 @@ function parseErrorScreen(view: ConfigView): string {
 
 // --- Page -----------------------------------------------------------------------------------------
 
-export function renderApp(view: ConfigView, ui: UiState): string {
+/** Fichier sans agent : la page d'accueil d'un nouvel utilisateur, le formulaire de création en est le contenu. */
+function firstAgentPane(): string {
+  return (
+    '<main class="main first-agent"><h2>Add your first agent</h2>' +
+    '<p class="hint">An agent is a model: give it a key, then choose how it runs.</p>' +
+    `${addForm({ action: "addAgent" }, true)}</main>`
+  );
+}
+
+export function renderApp(view: ConfigView, state: UiState): string {
   if (view.parseError) return `<div class="win">${toolbar(view)}<div class="body single">${parseErrorScreen(view)}</div></div>`;
+
+  // Sans agent, la création d'agent vit dans le panneau principal : la ligne de la barre latérale ne la double pas.
+  const noAgents = state.tab === "agents" && view.agents.length === 0;
+  const ui: UiState = noAgents && state.adding?.action === "addAgent" ? { ...state, adding: undefined } : state;
 
   const names = ui.tab === "agents" ? view.agents.map((a) => a.key) : view.presets.filter((p) => (ui.tab === "options" ? p.kind === "options" : p.kind !== "options")).map((p) => p.name);
   const selected = ui.selected !== undefined && names.includes(ui.selected) ? ui.selected : names[0];
@@ -735,7 +763,7 @@ export function renderApp(view: ConfigView, ui: UiState): string {
   let main: string;
   if (ui.tab === "agents") {
     const agent = view.agents.find((a) => a.key === selected);
-    main = agent ? agentPane(view, ui, agent) : '<main class="main empty"><p class="hint">No agents yet. Add one to get started.</p></main>';
+    main = agent ? agentPane(view, ui, agent) : firstAgentPane();
   } else {
     const preset = view.presets.find((p) => p.name === selected);
     main = preset ? presetPane(view, ui, preset) : '<main class="main empty"><p class="hint">Nothing here yet.</p></main>';

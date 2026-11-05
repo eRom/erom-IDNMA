@@ -76,6 +76,8 @@ a{color:var(--link);text-decoration:none}a:hover{color:var(--link-hover)}
   /* Anneau et halo d'un champ en erreur : les mêmes formes que --shadow-field-focus, en rouge système. */
   --shadow-field-error: inset 0 0 0 var(--hairline) var(--accent-red), 0 0 0 calc(var(--grid) * 0.75) color-mix(in srgb, var(--accent-red) 25%, transparent);
   --shadow-focus: var(--shadow-field-focus);
+  /* Un champ en erreur qui a le focus garde les deux : le filet rouge dedans, l'anneau et le halo bleus dehors. */
+  --shadow-error-focus: inset 0 0 0 var(--hairline) var(--accent-red), 0 0 0 var(--hairline) var(--accent-blue), 0 0 0 calc(var(--grid) * 0.75) var(--accent-blue-focus);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -128,7 +130,7 @@ button:focus-visible, select:focus-visible, .field:focus, .field:focus-visible {
 .grow { flex: 1; }
 .status { white-space: nowrap; display: flex; align-items: center; gap: calc(var(--grid) * 1.5); color: var(--label-2); font-size: var(--text-small); }
 
-.dot { display: inline-block; flex: none; width: calc(var(--grid) * 1.75); height: calc(var(--grid) * 1.75); border-radius: var(--radius-full); }
+.dot { display: inline-block; flex: none; width: var(--status-dot); height: var(--status-dot); border-radius: var(--radius-full); }
 .dot.ok { background: var(--accent-green); }
 .dot.err { background: var(--accent-red); }
 .dot.warn { background: var(--accent-orange); }
@@ -195,7 +197,7 @@ button:focus-visible, select:focus-visible, .field:focus, .field:focus-visible {
   align-items: center;
   gap: calc(var(--grid) * 2);
   width: 100%;
-  height: var(--control-h);
+  height: var(--row-sidebar-h);
   padding: 0 calc(var(--grid) * 2);
   border-radius: var(--radius-control);
   color: var(--label-row);
@@ -249,7 +251,7 @@ button:focus-visible, select:focus-visible, .field:focus, .field:focus-visible {
 .field[readonly] { color: var(--label-2); }
 .field:disabled { color: var(--label-4); }
 .field.invalid, .field[aria-invalid="true"] { box-shadow: var(--shadow-field-error); }
-.field.invalid:focus, .field[aria-invalid="true"]:focus { box-shadow: var(--shadow-field-error); }
+.field.invalid:focus, .field[aria-invalid="true"]:focus { box-shadow: var(--shadow-error-focus); }
 
 .sect { display: flex; align-items: center; justify-content: space-between; height: var(--row-caption-h); margin-bottom: calc(var(--grid) * 1.5); font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--label-caption); }
 .sect.used-head { margin-top: calc(var(--grid) * 5.5); }
@@ -315,8 +317,11 @@ button:focus-visible, select:focus-visible, .field:focus, .field:focus-visible {
 .pop.open { background: var(--fill-active); color: var(--label-strong); }
 .pop:disabled { color: var(--label-4); }
 .pop.invalid { box-shadow: var(--shadow-field-error); }
+.pop.invalid:focus-visible { box-shadow: var(--shadow-error-focus); }
 .pop .cv { color: var(--label-3); font-family: var(--font-ui); font-size: var(--text-caption); }
-select.pop { appearance: none; padding-right: calc(var(--grid) * 2.5); }
+select.pop { appearance: none; padding-right: calc(var(--grid) * 6.5); }
+.sel { position: relative; display: inline-flex; align-items: center; }
+.sel .cv { position: absolute; right: calc(var(--grid) * 2.5); pointer-events: none; color: var(--label-3); font-size: var(--text-caption); }
 
 .chips { display: inline-flex; align-items: center; flex-wrap: wrap; gap: calc(var(--grid) * 1.5); }
 .chip {
@@ -336,7 +341,8 @@ input.chip.add { color: var(--label-3); }
 input.chip.add::placeholder { color: var(--label-3); }
 input.chip[aria-invalid="true"] { box-shadow: var(--shadow-field-error); }
 input.chip:focus { box-shadow: var(--shadow-focus); }
-.chip.ref { color: var(--ansi-cyan); }
+input.chip[aria-invalid="true"]:focus { box-shadow: var(--shadow-error-focus); }
+/* Un jeton venu d'un preset est une valeur, pas un signal : neutre, comme le texte mono voisin. */
 
 .mrow { display: grid; grid-template-columns: calc(var(--grid) * 13) minmax(0, 1fr); align-items: start; gap: calc(var(--grid) * 2); margin-top: calc(var(--grid) * 2.5); padding-left: calc(var(--grid) * 0.5); }
 .mrow > .k { padding-top: calc(var(--grid) * 1.5); }
@@ -345,11 +351,11 @@ input.chip:focus { box-shadow: var(--shadow-focus); }
 .envadd { margin-top: calc(var(--grid) * 1.5); padding-left: calc(var(--grid) * 0.5); }
 .envbox { display: flex; flex-direction: column; gap: calc(var(--grid) * 1.5); min-width: 0; }
 .merge { display: flex; align-items: center; gap: calc(var(--grid) * 2); font: var(--text-mono-context) var(--font-mono); }
-.ref { color: var(--ansi-cyan); }
+.ref { color: var(--label-1); font-family: var(--font-mono); }
 
 .kv { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) calc(var(--grid) * 5.5); gap: calc(var(--grid) * 1.5); align-items: center; }
 .kv .field { height: var(--button-h); font-size: var(--text-mono-context); }
-.x { height: var(--button-h); border-radius: var(--radius-control); text-align: center; color: var(--label-4); }
+.x { height: var(--button-h); border-radius: var(--radius-control); text-align: center; color: var(--label-3); }
 .x:hover:not(:disabled) { color: var(--accent-red); background: var(--fill-hover); }
 .main > .kv { margin-bottom: calc(var(--grid) * 1.5); }
 .tok { display: flex; align-items: center; gap: calc(var(--grid) * 1.5); margin-bottom: calc(var(--grid) * 1.5); }
@@ -397,7 +403,7 @@ input.chip:focus { box-shadow: var(--shadow-focus); }
 
 .addrow { display: flex; align-items: center; flex-wrap: wrap; gap: calc(var(--grid) * 1.5); margin-top: calc(var(--grid) * 1.5); }
 .addrow .field { flex: 1 1 calc(var(--grid) * 24); height: var(--button-h); font-size: var(--text-mono-context); }
-.addrow select.pop { flex: none; }
+.addrow .sel { flex: none; }
 .side .addrow { padding: 0 calc(var(--grid) * 0.5); }
 .sect .addrow { margin-top: 0; }
 
@@ -415,7 +421,7 @@ input.chip:focus { box-shadow: var(--shadow-focus); }
   max-width: calc(100vw - var(--grid) * 12);
   padding: calc(var(--grid) * 2) calc(var(--grid) * 2.5) calc(var(--grid) * 2) calc(var(--grid) * 4);
   border-radius: var(--radius-menu);
-  background: var(--surface-popover);
+  background: var(--surface-hud);
   -webkit-backdrop-filter: var(--blur-popover);
   backdrop-filter: var(--blur-popover);
   box-shadow: var(--shadow-popover);
@@ -423,3 +429,12 @@ input.chip:focus { box-shadow: var(--shadow-focus); }
   color: var(--label-1);
 }
 .notice[hidden] { display: none; }
+
+/* ---- Premier agent d'un fichier neuf ------------------------------------------------------------ */
+
+.main.first-agent { max-width: calc(var(--grid) * 160); }
+.first-agent h2 { font-size: var(--text-h2); color: var(--label-strong); letter-spacing: -0.01em; }
+.first-agent .hint { margin-top: calc(var(--grid) * 2); font-size: var(--text-tab); }
+.addrow.first { margin-top: calc(var(--grid) * 5); gap: calc(var(--grid) * 2); }
+.addrow.first .field { height: var(--control-h); font-size: var(--text-small); }
+.addrow.first .pop { height: var(--control-h); }
