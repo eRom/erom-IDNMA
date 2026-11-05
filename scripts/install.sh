@@ -2,8 +2,8 @@
 # Installeur d'IdnmA : curl -fsSL https://erom.cloud/install_idnma.sh | bash
 #
 # Clone la dernière release dans ~/.idnma (ou $IDNMA_HOME), installe les dépendances figées,
-# rend la commande `idnma` disponible par `bun link`, puis crée ~/.idnma.yml s'il manque.
-# Relancé, il met à jour le même checkout vers la dernière release. Il n'installe aucun
+# rend la commande `idnma` disponible par `bun link`. Il ne crée ni ne touche ~/.idnma.yml :
+# `idnma configure` s'en charge. Relancé, il met à jour le même checkout vers la dernière release. Il n'installe aucun
 # prérequis lui-même : il dit lequel manque et la commande pour l'installer.
 #
 # Variables :
@@ -141,9 +141,6 @@ main() {
   step "Linking the idnma command"
   (cd "$home" && bun link --silent)
 
-  step "Creating ~/.idnma.yml if missing"
-  (cd "$home" && bun scripts/install-config.ts)
-
   local version
   version=$("$bun_bin/idnma" --version 2>/dev/null) || die "idnma was installed but does not run: $bun_bin/idnma --version failed."
 
@@ -154,7 +151,7 @@ main() {
        note "export PATH=\"$bun_bin:\$PATH\"" ;;
   esac
   printf '\nNext steps:\n'
-  printf '  1. Describe your agents in ~/.idnma.yml\n'
+  printf '  1. Describe your agents:  idnma configure\n'
   printf '  2. Connect each harness:  idnma install --agent <claude|codex|grok|agy|opencode|dst>\n'
   printf '  3. Inside a tmux pane:    idnma run <agent>\n'
   printf '\nDocs: https://github.com/eRom/erom-IDNMA\n'

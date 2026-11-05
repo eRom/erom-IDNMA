@@ -64,7 +64,7 @@ Linux is supported for Claude Code and Codex, measured on Ubuntu 24.04 with Clau
 curl -fsSL https://erom.cloud/install_idnma.sh | bash
 ```
 
-The installer checks macOS, Bun, tmux and git, clones the latest release into `~/.idnma`, installs the locked dependencies, links the `idnma` command and creates `~/.idnma.yml` from the example if it is missing. It installs no prerequisite itself: when one is missing, it says which and how to get it. Optional variables:
+The installer checks macOS, Bun, tmux and git, clones the latest release into `~/.idnma`, installs the locked dependencies and links the `idnma` command. It never creates or touches `~/.idnma.yml`: you write it with `idnma configure` (see [Configuration](#configuration)). It installs no prerequisite itself: when one is missing, it says which and how to get it. Optional variables:
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -87,7 +87,7 @@ cd ~/.idnma
 git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"   # latest release
 bun install --frozen-lockfile --production
 bun link                          # puts `idnma` on your PATH
-bun scripts/install-config.ts     # creates ~/.idnma.yml from the example
+idnma configure                  # creates ~/.idnma.yml
 ```
 
 </details>
@@ -148,6 +148,17 @@ Then delete `~/.idnma`, and `~/.idnma.yml` if you no longer need your configurat
 Release notes live in [CHANGELOG.md](CHANGELOG.md) and on the [Releases](https://github.com/eRom/erom-IDNMA/releases) page.
 
 ## Configuration
+
+### Configure your agents
+
+```sh
+idnma configure             # opens the editor in your browser
+idnma configure --no-open   # prints the address instead of opening it
+```
+
+`idnma configure` starts a local page where you create and edit `~/.idnma.yml`: agents, engines and presets. It shows the test command of each engine, checks your changes with idnma's own rules, and writes nothing until you press Save. The file format is documented in [`.idnma.example.yml`](.idnma.example.yml).
+
+### The file format
 
 Agents are described in `~/.idnma.yml`. An agent has one or more *engines*; `default` is used when none is requested.
 
