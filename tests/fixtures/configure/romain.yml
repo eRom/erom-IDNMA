@@ -1,0 +1,206 @@
+# Gabarits partagés, repris plus bas par alias (*nom) et clé de fusion (<<).
+# idnma et IdemA ne lisent que la section agents: ; celle-ci doit précéder les alias.
+presets:
+  openrouter: &openrouter
+    ANTHROPIC_BASE_URL: "https://openrouter.ai/api"
+    ANTHROPIC_AUTH_TOKEN: "$OPENROUTER_API_KEY"
+    ANTHROPIC_API_KEY: ""
+  ollama: &ollama
+    ANTHROPIC_BASE_URL: "http://localhost:11434"
+    ANTHROPIC_AUTH_TOKEN: "ollama"
+    ANTHROPIC_API_KEY: ""
+  lmstudio: &lmstudio
+    ANTHROPIC_BASE_URL: "http://localhost:1234"
+    ANTHROPIC_AUTH_TOKEN: "lmstudio"
+    ANTHROPIC_API_KEY: ""
+  claude-max: &claude-max [--effort, max, --dangerously-skip-permissions]
+
+agents:
+  opus:
+    label: Opus
+    avatar: claude
+    engines:
+      default:
+        harness: claude
+        model: opus
+        options: [--effort, medium, --dangerously-skip-permissions, --remote-control]
+  sonnet:
+    label: Sonnet
+    avatar: claude
+    engines:
+      default:
+        harness: claude
+        model: sonnet
+        options: [--effort, high, --dangerously-skip-permissions, --remote-control]
+  mistral:
+    label: Mistral 4 Large
+    avatar: mistral
+    engines:
+      default:
+        harness: claude
+        model: mistral-large-4:cloud[1m]
+        options: *claude-max
+        env:
+          <<: *ollama
+  glm:
+    label: GLM
+    avatar: glm
+    engines:
+      default:
+        harness: claude
+        model: glm-5.3:cloud[1m]
+        options: *claude-max
+        env:
+          <<: *ollama
+  glm-flash:
+    label: GLM Flash
+    avatar: glm
+    engines:
+      default:
+        harness: claude
+        model: glm-5.3-flash:cloud[1m]
+        options: *claude-max
+        env:
+          <<: *ollama
+  deepseek-flash:
+    label: Deepseek Flash
+    avatar: deepseek
+    engines:
+      default:
+        harness: claude
+        model: deepseek-v4.1-flash:cloud[1m]
+        options: *claude-max
+        env:
+          <<: *ollama
+      dst:
+        harness: dst
+        env:
+          DSH_PERMISSION_MODE: "danger-full-access"
+      opencode:
+        harness: opencode
+        model: ollama-cloud/deepseek-v4.1-flash
+        options: [--auto]
+  deepseek-pro:
+    label: Deepseek Pro
+    avatar: deepseek
+    engines:
+      default:
+        harness: claude
+        model: deepseek-v4-pro:cloud[1m]
+        options: *claude-max
+        env:
+          <<: *ollama
+  qwen-flash:
+    label: Qwen Flash
+    avatar: qwen
+    engines:
+      default:
+        harness: claude
+        model: qwen/qwen3.8-flash[1m]
+        options: *claude-max
+        env:
+          <<: *openrouter
+      opencode:
+        harness: opencode
+        model: openrouter/qwen/qwen3.8-flash
+        options: [--auto]
+  qwen-max:
+    label: Qwen Max
+    avatar: qwen
+    engines:
+      default:
+        harness: claude
+        model: qwen/qwen3.8-max-0902[1m]
+        options: *claude-max
+        env:
+          <<: *openrouter
+  kimi:
+    label: Kimi K3.1
+    avatar: kimi
+    engines:
+      default:
+        harness: claude
+        model: kimi-k3.1-pro:cloud[1m]
+        options: *claude-max
+        env:
+          <<: *ollama
+      opencode:
+        harness: opencode
+        model: openrouter/moonshotai/kimi-k3.1-pro
+        options: [--auto]
+  mimo:
+    label: MiMo
+    avatar: xiaomi
+    engines:
+      default:
+        harness: claude
+        model: mimo-v2.6-pro:cloud[1m]
+        options: *claude-max
+        env:
+          <<: *ollama
+  muse:
+    label: Muse Spark
+    avatar: muse
+    engines:
+      default:
+        harness: claude
+        model: meta/muse-spark-1.3[1m]
+        options: *claude-max
+        env:
+          <<: *openrouter
+  grok:
+    label: Grok
+    avatar: grok
+    engines:
+      default:
+        harness: grok
+        model: grok-4.7
+        options: [--effort, high, --always-approve]
+  argon:
+    label: Argon
+    avatar: gemini
+    engines:
+      default:
+        harness: agy
+        model: gemini-4-argon
+        options: [--effort, medium, --dangerously-skip-permissions, --remote-control]
+      claude:
+        harness: claude
+        model: google/gemini-4-argon[1m]
+        options: [--effort, medium, --dangerously-skip-permissions]
+        env:
+          <<: *openrouter
+  gemini:
+    label: Gemini 3.8 Flash
+    avatar: gemini
+    engines:
+      default:
+        harness: agy
+        model: gemini-3.8-flash
+        options: [--effort, high, --dangerously-skip-permissions, --remote-control]
+  luna:
+    label: Luna
+    avatar: codex
+    engines:
+      default:
+        harness: codex
+        model: gpt-6-luna
+        options: [--dangerously-bypass-approvals-and-sandbox]
+  oss20:
+    label: GTP OSS 20B
+    avatar: codex
+    engines:
+      default:
+        harness: claude
+        model: openai/gpt-oss-20b
+        options: *claude-max
+        env:
+          <<: *lmstudio
+  nemotron:
+    label: Nemotron Ultra
+    avatar: nvidia
+    engines:
+      default:
+        harness: opencode
+        model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+        options: [--auto]
