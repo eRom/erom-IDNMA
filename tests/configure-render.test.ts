@@ -521,7 +521,8 @@ describe("configure render env section", () => {
     expect(claude).toContain('data-action="addEnvVar"');
     expect(claude).not.toContain('class="kv"');
     expect(claude).not.toContain('class="envbox"');
-    expect(textOf(claude ?? "")).not.toContain("Env");
+    // Pas de légende « Env » (le mot isolé : le bouton dit « Environment variable »).
+    expect(textOf(claude ?? "")).not.toMatch(/\bEnv\b/);
     // Un engine qui a des variables garde la section.
     expect(dst).toContain('class="kv"');
     expect(textOf(dst ?? "")).toContain("Env");
