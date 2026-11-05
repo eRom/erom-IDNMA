@@ -346,7 +346,7 @@ function agentGroups(view: ConfigView, ui: UiState): AgentGroup[] {
 }
 
 /** Les clés sélectionnables de l'onglet, dans l'ordre affiché : la première est la sélection par défaut. */
-function shownKeys(view: ConfigView, ui: UiState): string[] {
+export function shownKeys(view: ConfigView, ui: UiState): string[] {
   if (ui.tab === "agents") return agentGroups(view, ui).flatMap((g) => g.agents.map((a) => a.key));
   return presetsOf(view, ui.tab).map((p) => p.name);
 }
@@ -362,12 +362,10 @@ function groupToggle(ui: UiState): string {
 }
 
 function sidebar(view: ConfigView, ui: UiState, selected: string | undefined): string {
-  const providers = view.presets.filter(providerLike);
-  const optionSets = view.presets.filter((p) => p.kind === "options");
   const tabs: [UiState["tab"], string, number][] = [
     ["agents", "Agents", view.agents.length],
-    ["providers", "Providers", providers.length],
-    ["options", "Options", optionSets.length],
+    ["providers", "Providers", presetsOf(view, "providers").length],
+    ["options", "Options", presetsOf(view, "options").length],
   ];
   const seg = tabs
     .map(([tab, label, count]) => {
@@ -380,10 +378,9 @@ function sidebar(view: ConfigView, ui: UiState, selected: string | undefined): s
   let add: string;
   let toggle = "";
   if (ui.tab === "agents") {
-    const grouped = ui.groupBy === "harness";
     rows = agentGroups(view, ui)
       .map((group) => {
-        const list = group.agents.map((agent) => agentRow(view, agent, agent.key === selected, grouped)).join("");
+        const list = group.agents.map((agent) => agentRow(view, agent, agent.key === selected, group.header)).join("");
         return group.header === undefined ? list : `<div class="rowgroup" role="group" aria-label="${esc(group.header)}"><div class="gh">${esc(group.header)}</div>${list}</div>`;
       })
       .join("");
@@ -400,19 +397,23 @@ function sidebar(view: ConfigView, ui: UiState, selected: string | undefined): s
   return `<nav class="side"><div class="seg" role="tablist">${seg}</div>${toggle}<div class="rows">${rows}</div>${add}</nav>`;
 }
 
-/** `grouped` : le titre du groupe porte déjà le harnais, la rangée ne le répète pas (le point d'erreur reste). */
-function agentRow(view: ConfigView, agent: AgentView, selected: boolean, grouped = false): string {
+/**
+ * `group` : le titre du groupe, présent en mode regroupé seulement. Il porte déjà le harnais, la rangée ne le
+ * répète pas (le point d'erreur reste), et il est posé en `data-group` : un agent figure sous plusieurs groupes,
+ * c'est ce qui distingue ses rangées pour retrouver le focus après un rendu.
+ */
+function agentRow(view: ConfigView, agent: AgentView, selected: boolean, group?: string): string {
   const lead = agent.engines.find((e) => e.isDefault) ?? agent.engines[0];
   const more = agent.engines.length - 1;
   const broken = hasError(view.issues.filter((i) => i.agent === agent.key));
   const name = displayName(agent);
-  const meta = grouped
+  const meta = group !== undefined
     ? broken
       ? `<span class="meta">${dotHtml("Has errors")}</span>`
       : ""
     : `<span class="meta">${broken ? dotHtml("Has errors") : ""}${esc(lead?.harness ?? "")}${more > 0 ? ` <span class="more">+${more}</span>` : ""}</span>`;
   return (
-    `<button type="button" class="row${selected ? " sel" : ""}"${selected ? ' aria-current="true"' : ""}${data({ action: "select", key: agent.key })}>` +
+    `<button type="button" class="row${selected ? " sel" : ""}"${selected ? ' aria-current="true"' : ""}${data({ action: "select", key: agent.key, group })}>` +
     `<span class="av">${esc(initialOf(name))}</span><span class="name">${esc(name)}</span>${meta}</button>`
   );
 }

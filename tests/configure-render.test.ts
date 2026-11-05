@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ConfigDocument } from "../src/configure/document.ts";
-import { compareNames, escapeHtml, renderApp, type UiState } from "../src/configure/page/render.ts";
+import { compareNames, escapeHtml, renderApp, shownKeys, type UiState } from "../src/configure/page/render.ts";
 import type { ConfigView } from "../src/configure/types.ts";
 import { buildView } from "../src/configure/view.ts";
 
@@ -730,6 +730,13 @@ describe("configure render group by harness", () => {
     engines:
       default:
         harness: ""
+  twin:
+    label: Twin
+    engines:
+      default:
+        harness: codex
+      second:
+        harness: codex
 `;
   const grouped = (selected?: string): UiState => ({ ...agentsTab(selected), groupBy: "harness" });
 
@@ -767,6 +774,34 @@ describe("configure render group by harness", () => {
     expect(under("No engine")).toEqual(["bare"]);
   });
 
+  test("lists an agent once under a harness even when two of its engines use it", () => {
+    const groups = sidebarGroups(renderApp(viewOf(text), grouped()));
+    expect(groups.find((g) => g.header === "codex")?.keys).toEqual(["twin"]);
+  });
+
+  test("tells the rows of an agent apart by their group, only in grouped mode", () => {
+    const rowsOf = (html: string, key: string): string[] =>
+      [...html.matchAll(/<button type="button" class="row[^"]*"[^>]*data-action="select" data-key="([^"]*)"([^>]*)>/g)].filter((m) => m[1] === key).map((m) => m[0]);
+    const on = rowsOf(renderApp(viewOf(text), grouped()), "multi");
+    expect(on).toHaveLength(2);
+    const groupOf = (row: string): string | undefined => row.match(/data-group="([^"]*)"/)?.[1];
+    expect(on.map(groupOf).sort()).toEqual(["claude", "opencode"]);
+
+    const off = rowsOf(renderApp(viewOf(text), agentsTab()), "multi");
+    expect(off).toHaveLength(1);
+    expect(off[0]).not.toContain("data-group");
+    // Les autres rangées (preset) n'en portent pas non plus.
+    expect(renderApp(viewOf(text), { tab: "providers" })).not.toContain("data-group");
+  });
+
+  test("exposes the displayed keys in sidebar order, one entry per row", () => {
+    const view = viewOf(text);
+    const ui = grouped();
+    expect(shownKeys(view, ui)).toEqual(rowKeys(renderApp(view, ui)));
+    expect(shownKeys(view, agentsTab())).toEqual(rowKeys(renderApp(view, agentsTab())));
+    expect(shownKeys(view, { tab: "providers" })).toEqual(rowKeys(renderApp(view, { tab: "providers" })));
+  });
+
   test("keeps the default agent order inside a group", () => {
     const sorted = `agents:\n  k1:\n    label: Zulu\n    engines:\n      default:\n        harness: claude\n  k2:\n    label: Alpha\n    engines:\n      default:\n        harness: claude\n`;
     expect(sidebarGroups(renderApp(viewOf(sorted), grouped()))).toEqual([{ header: "claude", keys: ["k2", "k1"] }]);
@@ -785,12 +820,12 @@ describe("configure render group by harness", () => {
     const view = viewOf(broken);
     expect(view.issues.some((i) => i.agent === "a" && i.severity === "error")).toBe(true);
     const html = renderApp(view, grouped());
-    const rows = html.split('<button type="button" class="row').slice(1).filter((r) => r.includes('data-action="select"'));
+    const rows = html.split('<button type="button" class="row').slice(1).filter((r) => r.includes('data-action="select"')).map((r) => '<button type="button" class="row' + r);
     expect(rows).toHaveLength(2);
     const [rowA = "", rowB = ""] = rows;
     expect(rowA).toContain("dot err");
-    expect(rowA).not.toContain(">claude");
-    expect(rowB).not.toContain("claude");
+    expect(textOf(rowA)).not.toContain("claude");
+    expect(textOf(rowB)).not.toContain("claude");
     expect(rowB).not.toContain('class="meta"');
     // Hors regroupement, la rangée garde son harnais.
     expect(renderApp(view, agentsTab())).toContain(">claude");
@@ -884,6 +919,33 @@ agents:
     const hostile = badgesOf(html).find((b) => b.key === "hostile");
     expect(hostile?.name).toBe("&lt;b&gt;x&lt;/b&gt; &amp; &quot;y&quot;");
     expect(hostile?.aria).toBe("Open agent &lt;b&gt;x&lt;/b&gt; &amp; &quot;y&quot;");
+  });
+
+  test("sorts the badges by label, not by key", () => {
+    const file = `presets:
+  ollama: &ollama
+    ANTHROPIC_BASE_URL: "http://localhost:11434"
+agents:
+  a:
+    label: Zed
+    engines:
+      default:
+        harness: claude
+        env:
+          <<: *ollama
+  z:
+    label: Abe
+    engines:
+      default:
+        harness: claude
+        env:
+          <<: *ollama
+`;
+    const badges = badgesOf(renderApp(viewOf(file), { tab: "providers", selected: "ollama" }));
+    expect(badges.map((b) => [b.key, b.name])).toEqual([
+      ["z", "Abe"],
+      ["a", "Zed"],
+    ]);
   });
 
   test("lists the agents of an option set the same way", () => {

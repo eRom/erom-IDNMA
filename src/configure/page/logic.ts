@@ -289,3 +289,12 @@ export function toolbarState(view: Pick<ConfigView, "dirty" | "canRevert" | "par
   const editable = view.parseError === undefined;
   return { canSave: editable && (view.dirty || pending), canRevert: editable && (view.canRevert || pending) };
 }
+
+/**
+ * Après la suppression d'un agent, la sélection passe à la clé qui prend sa place dans la liste affichée
+ * (celle de son premier emplacement, bornée à la fin) ; `undefined` quand la liste est vide.
+ */
+export function neighbourAfterDelete(beforeKeys: readonly string[], afterKeys: readonly string[], deleted: string): string | undefined {
+  const index = Math.max(beforeKeys.indexOf(deleted), 0);
+  return afterKeys[Math.min(index, afterKeys.length - 1)];
+}

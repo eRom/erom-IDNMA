@@ -7,8 +7,8 @@
  */
 import { commandLine } from "../command.ts";
 import type { ConfigView, EditOp } from "../types.ts";
-import { type AddingState, renderApp, type UiState } from "./render.ts";
-import { addOps, type FieldInput, opForField, PendingInputs, readToken, remapId, type Remap, renameEffect, reorderOptions, toolbarState } from "./logic.ts";
+import { type AddingState, renderApp, shownKeys, type UiState } from "./render.ts";
+import { addOps, type FieldInput, neighbourAfterDelete, opForField, PendingInputs, readToken, remapId, type Remap, renameEffect, reorderOptions, toolbarState } from "./logic.ts";
 
 // --- Appels ---------------------------------------------------------------------------------------
 
@@ -502,6 +502,8 @@ function onAction(button: HTMLElement): void {
       ui.adding = undefined;
       refusal = undefined;
       resetScroll = true;
+      // Le badge disparaît avec l'onglet : le focus passe à la première rangée de l'agent (correspondance partielle).
+      pendingFocus = { data: { action: "select", key: text(d.key) } };
       render();
       return void root.querySelector('.side .row[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
     case "menu": {
@@ -538,9 +540,8 @@ function onAction(button: HTMLElement): void {
       });
     case "deleteAgent":
       return send({ op: "deleteAgent", key: agent }, anchor, (before, after) => {
-        // La sélection passe au voisin qui prend la place de l'agent retiré.
-        const index = before.agents.findIndex((a) => a.key === agent);
-        ui.selected = after.agents[Math.min(index, after.agents.length - 1)]?.key;
+        // La sélection passe au voisin qui prend la place de l'agent retiré, dans l'ordre affiché.
+        ui.selected = neighbourAfterDelete(shownKeys(before, ui), shownKeys(after, ui), agent);
         resetScroll = true;
       });
     case "deleteEngine":

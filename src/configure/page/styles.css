@@ -317,7 +317,7 @@ button:focus-visible, select:focus-visible, .field:focus, .field:focus-visible {
    Pas de transition (DS : aucune animation) ; le focus clavier vient de la règle globale des boutons (--shadow-focus). */
 .badges { display: flex; flex-wrap: wrap; gap: calc(var(--grid) * 1.5); }
 .badge { display: inline-flex; align-items: center; max-width: 100%; height: var(--button-sm-h); padding: 0 calc(var(--grid) * 2.5); border-radius: var(--radius-keycap); background: var(--fill-tab-active); color: var(--label-2); font-size: var(--text-small); font-weight: var(--weight-medium); white-space: nowrap; }
-.badge:hover { filter: brightness(1.12); }
+.badge:hover { text-decoration: underline; text-underline-offset: calc(var(--grid) * 0.5); }
 .badge:focus-visible { box-shadow: var(--shadow-focus); }
 .badge[data-harness="claude"] { background: var(--harness-claude); color: var(--harness-claude-ink); }
 .badge[data-harness="codex"] { background: var(--harness-codex); color: var(--harness-codex-ink); }

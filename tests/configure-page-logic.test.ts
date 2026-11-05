@@ -6,6 +6,7 @@ import {
   type AddInput,
   addOps,
   type FieldInput,
+  neighbourAfterDelete,
   opForField,
   PendingInputs,
   readToken,
@@ -309,5 +310,30 @@ describe("configure page pending input", () => {
   test("a file that does not parse is never saveable, whatever is typed", () => {
     const broken = { dirty: false, canRevert: false, parseError: { message: "x", line: 1, col: 1 } };
     expect(toolbarState(broken, true)).toEqual({ canSave: false, canRevert: false });
+  });
+});
+
+describe("configure page neighbourAfterDelete", () => {
+  test("picks the key now at the deleted one's displayed position", () => {
+    expect(neighbourAfterDelete(["a", "b", "c", "d"], ["a", "c", "d"], "b")).toBe("c");
+    expect(neighbourAfterDelete(["a", "b", "c"], ["b", "c"], "a")).toBe("b");
+  });
+
+  test("clamps to the last key when the deleted one was last", () => {
+    expect(neighbourAfterDelete(["a", "b", "c"], ["a", "b"], "c")).toBe("b");
+  });
+
+  test("follows the displayed order, not the order of the file", () => {
+    // Affiché : Alpha(z), Mid(m), Zulu(a) ; on retire Mid, le voisin est Zulu, quelle que soit la place de « m » dans le fichier.
+    expect(neighbourAfterDelete(["z", "m", "a"], ["z", "a"], "m")).toBe("a");
+  });
+
+  test("uses the first displayed index when the agent is listed under several groups", () => {
+    expect(neighbourAfterDelete(["x", "d", "y", "d"], ["x", "y"], "d")).toBe("y");
+  });
+
+  test("is undefined when nothing remains, and falls back to the first key when the deleted one was not listed", () => {
+    expect(neighbourAfterDelete(["a"], [], "a")).toBeUndefined();
+    expect(neighbourAfterDelete(["a", "b"], ["a", "b"], "gone")).toBe("a");
   });
 });
