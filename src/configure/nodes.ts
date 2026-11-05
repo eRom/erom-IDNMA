@@ -1,4 +1,4 @@
-import { type Document, isAlias, isNode, isPair, isScalar, isSeq, type Node, type Pair, Scalar, visit, type YAMLMap } from "yaml";
+import { type Document, isAlias, isMap, isNode, isPair, isScalar, isSeq, type Node, type Pair, Scalar, visit, type YAMLMap } from "yaml";
 import type { ConfigDocument } from "./document.ts";
 
 /** Opération refusée : le message est du texte d'interface (anglais, une phrase qui nomme l'obstacle). */
@@ -48,6 +48,20 @@ export function readablePath(ancestors: readonly PathItem[], node: unknown): str
     }
   }
   return parts.join(".");
+}
+
+/** Texte d'un scalaire ou d'un alias vers un scalaire ; `undefined` pour tout autre nœud ou une valeur nulle. */
+export function textValue(doc: Document, node: unknown): string | undefined {
+  const target = isAlias(node) ? node.resolve(doc) : node;
+  if (!isScalar(target) || target.value === null || target.value === undefined) return undefined;
+  return String(target.value);
+}
+
+/** Forme d'un preset : table de textes → provider, liste de textes → option set, le reste à part. */
+export function presetShape(doc: Document, node: unknown): "provider" | "options" | "other" {
+  if (isMap(node) && node.items.every((pair) => !isMergePair(pair) && textValue(doc, pair.value) !== undefined)) return "provider";
+  if (isSeq(node) && node.items.every((item) => textValue(doc, item) !== undefined)) return "options";
+  return "other";
 }
 
 export function keyIs(pair: Pair, name: string): boolean {

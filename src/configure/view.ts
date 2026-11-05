@@ -2,6 +2,7 @@ import { isAlias, isMap, isNode, isScalar, isSeq, type Pair, parseDocument, type
 import { BUILTIN_PRESET_NAMES, isBuiltinPreset, NEW_FILE_TEMPLATE } from "./builtins.ts";
 import { commandLine } from "./command.ts";
 import { type AnchorSites, type ConfigDocument, isMergePair } from "./document.ts";
+import { presetShape, textValue } from "./nodes.ts";
 import type {
   AgentView,
   ConfigView,
@@ -12,6 +13,7 @@ import type {
   PresetView,
   ProviderChoice,
 } from "./types.ts";
+import { collectIssues } from "./validate.ts";
 
 type Sites = Map<string, AnchorSites>;
 
@@ -29,9 +31,7 @@ function keyName(pair: Pair): string | undefined {
 
 /** Texte d'un scalaire ou d'un alias vers un scalaire ; `undefined` pour tout autre nœud ou une valeur nulle. */
 function textOf(reader: Reader, node: unknown): string | undefined {
-  const target = isAlias(node) ? node.resolve(reader.doc.doc) : node;
-  if (!isScalar(target) || target.value === null || target.value === undefined) return undefined;
-  return String(target.value);
+  return textValue(reader.doc.doc, node);
 }
 
 function linkOf(reader: Reader, node: unknown, ownPath: string): LinkView | undefined {
@@ -195,13 +195,9 @@ function readPreset(
     options: [],
     usedBy,
   };
-  if (isMap(node) && node.items.every((pair) => !isMergePair(pair) && textOf(reader, pair.value) !== undefined)) {
-    view.kind = "provider";
-    view.vars = readEnv(reader, node, `presets.${name}`).vars;
-  } else if (isSeq(node) && node.items.every((item) => textOf(reader, item) !== undefined)) {
-    view.kind = "options";
-    view.options = stringList(reader, node) ?? [];
-  }
+  view.kind = presetShape(reader.doc.doc, node);
+  if (view.kind === "provider") view.vars = readEnv(reader, node, `presets.${name}`).vars;
+  else if (view.kind === "options") view.options = stringList(reader, node) ?? [];
   return view;
 }
 
@@ -235,13 +231,14 @@ function readPresets(reader: Reader, usage: Map<string, string[]>): PresetView[]
   return presets;
 }
 
-/** Vue du fichier pour la page. `issues` reste vide ici : la validation s'ajoute à la tâche 6. */
+/** Vue du fichier pour la page. Un fichier qui ne se lit pas montre son erreur de syntaxe et rien d'autre. */
 export function buildView(doc: ConfigDocument, path: string, dirty: boolean): ConfigView {
   const view: ConfigView = { path, isNew: doc.isNew, dirty, agents: [], presets: [], issues: [] };
   if (doc.parseError) {
     view.parseError = doc.parseError;
     return view;
   }
+  view.issues = collectIssues(doc);
   const presetByAnchor = new Map<string, string>();
   for (const pair of doc.presetsMap()?.items ?? []) {
     const name = keyName(pair);
