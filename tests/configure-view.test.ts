@@ -228,6 +228,17 @@ describe("configure view", () => {
     expect(buildView(ConfigDocument.parse(early), "/x", false).agents).toEqual([]);
   });
 
+  test("reports an alias used inside its own anchor as a parse error", () => {
+    const cyclic = "agents:\n  a:\n    label: A\n    engines:\n      default:\n        harness: claude\n        env:\n          loop: &loop [*loop]\n";
+    const doc = ConfigDocument.parse(cyclic);
+    expect(doc.parseError?.message).toBe("Alias *loop is used inside its own anchor.");
+    expect(doc.parseError?.line).toBe(8);
+    expect(doc.parseError?.col).toBe(24);
+    // Aucune opération ne parcourt un document cyclique.
+    expect(() => doc.apply({ op: "duplicateAgent", key: "a" })).toThrow("Fix the syntax error first.");
+    expect(buildView(doc, "/x", false).agents).toEqual([]);
+  });
+
   test("rebuilds the template from the built-in blocks", () => {
     const blocks = BUILTIN_PRESET_NAMES.map((name) =>
       builtinPresetText(name)

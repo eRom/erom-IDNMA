@@ -159,21 +159,26 @@ export class ConfigDocument {
   }
 }
 
-/** Premier alias dont l'ancre n'est pas définie avant lui (la lib ne le signale qu'à la conversion). */
+/**
+ * Premier alias illisible : dont l'ancre n'est pas définie avant lui (la lib ne le signale qu'à la
+ * conversion), ou qui se trouve dans le nœud que son ancre définit (cycle : aucune opération ne doit le parcourir).
+ */
 function findUnresolvedAlias(doc: Document, lineCounter: LineCounter): ParseErrorView | undefined {
   const seen = new Set<string>();
   let found: ParseErrorView | undefined;
-  visit(doc, (_key, node) => {
+  const report = (message: string, offset: number | undefined): symbol => {
+    const pos = lineCounter.linePos(offset ?? 0);
+    found = { message, line: pos.line, col: pos.col };
+    return visit.BREAK;
+  };
+  visit(doc, (_key, node, path) => {
     if (found) return visit.BREAK;
     if (isAlias(node)) {
+      if (path.some((ancestor) => isNode(ancestor) && ancestor.anchor === node.source)) {
+        return report(`Alias *${node.source} is used inside its own anchor.`, node.range?.[0]);
+      }
       if (!seen.has(node.source)) {
-        const pos = lineCounter.linePos(node.range?.[0] ?? 0);
-        found = {
-          message: `Alias *${node.source} refers to an anchor that is not defined before it.`,
-          line: pos.line,
-          col: pos.col,
-        };
-        return visit.BREAK;
+        return report(`Alias *${node.source} refers to an anchor that is not defined before it.`, node.range?.[0]);
       }
     } else if (isNode(node) && node.anchor) {
       seen.add(node.anchor);

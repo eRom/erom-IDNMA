@@ -157,7 +157,7 @@ export function startConfigureServer(o: { path: string; idleMs?: number; token?:
     clearTimeout(idleTimer);
     for (const release of [...streams]) release();
     // `true` coupe aussi les connexions encore ouvertes ; `done` attend que le port soit libre.
-    void server.stop(true).finally(resolveDone);
+    server.stop(true).finally(resolveDone).catch(() => {});
   }
 
   function armIdleTimer(): void {
@@ -265,8 +265,8 @@ export function startConfigureServer(o: { path: string; idleMs?: number; token?:
       } catch (error) {
         if (error instanceof EditRefused) return json({ refused: error.message }, 409);
         // Le nom de l'erreur et la route suffisent : un message d'erreur peut citer le contenu du fichier.
-        const kind = error instanceof Error ? error.name : "erreur inconnue";
-        console.error(`idnma configure : erreur interne sur ${req.method} ${url.pathname} (${kind}).`);
+        const kind = error instanceof Error ? error.name : "unknown error";
+        console.error(`idnma configure: internal error on ${req.method} ${url.pathname} (${kind}).`);
         return json({ failed: "Internal error." }, 500);
       }
     },

@@ -127,6 +127,9 @@ describe("configure server", () => {
     expect(written).not.toBe(before);
     expect(before).not.toContain("renamed:");
     expect(written).toContain("renamed:");
+    // Une référence de variable d'environnement reste telle quelle : le serveur ne la résout jamais.
+    expect(before).toContain("$OPENROUTER_API_KEY");
+    expect(written).toContain("$OPENROUTER_API_KEY");
   });
 
   test("save without changes writes nothing", async () => {
