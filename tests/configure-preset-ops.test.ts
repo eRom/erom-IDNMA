@@ -254,6 +254,16 @@ agents:
     expect(config.toText()).toBe(text);
   });
 
+  test("refuses renaming to a built-in name whose built-in kind differs", () => {
+    const text = "presets:\n  mine: &mine\n    A: \"1\"\n  opts: &opts [--effort, max]\nagents:\n  a:\n    label: A\n";
+    const config = ConfigDocument.parse(text);
+    expect(refusal(config, { op: "renamePreset", name: "mine", newName: "claude-max" })).toMatch(/claude-max.*option set/);
+    expect(refusal(config, { op: "renamePreset", name: "opts", newName: "ollama" })).toMatch(/ollama.*provider/);
+    expect(config.toText()).toBe(text);
+    // Même forme que le built-in : le renommage reste permis.
+    expect(edit(text, { op: "renamePreset", name: "mine", newName: "lmstudio" }).text).toContain("lmstudio: &lmstudio");
+  });
+
   test("refuses a key already used and names that are not valid", () => {
     const config = ConfigDocument.parse(romain);
     expect(refusal(config, { op: "renamePreset", name: "ollama", newName: "openrouter" })).toMatch(/openrouter/);

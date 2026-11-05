@@ -156,16 +156,19 @@ function assertAnchorName(config: ConfigDocument, anchor: string): void {
 
 // --- Ajout, renommage, suppression -------------------------------------------------------------
 
+/** Un nom de built-in garde sa forme : `claude-max` est une liste d'options, les trois autres des providers. */
+function assertBuiltinKind(name: string, kind: PresetKind): void {
+  if (!isBuiltinPreset(name)) return;
+  const builtinKind: PresetKind = isSeq(freshBuiltin(name).value) ? "options" : "provider";
+  if (builtinKind !== kind) {
+    throw new EditRefused(`"${name}" is a built-in ${builtinKind === "options" ? "option set" : "provider"}; pick another name.`);
+  }
+}
+
 function addPreset(config: ConfigDocument, name: string, kind: PresetKind): boolean {
   checkKey("Preset name", name);
   if (config.presetsMap()?.has(name)) throw new EditRefused(`Preset "${name}" already exists.`);
-  // Un nom de built-in garde sa forme : `claude-max` est une liste d'options, les trois autres des providers.
-  if (isBuiltinPreset(name)) {
-    const builtinKind: PresetKind = isSeq(freshBuiltin(name).value) ? "options" : "provider";
-    if (builtinKind !== kind) {
-      throw new EditRefused(`"${name}" is a built-in ${builtinKind === "options" ? "option set" : "provider"}; pick another name.`);
-    }
-  }
+  assertBuiltinKind(name, kind);
   assertAnchorName(config, name);
   const node = kind === "provider" ? new YAMLMap() : new YAMLSeq();
   node.anchor = name;
@@ -187,6 +190,7 @@ function renamePreset(config: ConfigDocument, name: string, newName: string): bo
   if (!keyChanges && !anchorChanges) return false;
 
   if (keyChanges && presets.has(newName)) throw new EditRefused(`Preset "${newName}" already exists.`);
+  if (keyChanges) assertBuiltinKind(newName, isSeq(node) ? "options" : "provider");
   if (anchorChanges) assertAnchorName(config, newName);
 
   const aliases = oldAnchor !== undefined && anchorChanges ? aliasesBoundTo(config, node, oldAnchor) : [];

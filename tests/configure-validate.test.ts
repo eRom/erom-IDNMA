@@ -120,6 +120,17 @@ agents:
     expect(viaPreset[0]?.agent).toBeUndefined();
   });
 
+  test("a number linked by an anchor is one issue, on the variable that holds it", () => {
+    const issues = errorsOf(oneEngine("        harness: claude\n        env:\n          A: &n 0\n          B: *n\n"));
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ code: "not-text", agent: "x", engine: "default", field: "env.A", fix: "quote" });
+  });
+
+  test("an option linked by an anchor is one issue too", () => {
+    const issues = errorsOf(`presets:\n  fast: &fast [--effort, &n 5]\n${oneEngine("        harness: claude\n        options: [--effort, *n]\n")}`);
+    expect(issues.map((issue) => [issue.code, issue.preset, issue.field])).toEqual([["not-text", "fast", "options.1"]]);
+  });
+
   test("an empty provider variable is a shape warning on the preset, and the engine that merges it is refused", () => {
     const text = `presets:\n  p: &p\n    K:\n${oneEngine("        harness: claude\n        env:\n          <<: *p\n")}`;
     const issues = issuesOf(text);

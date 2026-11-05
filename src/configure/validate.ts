@@ -160,17 +160,20 @@ function envValueNode(ctx: Context, env: YAMLMap, name: string): unknown {
   return undefined;
 }
 
-/** Vrai si l'erreur de type porte sur une valeur d'env ou d'options que `not-text` a déjà signalée. */
+/**
+ * Vrai si l'erreur de type porte sur une valeur d'env ou d'options que `not-text` a déjà signalée.
+ * Une valeur liée par alias (`B: *n`) se compare à son nœud ancré : c'est lui qui a été signalé, une fois.
+ */
 function alreadyReported(ctx: Context, engine: unknown, path: PropertyKey[]): boolean {
   if (!isMap(engine) || path.length !== 2) return false;
   const [section, name] = path;
   if (section === "env") {
     const env = resolveAlias(ctx, engine.get("env", true));
-    return isMap(env) && ctx.flagged.has(envValueNode(ctx, env, String(name)));
+    return isMap(env) && ctx.flagged.has(resolveAlias(ctx, envValueNode(ctx, env, String(name))));
   }
   if (section === "options") {
     const options = resolveAlias(ctx, engine.get("options", true));
-    return isSeq(options) && ctx.flagged.has(options.items[Number(name)]);
+    return isSeq(options) && ctx.flagged.has(resolveAlias(ctx, options.items[Number(name)]));
   }
   return false;
 }
