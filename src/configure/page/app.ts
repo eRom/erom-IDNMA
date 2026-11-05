@@ -611,7 +611,9 @@ document.addEventListener("change", (event) => {
 });
 
 // Sortir d'un champ sans `change` (le texte est revenu à l'original) ne laisse rien en attente.
+// Si la fenêtre perd le focus, le champ garde sa saisie : `beforeunload` doit encore avertir.
 document.addEventListener("focusout", (event) => {
+  if (!document.hasFocus()) return;
   if (event.target instanceof HTMLInputElement && event.target.dataset.action) pending.commit(event.target.id);
 });
 
@@ -629,7 +631,8 @@ document.addEventListener("submit", (event) => {
   submitAdding(event.target);
 });
 
-document.addEventListener("pointerdown", () => void (pointerDown = true), true);
+// Seul le bouton principal compte : un clic droit n'est suivi ni de `click` ni toujours de `pointerup`.
+document.addEventListener("pointerdown", (event) => void (event.button === 0 && (pointerDown = true)), true);
 function releasePointer(): void {
   if (!pointerDown) return;
   pointerDown = false;
@@ -638,6 +641,7 @@ function releasePointer(): void {
 }
 document.addEventListener("pointerup", releasePointer, true);
 document.addEventListener("pointercancel", releasePointer, true);
+document.addEventListener("contextmenu", releasePointer, true);
 window.addEventListener("blur", releasePointer);
 
 /** Valide d'abord le champ en cours de saisie (son `change` part au `blur`), puis enregistre si le document est sale. */
