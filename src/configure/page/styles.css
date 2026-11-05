@@ -60,6 +60,14 @@
 --blur-popover:blur(24px) saturate(1.6);/* @kind other */
 }
 
+/* ==== palette de harnais (propre à la page, hors export du DS) ====
+   Fond d'un badge « Used by » selon le harnais. L'encre est choisie au contraste WCAG : sombre partout,
+   blanche sur dst, seul fond sombre de la palette. */
+:root{
+--harness-claude:#d97757;--harness-codex:#10b981;--harness-grok:#f4f4f5;--harness-agy:#a855f7;--harness-opencode:#06b6d4;--harness-dst:#1e40af;
+--harness-claude-ink:var(--powerline-ink);--harness-codex-ink:var(--powerline-ink);--harness-grok-ink:var(--powerline-ink);--harness-agy-ink:var(--powerline-ink);--harness-opencode-ink:var(--powerline-ink);--harness-dst-ink:var(--label-strong);
+}
+
 /* ==== tokens/base.css ==== */
 .eds-root{background:var(--surface-window);color:var(--text-body);font-family:var(--font-ui);font-size:var(--text-body-size);-webkit-font-smoothing:antialiased}
 .eds-icon{font-family:var(--font-icon);font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;direction:ltr;-webkit-font-feature-settings:'liga';font-feature-settings:'liga';-webkit-font-smoothing:antialiased}
@@ -185,6 +193,17 @@ button:focus-visible, select:focus-visible, .field:focus, .field:focus-visible {
 }
 .rows { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 
+/* Bascule « Group by harness » : la case du DS (Checkbox.jsx) et le texte d'un bouton. */
+.grp { flex: none; display: flex; align-items: center; gap: calc(var(--grid) * 2); height: var(--row-caption-h); margin: 0 0 calc(var(--grid) * 1.5); padding: 0 calc(var(--grid) * 2); border-radius: var(--radius-control); color: var(--label-2); font-size: var(--text-small); white-space: nowrap; }
+.grp:hover { color: var(--label-hover); }
+.ckb { display: grid; place-items: center; flex: none; width: calc(var(--grid) * 3.5); height: calc(var(--grid) * 3.5); border-radius: var(--radius-checkbox); box-shadow: inset 0 0 0 var(--hairline) var(--border-checkbox); color: var(--label-strong); font-size: var(--text-badge); font-weight: var(--weight-semibold); }
+.grp[aria-checked="true"] .ckb { background: var(--accent-blue); box-shadow: none; }
+
+/* Groupe de la liste : l'en-tête suit SectionHeader.jsx (26, 11 semibold, --label-caption). */
+.rowgroup { flex: none; display: flex; flex-direction: column; }
+.rowgroup + .rowgroup { margin-top: calc(var(--grid) * 1.5); }
+.gh { display: flex; align-items: center; height: var(--row-caption-h); padding: 0 var(--grid) 0 calc(var(--grid) * 2); font-size: var(--text-caption); font-weight: var(--weight-semibold); color: var(--label-caption); }
+
 .seg { display: flex; flex: none; gap: calc(var(--grid) * 0.5); height: var(--button-h); padding: calc(var(--grid) * 0.5); margin: 0 calc(var(--grid) * 0.5) calc(var(--grid) * 2.5); border-radius: calc(var(--grid) * 1.75); background: var(--fill-control); }
 .seg button { flex: 1; display: flex; align-items: center; justify-content: center; gap: calc(var(--grid) * 1.25); border-radius: var(--radius-menu-item); color: var(--label-2); font-size: var(--text-small); white-space: nowrap; }
 .seg button.on { background: var(--fill-active); color: var(--label-strong); }
@@ -293,7 +312,19 @@ button:focus-visible, select:focus-visible, .field:focus, .field:focus-visible {
   font: inherit;
 }
 .cmd .ek:focus { box-shadow: var(--shadow-focus); }
-.used .cmd { height: calc(var(--grid) * 7.5); margin-bottom: calc(var(--grid) * 1.5); background: var(--surface-recessed-soft); font-size: var(--text-small); }
+
+/* Badges « Used by » : la couleur est celle du harnais (data-harness) ; un harnais inconnu garde le look de .tag.
+   Pas de transition (DS : aucune animation) ; le focus clavier vient de la règle globale des boutons (--shadow-focus). */
+.badges { display: flex; flex-wrap: wrap; gap: calc(var(--grid) * 1.5); }
+.badge { display: inline-flex; align-items: center; max-width: 100%; height: var(--button-sm-h); padding: 0 calc(var(--grid) * 2.5); border-radius: var(--radius-keycap); background: var(--fill-tab-active); color: var(--label-2); font-size: var(--text-small); font-weight: var(--weight-medium); white-space: nowrap; }
+.badge:hover { filter: brightness(1.12); }
+.badge:focus-visible { box-shadow: var(--shadow-focus); }
+.badge[data-harness="claude"] { background: var(--harness-claude); color: var(--harness-claude-ink); }
+.badge[data-harness="codex"] { background: var(--harness-codex); color: var(--harness-codex-ink); }
+.badge[data-harness="grok"] { background: var(--harness-grok); color: var(--harness-grok-ink); }
+.badge[data-harness="agy"] { background: var(--harness-agy); color: var(--harness-agy-ink); }
+.badge[data-harness="opencode"] { background: var(--harness-opencode); color: var(--harness-opencode-ink); }
+.badge[data-harness="dst"] { background: var(--harness-dst); color: var(--harness-dst-ink); }
 
 .ctl { display: flex; align-items: center; flex-wrap: wrap; gap: calc(var(--grid) * 2) calc(var(--grid) * 4); margin-top: calc(var(--grid) * 2.5); padding-left: calc(var(--grid) * 0.5); }
 .ctl .c { display: flex; align-items: center; gap: calc(var(--grid) * 2); }

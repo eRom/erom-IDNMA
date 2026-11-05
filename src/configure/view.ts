@@ -12,6 +12,7 @@ import type {
   EnvVarView,
   LinkView,
   OptionsChoice,
+  PresetUser,
   PresetView,
   ProviderChoice,
 } from "./types.ts";
@@ -153,12 +154,14 @@ function readEngine(reader: Reader, agentKey: string, name: string, node: unknow
   return { view, presets };
 }
 
-function readAgents(reader: Reader, usage: Map<string, string[]>): AgentView[] {
+function readAgents(reader: Reader, usage: Map<string, PresetUser[]>): AgentView[] {
   const agents: AgentView[] = [];
   for (const pair of reader.doc.agentsMap()?.items ?? []) {
     const key = keyName(pair);
     if (key === undefined) continue;
     const agent: AgentView = { key, engines: [] };
+    // Presets déjà comptés pour cet agent : un agent n'apparaît qu'une fois par preset, même avec deux engines.
+    const counted = new Set<string>();
     if (isMap(pair.value)) {
       for (const field of ["label", "info", "avatar"] as const) {
         const text = textOf(reader, pair.value.get(field, true));
@@ -171,7 +174,9 @@ function readAgents(reader: Reader, usage: Map<string, string[]>): AgentView[] {
         const reading = readEngine(reader, key, engineName, enginePair.value);
         agent.engines.push(reading.view);
         for (const preset of new Set(reading.presets)) {
-          usage.set(preset, [...(usage.get(preset) ?? []), reading.view.command]);
+          if (counted.has(preset)) continue;
+          counted.add(preset);
+          usage.set(preset, [...(usage.get(preset) ?? []), { agent: key, harness: reading.view.harness }]);
         }
       }
     }
@@ -186,7 +191,7 @@ function readPreset(
   name: string,
   node: unknown,
   flags: { builtIn: boolean; inFile: boolean },
-  usedBy: string[],
+  usedBy: PresetUser[],
 ): PresetView {
   const view: PresetView = {
     name,
@@ -210,7 +215,7 @@ function builtinNode(name: string): unknown {
   return builtinTemplate.get(name, true);
 }
 
-function readPresets(reader: Reader, usage: Map<string, string[]>): PresetView[] {
+function readPresets(reader: Reader, usage: Map<string, PresetUser[]>): PresetView[] {
   const presets: PresetView[] = [];
   // Noms de built-ins déjà présents dans le fichier : par la clé du preset ou par son ancre, car ce sont
   // les alias qui font l'identité (`local: &ollama` est le built-in `ollama`, sous un autre nom de clé).
@@ -262,7 +267,7 @@ export function buildView(doc: ConfigDocument, path: string, dirty: boolean): Co
     if (name !== undefined && isNode(pair.value) && pair.value.anchor) presetByAnchor.set(pair.value.anchor, name);
   }
   const reader: Reader = { doc, sites: doc.anchorSites(), presetByAnchor };
-  const usage = new Map<string, string[]>();
+  const usage = new Map<string, PresetUser[]>();
   view.agents = readAgents(reader, usage);
   view.presets = readPresets(reader, usage);
   return view;

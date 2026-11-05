@@ -491,6 +491,19 @@ function onAction(button: HTMLElement): void {
       refusal = undefined;
       resetScroll = true;
       return render();
+    case "groupBy":
+      ui.groupBy = ui.groupBy === "harness" ? undefined : "harness";
+      return render();
+    case "openAgent":
+      // Un badge « Used by » : la fiche de l'agent s'ouvre sur l'onglet Agents, sa rangée amenée dans la vue.
+      ui.tab = "agents";
+      ui.selected = d.key;
+      ui.menu = undefined;
+      ui.adding = undefined;
+      refusal = undefined;
+      resetScroll = true;
+      render();
+      return void root.querySelector('.side .row[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
     case "menu": {
       const kind = d.kind === "options" ? "options" : "provider";
       const open = ui.menu?.agent === agent && ui.menu.engine === engine && ui.menu.kind === kind;

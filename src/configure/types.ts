@@ -64,6 +64,12 @@ export interface AgentView {
   engines: EngineView[];
 }
 
+/** Un agent qui utilise un preset, avec le harnais du premier de ses engines (dans l'ordre du fichier) qui s'en sert. */
+export interface PresetUser {
+  agent: string;
+  harness: string;
+}
+
 export interface PresetView {
   name: string;
   kind: "provider" | "options" | "other";
@@ -72,8 +78,8 @@ export interface PresetView {
   inFile: boolean;
   vars: EnvVarView[];
   options: string[];
-  /** Commandes de test des engines qui utilisent ce preset. */
-  usedBy: string[];
+  /** Les agents dont un engine utilise ce preset : une entrée par agent, dans l'ordre du fichier. */
+  usedBy: PresetUser[];
 }
 
 export interface ParseErrorView {

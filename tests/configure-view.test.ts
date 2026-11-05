@@ -130,11 +130,42 @@ describe("configure view", () => {
     }
   });
 
-  test("lists who uses a preset as commands", () => {
+  test("lists the agents that use a preset with the harness of the engine that uses it", () => {
     const view = viewOf(romain);
     const openrouter = view.presets.find((p) => p.name === "openrouter");
-    expect(openrouter?.usedBy).toContain("idnma run argon --engine claude");
-    expect(view.presets.find((p) => p.name === "claude-max")?.usedBy).toContain("idnma run deepseek-flash");
+    // argon : son engine par défaut est agy, seul son engine `claude` fusionne openrouter.
+    expect(openrouter?.usedBy).toContainEqual({ agent: "argon", harness: "claude" });
+    expect(view.presets.find((p) => p.name === "claude-max")?.usedBy).toContainEqual({ agent: "deepseek-flash", harness: "claude" });
+  });
+
+  test("lists an agent once per preset even when two of its engines use it", () => {
+    const text = `presets:
+  ollama: &ollama
+    ANTHROPIC_BASE_URL: "http://localhost:11434"
+agents:
+  twin:
+    engines:
+      first:
+        harness: opencode
+        env:
+          <<: *ollama
+      second:
+        harness: claude
+        env:
+          <<: *ollama
+  solo:
+    engines:
+      default:
+        harness: claude
+        env:
+          <<: *ollama
+`;
+    const usedBy = viewOf(text).presets.find((p) => p.name === "ollama")?.usedBy;
+    // Une entrée par agent, dans l'ordre du fichier ; le harnais est celui du premier engine qui s'en sert.
+    expect(usedBy).toEqual([
+      { agent: "twin", harness: "opencode" },
+      { agent: "solo", harness: "claude" },
+    ]);
   });
 
   test("reads anthropic and custom providers", () => {
@@ -183,8 +214,8 @@ describe("configure view", () => {
     const view = viewOf(withEngine("        harness: claude\n        env:\n          <<: [*ollama, *openrouter]\n", presets));
     const engine = engineOf(view, "a", "default");
     expect(engine.readOnly).toBeTruthy();
-    expect(view.presets.find((p) => p.name === "ollama")?.usedBy).toEqual(["idnma run a"]);
-    expect(view.presets.find((p) => p.name === "openrouter")?.usedBy).toEqual(["idnma run a"]);
+    expect(view.presets.find((p) => p.name === "ollama")?.usedBy).toEqual([{ agent: "a", harness: "claude" }]);
+    expect(view.presets.find((p) => p.name === "openrouter")?.usedBy).toEqual([{ agent: "a", harness: "claude" }]);
   });
 
   test("reads inline, preset and empty options", () => {

@@ -531,7 +531,7 @@ agents:
 `;
     const view = buildView(ConfigDocument.parse(text), "/tmp/.idnma.yml", false);
     const local = view.presets.find((p) => p.name === "local");
-    expect(local?.usedBy).toEqual(["idnma run glm"]);
+    expect(local?.usedBy).toEqual([{ agent: "glm", harness: "claude" }]);
     expect(local?.builtIn).toBe(true);
   });
 
@@ -539,7 +539,7 @@ agents:
     const result = edit(romain, { op: "renamePreset", name: "ollama", newName: "ollama-cloud" });
     const view = buildView(ConfigDocument.parse(result.text), "/tmp/.idnma.yml", false);
     const renamed = view.presets.find((p) => p.name === "ollama-cloud");
-    expect(renamed?.usedBy).toContain("idnma run glm");
+    expect(renamed?.usedBy).toContainEqual({ agent: "glm", harness: "claude" });
     expect(renamed?.usedBy).toHaveLength(7);
   });
 });

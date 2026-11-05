@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ConfigDocument } from "../src/configure/document.ts";
-import { escapeHtml, renderApp, type UiState } from "../src/configure/page/render.ts";
+import { compareNames, escapeHtml, renderApp, type UiState } from "../src/configure/page/render.ts";
 import type { ConfigView } from "../src/configure/types.ts";
 import { buildView } from "../src/configure/view.ts";
 
@@ -143,8 +143,8 @@ describe("configure render", () => {
     const agents = renderApp(view, { tab: "agents" });
     const agentRow = agents.split("<button").find((b) => b.includes('data-key="oss20"')) ?? "";
     expect(agentRow).not.toContain("dot err");
-    // « Used by » donne la commande qui dépend du preset.
-    expect(html).toContain('data-text="idnma run oss20"');
+    // « Used by » donne l'agent qui dépend du preset, en badge.
+    expect(html).toContain('data-action="openAgent" data-key="oss20" data-harness="claude"');
   });
 
   test("builds the quote path of an engine variable and of an option item", () => {
@@ -261,9 +261,13 @@ describe("configure render", () => {
     expect(html).not.toMatch(/ style=/);
   });
 
-  test("selects the first row when nothing valid is selected", () => {
+  test("selects the first displayed row when nothing valid is selected", () => {
     const html = renderApp(viewOf(romain), agentsTab("does-not-exist"));
-    expect(html).toContain('data-action="duplicateAgent" data-agent="opus"');
+    // La première rangée est la première dans l'ordre alphabétique affiché, plus celle du fichier (opus).
+    const first = [...html.matchAll(/data-action="select" data-key="([^"]*)"/g)][0]?.[1] ?? "";
+    expect(first).not.toBe("opus");
+    expect(html).toContain(`data-action="duplicateAgent" data-agent="${first}"`);
+    expect(html).toContain(`class="row sel" aria-current="true" data-action="select" data-key="${first}"`);
   });
 
   test("shows linked values read only, with Unlink and the other places", () => {
@@ -324,7 +328,8 @@ agents:
     expect(html).toContain('data-action="addOption"');
     expect(html).toContain('value="--effort"');
     expect(textOf(html)).toContain("Used by");
-    expect(html).toContain('data-action="copy"');
+    expect(html).toContain('data-action="openAgent"');
+    expect(html).not.toContain('data-action="copy"');
   });
 
   test("gives every field a stable, unique focus id", () => {
@@ -547,5 +552,353 @@ describe("configure render env section", () => {
     expect(dst).toContain('id="add:name"');
     expect(claude).not.toContain("addrow");
     expect(claude).toContain('data-action="addEnvVar"');
+  });
+});
+
+// --- Ordre alphabétique, regroupement par harnais, badges « Used by » -------------------------------
+
+const asSorted = (names: string[]): string[] => [...names].sort(compareNames);
+
+/** Les clés des rangées de la barre latérale, dans l'ordre affiché (une clé peut y figurer plusieurs fois). */
+function rowKeys(html: string): string[] {
+  const side = html.slice(html.indexOf('<nav class="side">'), html.indexOf("</nav>"));
+  return [...side.matchAll(/<button type="button" class="row(?: sel)?"[^>]*data-action="select" data-key="([^"]*)"/g)].map((m) => m[1] ?? "");
+}
+
+/** Les options (valeur, présélection) du `<select>` désigné par son id. */
+function selectOptions(html: string, id: string): { value: string; selected: boolean }[] {
+  const select = html.match(new RegExp(`<select[^>]*id="${id}"[^>]*>(.*?)</select>`));
+  return [...(select?.[1] ?? "").matchAll(/<option value="([^"]*)"( selected)?>/g)].map((m) => ({ value: m[1] ?? "", selected: m[2] !== undefined }));
+}
+
+/** Les groupes de la barre latérale : leur titre et les clés de leurs rangées. */
+function sidebarGroups(html: string): { header: string; keys: string[] }[] {
+  const side = html.slice(html.indexOf('<nav class="side">'), html.indexOf("</nav>"));
+  return side
+    .split('<div class="rowgroup"')
+    .slice(1)
+    .map((chunk) => ({
+      header: textOf(chunk.match(/<div class="gh">(.*?)<\/div>/)?.[1] ?? "").trim(),
+      keys: [...chunk.matchAll(/data-action="select" data-key="([^"]*)"/g)].map((m) => m[1] ?? ""),
+    }));
+}
+
+const claudeAgents = (...keys: string[]): string =>
+  keys.map((k) => `  ${k}:\n    engines:\n      default:\n        harness: claude\n`).join("");
+
+describe("configure render order", () => {
+  test("compareNames orders case-insensitively, numbers by value, and is deterministic on ties", () => {
+    expect(["b", "A", "c"].sort(compareNames)).toEqual(["A", "b", "c"]);
+    expect(["agent 10", "agent 2"].sort(compareNames)).toEqual(["agent 2", "agent 10"]);
+    // « a » et « A » sont égaux pour la locale : l'ordre des points de code les départage, dans les deux sens.
+    expect(compareNames("A", "a")).toBeLessThan(0);
+    expect(compareNames("a", "A")).toBeGreaterThan(0);
+    expect(compareNames("a", "a")).toBe(0);
+  });
+
+  test("sorts the harness select of an engine and of the add form, and keeps claude preselected on add", () => {
+    const engine = renderApp(viewOf(romain), agentsTab("deepseek-flash"));
+    const engineOptions = selectOptions(engine, "agent:deepseek-flash:engine:default:harness").map((o) => o.value);
+    expect(engineOptions.length).toBeGreaterThanOrEqual(6);
+    expect(engineOptions).toEqual(asSorted(engineOptions));
+
+    const add = renderApp(viewOf(romain), { ...agentsTab("deepseek-flash"), adding: { action: "addAgent" } });
+    const addOptions = selectOptions(add, "add:harness");
+    expect(addOptions.map((o) => o.value)).toEqual(asSorted(engineOptions));
+    // claude n'est plus la première option, mais reste le choix par défaut d'un nouvel agent.
+    expect(addOptions[0]?.value).not.toBe("claude");
+    expect(addOptions.filter((o) => o.selected).map((o) => o.value)).toEqual(["claude"]);
+
+    const addEngine = renderApp(viewOf(romain), { ...agentsTab("deepseek-flash"), adding: { action: "addEngine", agent: "deepseek-flash" } });
+    expect(selectOptions(addEngine, "add:harness").filter((o) => o.selected).map((o) => o.value)).toEqual(["claude"]);
+  });
+
+  test("keeps the unknown harness of an engine as its first option, then the sorted ones", () => {
+    const text = "agents:\n  a:\n    engines:\n      default:\n        harness: martian\n";
+    const options = selectOptions(renderApp(viewOf(text), agentsTab("a")), "agent:a:engine:default:harness");
+    expect(options[0]).toEqual({ value: "martian", selected: true });
+    expect(options.slice(1).map((o) => o.value)).toEqual(asSorted(options.slice(1).map((o) => o.value)));
+  });
+
+  test("sorts the provider menu as one list with Anthropic, the tail last", () => {
+    const text = `presets:\n  aardvark: &aardvark\n    K: v\n  zeta: &zeta\n    K: v\nagents:\n${claudeAgents("a")}`;
+    const html = renderApp(viewOf(text), { ...agentsTab("a"), menu: { agent: "a", engine: "default", kind: "provider" } });
+    const menu = html.slice(html.indexOf('role="menu"'));
+    const [main = "", tail = ""] = menu.split('<div class="msep">');
+    const labels = [...main.matchAll(/data-provider-kind="(anthropic|preset)"(?: data-preset="([^"]*)")?/g)].map((m) => (m[1] === "anthropic" ? "Anthropic" : (m[2] ?? "")));
+    expect(labels.length).toBeGreaterThanOrEqual(5);
+    expect(labels).toEqual(asSorted(labels));
+    // Anthropic n'est pas en tête : elle se trie avec les presets.
+    expect(labels.indexOf("aardvark")).toBeLessThan(labels.indexOf("Anthropic"));
+    expect(labels.indexOf("Anthropic")).toBeLessThan(labels.indexOf("zeta"));
+    expect(textOf(tail)).toMatch(/Custom env….*Edit providers…/);
+  });
+
+  test("lists None first in the options menu, then the option sets sorted, Custom last", () => {
+    const text = `presets:\n  zz: &zz [--a]\n  aa: &aa [--b]\nagents:\n${claudeAgents("a")}`;
+    const html = renderApp(viewOf(text), { ...agentsTab("a"), menu: { agent: "a", engine: "default", kind: "options" } });
+    const menu = html.slice(html.indexOf('role="menu"'));
+    const [main = "", tail = ""] = menu.split('<div class="msep">');
+    const kinds = [...main.matchAll(/data-options-kind="(none|preset)"(?: data-preset="([^"]*)")?/g)].map((m) => (m[1] === "none" ? "" : (m[2] ?? "")));
+    expect(kinds[0]).toBe("");
+    const sets = kinds.slice(1);
+    expect(sets.length).toBeGreaterThanOrEqual(3);
+    expect(sets).toEqual(asSorted(sets));
+    expect(sets).toContain("aa");
+    expect(tail).toContain('data-options-kind="custom"');
+  });
+
+  test("sorts the agent rows by displayed name, the key standing in for a missing label", () => {
+    const text = `agents:
+  k1:
+    label: Zulu
+    engines:
+      default:
+        harness: claude
+  k2:
+    label: alpha
+    engines:
+      default:
+        harness: claude
+  Charlie:
+    engines:
+      default:
+        harness: claude
+  n10:
+    label: Agent 10
+    engines:
+      default:
+        harness: claude
+  n2:
+    label: Agent 2
+    engines:
+      default:
+        harness: claude
+`;
+    const view = viewOf(text);
+    const keys = rowKeys(renderApp(view, agentsTab()));
+    const shown = (key: string): string => view.agents.find((a) => a.key === key)?.label || key;
+    expect(keys.map(shown)).toEqual(asSorted(keys.map(shown)));
+    expect(keys).toHaveLength(5);
+    // Le label diffère de la clé : l'ordre suit ce que l'on voit, pas la clé.
+    expect(keys.indexOf("k2")).toBeLessThan(keys.indexOf("k1"));
+    expect(keys.indexOf("n2")).toBeLessThan(keys.indexOf("n10"));
+  });
+
+  test("breaks a tie between two agents with the same displayed name by key", () => {
+    const text = `agents:\n  b:\n    label: Same\n    engines:\n      default:\n        harness: claude\n  a:\n    label: Same\n    engines:\n      default:\n        harness: claude\n`;
+    expect(rowKeys(renderApp(viewOf(text), agentsTab()))).toEqual(["a", "b"]);
+  });
+
+  test("sorts the provider and option set rows, built-ins not yet in the file included", () => {
+    const text = `presets:\n  zulu: &zulu\n    K: v\n  mine: &mine [--a]\nagents:\n${claudeAgents("a")}`;
+    const view = viewOf(text);
+    const providers = rowKeys(renderApp(view, { tab: "providers" }));
+    expect(providers.length).toBeGreaterThanOrEqual(4);
+    expect(providers).toEqual(asSorted(providers));
+    // Un built-in absent du fichier se trie avec les autres ; le preset du fichier « zulu » ferme la liste.
+    const absent = view.presets.filter((p) => p.builtIn && !p.inFile && p.kind === "provider").map((p) => p.name);
+    expect(absent.length).toBeGreaterThan(0);
+    for (const name of absent) expect(providers).toContain(name);
+    expect(providers.at(-1)).toBe("zulu");
+
+    const options = rowKeys(renderApp(view, { tab: "options" }));
+    expect(options).toEqual(asSorted(options));
+    expect(options).toContain("mine");
+    expect(options).toContain("claude-max");
+  });
+});
+
+describe("configure render group by harness", () => {
+  const text = `agents:
+  multi:
+    label: Multi
+    engines:
+      default:
+        harness: opencode
+      second:
+        harness: claude
+  solo:
+    label: Solo
+    engines:
+      default:
+        harness: claude
+  bare:
+    label: Bare
+  odd:
+    label: Odd
+    engines:
+      default:
+        harness: ""
+`;
+  const grouped = (selected?: string): UiState => ({ ...agentsTab(selected), groupBy: "harness" });
+
+  test("shows the toggle under the tabs on the Agents tab only, a button and not an input", () => {
+    const off = renderApp(viewOf(text), agentsTab());
+    expect(off).toMatch(/<button type="button" role="checkbox" aria-checked="false" class="grp" data-action="groupBy">/);
+    expect(textOf(off)).toContain("Group by harness");
+    expect(off.indexOf('role="tablist"')).toBeLessThan(off.indexOf('role="checkbox"'));
+    expect(off).not.toContain("<div class=\"rowgroup\"");
+
+    const on = renderApp(viewOf(text), grouped());
+    expect(on).toContain('role="checkbox" aria-checked="true"');
+    expect(on).not.toMatch(/<input[^>]*groupBy/);
+
+    expect(renderApp(viewOf(text), { tab: "providers", groupBy: "harness" })).not.toContain('role="checkbox"');
+    expect(renderApp(viewOf(text), { tab: "options", groupBy: "harness" })).not.toContain('role="checkbox"');
+  });
+
+  test("groups agents by harness, sorted, an agent under each harness it uses, No engine last", () => {
+    const groups = sidebarGroups(renderApp(viewOf(text), grouped()));
+    const headers = groups.map((g) => g.header);
+    expect(headers.at(-1)).toBe("No engine");
+    const engineHeaders = headers.slice(0, -1);
+    expect(engineHeaders).toEqual(asSorted(engineHeaders));
+    expect(engineHeaders).toContain("claude");
+    expect(engineHeaders).toContain("opencode");
+    expect(engineHeaders).toContain("(none)");
+
+    const under = (header: string): string[] => groups.find((g) => g.header === header)?.keys ?? [];
+    expect(under("claude")).toContain("multi");
+    expect(under("opencode")).toContain("multi");
+    expect(under("claude")).toContain("solo");
+    expect(under("opencode")).not.toContain("solo");
+    expect(under("(none)")).toEqual(["odd"]);
+    expect(under("No engine")).toEqual(["bare"]);
+  });
+
+  test("keeps the default agent order inside a group", () => {
+    const sorted = `agents:\n  k1:\n    label: Zulu\n    engines:\n      default:\n        harness: claude\n  k2:\n    label: Alpha\n    engines:\n      default:\n        harness: claude\n`;
+    expect(sidebarGroups(renderApp(viewOf(sorted), grouped()))).toEqual([{ header: "claude", keys: ["k2", "k1"] }]);
+  });
+
+  test("marks every row of the selected agent, and only them", () => {
+    const html = renderApp(viewOf(text), grouped("multi"));
+    const current = [...html.matchAll(/<button type="button" class="row sel" aria-current="true" data-action="select" data-key="([^"]*)"/g)].map((m) => m[1]);
+    expect(current).toEqual(["multi", "multi"]);
+    expect(html.match(/aria-current="true"/g)).toHaveLength(2);
+    expect(html.match(/class="row sel"/g)).toHaveLength(2);
+  });
+
+  test("shows no harness text on a grouped row but keeps the error dot", () => {
+    const broken = `agents:\n  a:\n    label: A\n    engines:\n      default:\n        harness: claude\n        model: 3\n  b:\n    label: B\n    engines:\n      default:\n        harness: claude\n`;
+    const view = viewOf(broken);
+    expect(view.issues.some((i) => i.agent === "a" && i.severity === "error")).toBe(true);
+    const html = renderApp(view, grouped());
+    const rows = html.split('<button type="button" class="row').slice(1).filter((r) => r.includes('data-action="select"'));
+    expect(rows).toHaveLength(2);
+    const [rowA = "", rowB = ""] = rows;
+    expect(rowA).toContain("dot err");
+    expect(rowA).not.toContain(">claude");
+    expect(rowB).not.toContain("claude");
+    expect(rowB).not.toContain('class="meta"');
+    // Hors regroupement, la rangée garde son harnais.
+    expect(renderApp(view, agentsTab())).toContain(">claude");
+  });
+
+  test("selects the first displayed row by default, so the pane and the highlighted row agree", () => {
+    const file = `agents:\n  z:\n    label: Zeta\n    engines:\n      default:\n        harness: claude\n  a:\n    label: Alpha\n    engines:\n      default:\n        harness: opencode\n`;
+    const view = viewOf(file);
+    const plain = renderApp(view, agentsTab());
+    // « z » vient en premier dans le fichier, « a » en premier à l'écran.
+    expect(rowKeys(plain)[0]).toBe("a");
+    expect(plain).toMatch(/class="row sel" aria-current="true" data-action="select" data-key="a"/);
+    expect(plain).toContain("<h2>Alpha</h2>");
+
+    const byHarness = renderApp(view, grouped());
+    const firstGroup = sidebarGroups(byHarness)[0];
+    expect(firstGroup?.header).toBe("claude");
+    expect(byHarness).toMatch(/class="row sel" aria-current="true" data-action="select" data-key="z"/);
+    expect(byHarness).toContain("<h2>Zeta</h2>");
+
+    // Une sélection disparue retombe sur la première rangée affichée.
+    expect(renderApp(view, agentsTab("gone"))).toContain("<h2>Alpha</h2>");
+    // Même règle pour les presets : la première rangée triée est celle du panneau.
+    const providers = renderApp(viewOf(romain), { tab: "providers" });
+    const first = rowKeys(providers)[0] ?? "";
+    expect(providers).toContain(`class="row sel" aria-current="true" data-action="select" data-key="${first}"`);
+    expect(providers).toContain(`<h2>${first}</h2>`);
+  });
+});
+
+describe("configure render Used by badges", () => {
+  const text = `presets:
+  ollama: &ollama
+    ANTHROPIC_BASE_URL: "http://localhost:11434"
+  fast: &fast [--effort, low]
+agents:
+  zed:
+    label: Zed
+    engines:
+      default:
+        harness: claude
+        options: *fast
+        env:
+          <<: *ollama
+  plain:
+    engines:
+      default:
+        harness: opencode
+        env:
+          <<: *ollama
+  bee:
+    label: bee
+    engines:
+      default:
+        harness: codex
+        options: *fast
+  hostile:
+    label: ${JSON.stringify("<b>x</b> & \"y\"")}
+    engines:
+      default:
+        harness: claude
+        env:
+          <<: *ollama
+`;
+  const badgesOf = (html: string): { key: string; harness: string; name: string; aria: string }[] => {
+    const box = html.slice(html.indexOf('<div class="badges">'));
+    return [...box.matchAll(/<button type="button" class="badge" data-action="openAgent" data-key="([^"]*)" data-harness="([^"]*)" aria-label="([^"]*)">(.*?)<\/button>/g)].map((m) => ({
+      key: m[1] ?? "",
+      harness: m[2] ?? "",
+      aria: m[3] ?? "",
+      name: m[4] ?? "",
+    }));
+  };
+
+  test("lists one badge per agent on a provider, sorted by displayed name, with its harness", () => {
+    const html = renderApp(viewOf(text), { tab: "providers", selected: "ollama" });
+    const badges = badgesOf(html);
+    expect(badges.map((b) => b.key).sort()).toEqual(["hostile", "plain", "zed"]);
+    const names = badges.map((b) => b.name.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&").replaceAll("&quot;", '"'));
+    expect(names).toEqual(asSorted(names));
+    const byKey = Object.fromEntries(badges.map((b) => [b.key, b]));
+    expect(byKey.zed).toMatchObject({ harness: "claude", name: "Zed", aria: "Open agent Zed" });
+    // Sans label, le badge montre la clé.
+    expect(byKey.plain).toMatchObject({ harness: "opencode", name: "plain", aria: "Open agent plain" });
+    expect(html).not.toContain('data-action="copy"');
+  });
+
+  test("escapes the label of a badge, in its text and in its accessible name", () => {
+    const html = renderApp(viewOf(text), { tab: "providers", selected: "ollama" });
+    expect(html).not.toContain("<b>x</b>");
+    const hostile = badgesOf(html).find((b) => b.key === "hostile");
+    expect(hostile?.name).toBe("&lt;b&gt;x&lt;/b&gt; &amp; &quot;y&quot;");
+    expect(hostile?.aria).toBe("Open agent &lt;b&gt;x&lt;/b&gt; &amp; &quot;y&quot;");
+  });
+
+  test("lists the agents of an option set the same way", () => {
+    const badges = badgesOf(renderApp(viewOf(text), { tab: "options", selected: "fast" }));
+    expect(badges.map((b) => [b.key, b.harness])).toEqual([
+      ["bee", "codex"],
+      ["zed", "claude"],
+    ]);
+  });
+
+  test("says so when no agent uses the preset, with no badge", () => {
+    const html = renderApp(viewOf(text), { tab: "providers", selected: "lmstudio" });
+    expect(textOf(html)).toContain("Used by");
+    expect(textOf(html)).toContain("No agent uses this yet.");
+    expect(html).not.toContain('class="badge"');
+    expect(html).not.toContain("No engine uses this yet.");
   });
 });

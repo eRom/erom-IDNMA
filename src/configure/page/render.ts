@@ -42,9 +42,13 @@
  * 2. Action d'interface, sans `EditOp` direct :
  *    - `tab` : `data-tab` = `agents`|`providers`|`options`.
  *    - `select` : `data-key` = clé de l'agent ou nom du preset à afficher (l'onglet est celui d'`UiState`).
+    - `groupBy` : bascule `UiState.groupBy` (`harness` ou absent) ; bouton `role="checkbox"` de la barre latérale,
+      onglet Agents seulement. Regroupé, un agent figure sous chaque harnais qu'utilise l'un de ses engines.
+    - `openAgent` : badge « Used by » ; `data-key` = clé de l'agent, `data-harness` = son harnais (la couleur du
+      badge). Ouvre l'onglet Agents sur cet agent et amène sa rangée dans la vue.
  *    - `menu` : ouvre (ou ferme) le menu d'un engine ; `data-agent`, `data-engine`, `data-kind` =
  *      `provider`|`options`. Le menu ouvert est celui d'`UiState.menu`.
- *    - `copy` : `data-text` = le texte exact à copier.
+ *    - `copy` : `data-text` = le texte exact à copier (bouton Copy de la bande de commande d'un engine).
  *    - `save`, `revert`, `reload` : sans paramètre.
  *    - `quote` : bouton « Quote it », `data-path` = chemin de la valeur à passer en texte, à envoyer en
  *      `quoteValue`.
@@ -88,6 +92,8 @@ export interface UiState {
   selected?: string;
   menu?: { agent: string; engine: string; kind: "harness" | "provider" | "options" };
   adding?: AddingState;
+  /** Regroupement de la liste des agents ; en mémoire seulement (le port du serveur change à chaque lancement). */
+  groupBy?: "harness";
 }
 
 export function escapeHtml(s: string): string {
@@ -103,7 +109,18 @@ const esc = escapeHtml;
 
 /** Les harnais proposés ; le type `Record` oblige à les lister tous quand `Harness` s'allonge. */
 const HARNESS_TABLE: Record<Harness, true> = { claude: true, codex: true, grok: true, agy: true, opencode: true, dst: true };
-const HARNESS_NAMES = Object.keys(HARNESS_TABLE);
+
+/**
+ * L'unique ordre alphabétique de la page : sans casse ni accent, les nombres par valeur (« agent 2 » avant
+ * « agent 10 »). Deux noms égaux pour la locale se départagent par point de code, le résultat est déterministe.
+ */
+export function compareNames(a: string, b: string): number {
+  const byLocale = a.localeCompare(b, "en", { sensitivity: "base", numeric: true });
+  if (byLocale !== 0) return byLocale;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+const HARNESS_NAMES = Object.keys(HARNESS_TABLE).sort(compareNames);
 
 type Path = (string | number)[];
 type DataAttrs = Record<string, string | number | undefined>;
@@ -179,7 +196,8 @@ function sameAdding(current: AddingState | undefined, target: AddingState): bool
 function addForm(target: AddingState, firstAgent = false): string {
   const text = (id: string, label: string, placeholder: string): string => inputHtml({ id: `add:${id}`, value: "", label, placeholder, mono: true });
   const harness = (): string => {
-    const options = HARNESS_NAMES.map((h) => `<option value="${h}">${h}</option>`).join("");
+    // Triés, mais un nouvel agent (ou engine) part toujours sur claude.
+    const options = HARNESS_NAMES.map((h) => `<option value="${h}"${h === "claude" ? " selected" : ""}>${h}</option>`).join("");
     return selectHtml(`<select class="pop" id="add:harness" data-focus-id="add:harness" aria-label="Harness">${options}</select>`);
   };
   let inputs: string;
@@ -293,6 +311,56 @@ function toolbar(view: ConfigView): string {
 
 const providerLike = (preset: PresetView): boolean => preset.kind !== "options";
 
+/** Le nom affiché d'un agent : son label, à défaut sa clé. */
+const displayName = (agent: AgentView): string => agent.label || agent.key;
+
+/** Ordre de la liste des agents : le nom affiché, puis la clé pour départager deux noms égaux. */
+const compareAgents = (a: AgentView, b: AgentView): number => compareNames(displayName(a), displayName(b)) || compareNames(a.key, b.key);
+
+const byPresetName = (a: PresetView, b: PresetView): number => compareNames(a.name, b.name);
+
+/** Une section de la liste des agents ; `header` est absent hors regroupement. */
+interface AgentGroup {
+  header?: string;
+  agents: AgentView[];
+}
+
+/**
+ * Les agents dans l'ordre où la barre latérale les montre. Regroupé par harnais, un agent figure sous chaque
+ * harnais qu'utilise l'un de ses engines (un agent est un modèle : le groupe répond à « quels modèles lancer
+ * avec ce harnais »). Un harnais vide s'intitule `(none)` ; les agents sans engine ferment la liste.
+ */
+function agentGroups(view: ConfigView, ui: UiState): AgentGroup[] {
+  const sorted = [...view.agents].sort(compareAgents);
+  if (ui.groupBy !== "harness") return [{ agents: sorted }];
+  const byHarness = new Map<string, AgentView[]>();
+  const noEngine: AgentView[] = [];
+  for (const agent of sorted) {
+    if (agent.engines.length === 0) noEngine.push(agent);
+    for (const harness of new Set(agent.engines.map((e) => e.harness || "(none)"))) {
+      byHarness.set(harness, [...(byHarness.get(harness) ?? []), agent]);
+    }
+  }
+  const groups = [...byHarness.keys()].sort(compareNames).map((header) => ({ header, agents: byHarness.get(header) ?? [] }));
+  return noEngine.length > 0 ? [...groups, { header: "No engine", agents: noEngine }] : groups;
+}
+
+/** Les clés sélectionnables de l'onglet, dans l'ordre affiché : la première est la sélection par défaut. */
+function shownKeys(view: ConfigView, ui: UiState): string[] {
+  if (ui.tab === "agents") return agentGroups(view, ui).flatMap((g) => g.agents.map((a) => a.key));
+  return presetsOf(view, ui.tab).map((p) => p.name);
+}
+
+function presetsOf(view: ConfigView, tab: "providers" | "options"): PresetView[] {
+  return view.presets.filter((p) => (tab === "options" ? p.kind === "options" : providerLike(p))).sort(byPresetName);
+}
+
+/** Bascule « Group by harness » : un bouton (et non un `<input>`) pour que `app.ts` n'y voie pas un champ qui envoie une opération. */
+function groupToggle(ui: UiState): string {
+  const on = ui.groupBy === "harness";
+  return `<button type="button" role="checkbox" aria-checked="${on}" class="grp"${data({ action: "groupBy" })}><span class="ckb" aria-hidden="true">${on ? "✓" : ""}</span>Group by harness</button>`;
+}
+
 function sidebar(view: ConfigView, ui: UiState, selected: string | undefined): string {
   const providers = view.presets.filter(providerLike);
   const optionSets = view.presets.filter((p) => p.kind === "options");
@@ -310,28 +378,42 @@ function sidebar(view: ConfigView, ui: UiState, selected: string | undefined): s
 
   let rows: string;
   let add: string;
+  let toggle = "";
   if (ui.tab === "agents") {
-    rows = view.agents.map((agent) => agentRow(view, agent, agent.key === selected)).join("");
+    const grouped = ui.groupBy === "harness";
+    rows = agentGroups(view, ui)
+      .map((group) => {
+        const list = group.agents.map((agent) => agentRow(view, agent, agent.key === selected, grouped)).join("");
+        return group.header === undefined ? list : `<div class="rowgroup" role="group" aria-label="${esc(group.header)}"><div class="gh">${esc(group.header)}</div>${list}</div>`;
+      })
+      .join("");
+    toggle = groupToggle(ui);
     add = addControl(ui, { action: "addAgent" }, buttonHtml("+ Add agent", "row add", { action: "addAgent" }));
   } else {
-    const list = ui.tab === "providers" ? providers : optionSets;
-    rows = list.map((preset) => presetRow(view, preset, preset.name === selected)).join("");
+    rows = presetsOf(view, ui.tab)
+      .map((preset) => presetRow(view, preset, preset.name === selected))
+      .join("");
     const kind = ui.tab === "providers" ? "provider" : "options";
     const label = kind === "provider" ? "+ Add provider" : "+ Add option set";
     add = addControl(ui, { action: "addPreset", kind }, buttonHtml(label, "row add", { action: "addPreset", kind }));
   }
-  return `<nav class="side"><div class="seg" role="tablist">${seg}</div><div class="rows">${rows}</div>${add}</nav>`;
+  return `<nav class="side"><div class="seg" role="tablist">${seg}</div>${toggle}<div class="rows">${rows}</div>${add}</nav>`;
 }
 
-function agentRow(view: ConfigView, agent: AgentView, selected: boolean): string {
+/** `grouped` : le titre du groupe porte déjà le harnais, la rangée ne le répète pas (le point d'erreur reste). */
+function agentRow(view: ConfigView, agent: AgentView, selected: boolean, grouped = false): string {
   const lead = agent.engines.find((e) => e.isDefault) ?? agent.engines[0];
   const more = agent.engines.length - 1;
   const broken = hasError(view.issues.filter((i) => i.agent === agent.key));
-  const name = agent.label || agent.key;
+  const name = displayName(agent);
+  const meta = grouped
+    ? broken
+      ? `<span class="meta">${dotHtml("Has errors")}</span>`
+      : ""
+    : `<span class="meta">${broken ? dotHtml("Has errors") : ""}${esc(lead?.harness ?? "")}${more > 0 ? ` <span class="more">+${more}</span>` : ""}</span>`;
   return (
     `<button type="button" class="row${selected ? " sel" : ""}"${selected ? ' aria-current="true"' : ""}${data({ action: "select", key: agent.key })}>` +
-    `<span class="av">${esc(initialOf(name))}</span><span class="name">${esc(name)}</span>` +
-    `<span class="meta">${broken ? dotHtml("Has errors") : ""}${esc(lead?.harness ?? "")}${more > 0 ? ` <span class="more">+${more}</span>` : ""}</span></button>`
+    `<span class="av">${esc(initialOf(name))}</span><span class="name">${esc(name)}</span>${meta}</button>`
   );
 }
 
@@ -500,17 +582,19 @@ function providerControl(view: ConfigView, ui: UiState, engine: EngineView, base
   if (open) {
     const providers = view.presets.filter((p) => p.kind === "provider");
     const act = (extra: DataAttrs): DataAttrs => ({ action: "setProvider", ...base, ...extra });
+    // Anthropic se trie avec les presets : un seul ordre alphabétique pour toute la liste.
+    const main: MenuItem[] = [
+      { label: "Anthropic", checked: current.kind === "anthropic", right: "no proxy", attrs: act({ "provider-kind": "anthropic" }) },
+      ...providers.map((p) => ({
+        label: p.name,
+        checked: current.kind === "preset" && current.name === p.name,
+        right: plural(agentsUsing(view, p.name), "agent"),
+        attrs: act({ "provider-kind": "preset", preset: p.name }),
+      })),
+    ].sort((a, b) => compareNames(a.label, b.label));
     menu = menuHtml(
       "Providers",
-      [
-        { label: "Anthropic", checked: current.kind === "anthropic", right: "no proxy", attrs: act({ "provider-kind": "anthropic" }) },
-        ...providers.map((p) => ({
-          label: p.name,
-          checked: current.kind === "preset" && current.name === p.name,
-          right: plural(agentsUsing(view, p.name), "agent"),
-          attrs: act({ "provider-kind": "preset", preset: p.name }),
-        })),
-      ],
+      main,
       [
         { label: "Custom env…", checked: current.kind === "custom", attrs: act({ "provider-kind": "custom" }) },
         { label: "Edit providers…", checked: false, attrs: { action: "tab", tab: "providers" } },
@@ -534,7 +618,7 @@ function optionsControl(
   const open = isOpen(ui, base, "options");
   let menu = "";
   if (open) {
-    const sets = view.presets.filter((p) => p.kind === "options");
+    const sets = view.presets.filter((p) => p.kind === "options").sort(byPresetName);
     const act = (extra: DataAttrs): DataAttrs => ({ action: "setOptions", ...base, ...extra });
     const carried = current.kind === "none" ? [] : current.values;
     menu = menuHtml(
@@ -653,15 +737,19 @@ function varRow(v: EnvVarView, o: VarRowOptions): string {
 
 // --- Vue Provider et Option set -------------------------------------------------------------------
 
-function usedBy(preset: PresetView): string {
-  const commands = preset.usedBy
-    .map(
-      (command) =>
-        `<div class="cmd"><span class="p">❯</span><code class="line">${esc(command)}</code><span class="push"></span>${buttonHtml("Copy", "btn pill sm", { action: "copy", text: command }, false, `Copy ${command}`)}</div>`,
-    )
+/** Un badge par agent qui utilise le preset, trié par nom affiché ; un clic ouvre la fiche de l'agent. */
+function usedBy(view: ConfigView, preset: PresetView): string {
+  const users = preset.usedBy
+    .map((user) => {
+      const agent = view.agents.find((a) => a.key === user.agent);
+      return { ...user, name: agent ? displayName(agent) : user.agent };
+    })
+    .sort((a, b) => compareNames(a.name, b.name) || compareNames(a.agent, b.agent));
+  const badges = users
+    .map((user) => buttonHtml(user.name, "badge", { action: "openAgent", key: user.agent, harness: user.harness }, false, `Open agent ${user.name}`))
     .join("");
-  const body = commands || '<p class="hint">No engine uses this yet.</p>';
-  return `<div class="sect used-head"><span>Used by</span></div><div class="used">${body}</div>`;
+  const body = badges ? `<div class="badges">${badges}</div>` : '<p class="hint">No agent uses this yet.</p>';
+  return `<div class="sect used-head"><span>Used by</span></div>${body}`;
 }
 
 function presetPane(view: ConfigView, ui: UiState, preset: PresetView): string {
@@ -679,7 +767,7 @@ function presetPane(view: ConfigView, ui: UiState, preset: PresetView): string {
   if (preset.kind === "provider") body = providerBody(ui, preset, general);
   else if (preset.kind === "options") body = optionsBody(ui, preset, general);
   else body = `<p class="hint">This preset is neither a table of variables nor a list of options. Edit the file directly.</p>`;
-  return `<main class="main">${head}${name}${body}${issuesHtml(general)}${usedBy(preset)}</main>`;
+  return `<main class="main">${head}${name}${body}${issuesHtml(general)}${usedBy(view, preset)}</main>`;
 }
 
 function providerBody(ui: UiState, preset: PresetView, general: IssueView[]): string {
@@ -757,7 +845,8 @@ export function renderApp(view: ConfigView, state: UiState): string {
   const noAgents = state.tab === "agents" && view.agents.length === 0;
   const ui: UiState = noAgents && state.adding?.action === "addAgent" ? { ...state, adding: undefined } : state;
 
-  const names = ui.tab === "agents" ? view.agents.map((a) => a.key) : view.presets.filter((p) => (ui.tab === "options" ? p.kind === "options" : p.kind !== "options")).map((p) => p.name);
+  // Sélection par défaut : la première rangée affichée, pour que le panneau et la rangée en surbrillance s'accordent.
+  const names = shownKeys(view, ui);
   const selected = ui.selected !== undefined && names.includes(ui.selected) ? ui.selected : names[0];
 
   let main: string;
