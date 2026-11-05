@@ -157,6 +157,7 @@ export function startConfigureServer(o: { path: string; idleMs?: number; token?:
     clearTimeout(idleTimer);
     for (const release of [...streams]) release();
     // `true` coupe aussi les connexions encore ouvertes ; `done` attend que le port soit libre.
+    // Le `.catch` est sans risque : `done` se résout par `finally` même si l'arrêt échoue, et le port se libère déjà.
     server.stop(true).finally(resolveDone).catch(() => {});
   }
 

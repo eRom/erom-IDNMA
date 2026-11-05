@@ -43,7 +43,8 @@ export async function configureCommand(args: string[], deps: ConfigureDeps = {})
   const open = deps.open ?? openInBrowser;
   const write = deps.write ?? ((text: string) => void process.stdout.write(text));
 
-  if (args[0] === "--help" || args[0] === "-h") {
+  // L'aide gagne où qu'elle soit parmi les arguments, comme pour `idnma run`.
+  if (args.some((arg) => arg === "--help" || arg === "-h")) {
     write(CONFIGURE_HELP);
     return 0;
   }

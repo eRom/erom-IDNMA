@@ -50,6 +50,15 @@ describe("configure command", () => {
     expect(out.join("")).toContain("Usage : idnma configure [--no-open]");
   });
 
+  test("prints the help when --help or -h follows another argument", async () => {
+    for (const args of [["--no-open", "--help"], ["--no-open", "-h"]]) {
+      const out: string[] = [];
+      const code = await configureCommand(args, { write: (text) => out.push(text), start: () => assertNotStarted() });
+      expect(code).toBe(0);
+      expect(out.join("")).toContain("Usage : idnma configure [--no-open]");
+    }
+  });
+
   test("exits 2 on an unknown argument, without starting a server", async () => {
     const stderr = captureStderr();
     try {

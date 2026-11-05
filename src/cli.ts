@@ -33,7 +33,7 @@ Usage :
   idnma hook <grok|agy> <événement>  (interne) point d'entrée des hooks de Grok et d'agy
   idnma install --agent <agent>      pose la skill, les hooks et la ligne coéquipier d'un agent (voir idnma install --help)
   idnma uninstall --agent <agent>    retire ce que install a posé pour cet agent
-  idnma configure [--no-open]         ouvre l'éditeur de ~/.idnma.yml dans le navigateur
+  idnma configure [--no-open]        ouvre l'éditeur de ~/.idnma.yml dans le navigateur
   idnma --version                    affiche la version
   idnma --help                       affiche cette aide
 

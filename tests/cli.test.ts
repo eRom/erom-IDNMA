@@ -197,6 +197,20 @@ describe("idnma CLI", () => {
     for (const forbidden of ["--name", "--from", "--as"]) expect(main.stdout).not.toContain(forbidden);
   });
 
+  childTest("main help aligns every command description on the same column", async () => {
+    const result = await cli(["--help"]);
+    expect(result.code).toBe(0);
+    const commandLines = result.stdout.split("\n").filter((line) => line.startsWith("  idnma "));
+    // La description commence après le premier blanc de deux espaces ou plus qui suit la commande.
+    const columns = commandLines.map((line) => {
+      const gap = /\S( {2,})\S/.exec(line);
+      return gap === null ? -1 : gap.index + 1 + (gap[1]?.length ?? 0);
+    });
+    expect(commandLines.some((line) => line.includes("idnma configure [--no-open]"))).toBe(true);
+    expect(columns).not.toContain(-1);
+    expect(new Set(columns).size).toBe(1);
+  });
+
   childTest("peer send without a text is a usage error (exit 2)", async () => {
     const result = await cli(["peer", "send", "claude-vulcain"]);
     expect(result.code).toBe(2);
