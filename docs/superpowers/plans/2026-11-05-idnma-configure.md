@@ -10,7 +10,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-05-idnma-configure-design.md` (intent : `docs/superpowers/intents/2026-11-05-idnma-configure-intent.md`). Maquette validée : `.superpowers/brainstorm/42320-1793874589/content/commands.html` (hors git, ne pas committer).
 
-**Écart assumé avec la spec, à reporter dans la spec à la tâche 1 :** la validation tourne côté serveur à chaque opération (et non dans la page) : un seul runtime, aucun module Node à empaqueter pour le navigateur, tout testable par `bun test`. La page et ses fichiers statiques ne portent aucune donnée et ne sont pas gardés par le jeton ; toutes les routes `/api/` le sont.
+**Écarts assumés avec la spec, à reporter dans la spec à la tâche 1 :**
+- La validation tourne côté serveur à chaque opération (et non dans la page) : un seul runtime, aucun module Node à empaqueter pour le navigateur, tout testable par `bun test`.
+- La page et ses fichiers statiques ne portent aucune donnée et ne sont pas gardés par le jeton ; toutes les routes `/api/` le sont. Le jeton passe par l'en-tête `x-idnma-token` (et `?token=` pour le flux SSE), pas par un cookie ; la page le garde en `sessionStorage` pour survivre à un rechargement.
+- Renommer une clé (agent, engine, preset) ne casse aucune ancre (les ancres vivent sur les valeurs) : seuls les suppressions sont gardées.
+- Un fichier en fins de ligne CRLF modifié est réécrit en LF (limite à ajouter au §12).
+- AC-5 : la parité est garantie par construction (`runAgent` et l'app appellent les mêmes fonctions) et par `tests/run.test.ts` inchangé, pas par un test qui traverse `runAgent` avec chaque fixture.
 
 ## Global Constraints
 
@@ -18,7 +23,10 @@
 - Identifiants en anglais ; commentaires et docstrings en français ; textes de la CLI en français ; **texte de l'interface en anglais** (sentence case, verbe d'abord, pas de point d'exclamation, aucun emoji).
 - DS Application d'erom-design : tokens copiés de `/Users/recarnot/dev/erom-design-system-application/design-system/tokens/{colors,typography,geometry,base}.css` (export `8d8ee42`), consommés par `var()`, jamais de hex ni de px en dur hors de la feuille de tokens ; **pas** de `fonts.css` ni de `.otf` ; pas de cards, filets en `box-shadow` inset 1px, une seule action primaire bleue par panneau, aucune animation.
 - Lecture et écriture uniquement par l'AST `Document` ; sortie par `doc.toString({ flowCollectionPadding: false })`.
-- Une clé de fusion se crée par `const k = new Scalar("<<"); k.type = Scalar.PLAIN; map.items.push(new Pair(k, doc.createAlias(presetNode)))`. **Jamais** `map.set("<<", …)` : la sonde du 05/11 montre qu'il écrit `"<<":` entre guillemets, qui n'est plus une fusion. Une paire est une fusion si `isScalar(pair.key) && (pair.key.source === "<<" || pair.key.value === "<<")`.
+- Une clé de fusion se crée par `const k = new Scalar("<<"); k.type = Scalar.PLAIN; map.items.push(new Pair(k, doc.createAlias(presetNode, presetName)))`. **Jamais** `map.set("<<", …)` : la sonde du 05/11 montre qu'il écrit `"<<":` entre guillemets, qui n'est plus une fusion. Une paire est une fusion si `isScalar(pair.key) && (pair.key.source === "<<" || pair.key.value === "<<")`.
+- `doc.createAlias(node)` sans nom invente une ancre `&a1` : toujours passer le nom (`createAlias(node, name)`). L'identité d'un preset suit son ancre (`node.anchor === alias.source`), pas sa clé. Toute ancre nouvelle (preset ajouté ou renommé) dont le nom existe déjà dans le document est refusée.
+- Renommer une clé : `(pair.key as Scalar).value = newKey`, jamais remplacer `pair.key` (la sonde du 05/11 montre que le remplacement efface le commentaire et la ligne vide au-dessus de la clé).
+- `doc.toString()` lève sur un document qui porte des erreurs, et un alias non résolu n'apparaît pas dans `doc.errors` mais fait lever `toString()` et `toJS()` : ne jamais appeler `toText()` ni `toJS()` global sur un document en `parseError`.
 - Rien n'est écrit sur le disque avant un Save ; aucune lecture de fichier d'env ; aucune lecture de `process.env` renvoyée au client ; aucun agent lancé.
 - `tests/run.test.ts` passe **sans modification**.
 - `[REDACTED:env_secret]` dans la sortie des outils masque des valeurs `ANTHROPIC_AUTH_TOKEN` qui sont `"lmstudio"` et `"$OPENROUTER_API_KEY"` : ne jamais recopier le masque, vérifier par `grep -c` sur le littéral.
@@ -68,7 +76,7 @@
 - [ ] **Step 4: Implémenter `src/config/engine-rules.ts`** : y déplacer les symboles listés (corps inchangés), écrire `opencodeArgvIssues` (ordre : forme de `-s`, puis modèle : `parsed.model` invalide → usage sur `options`, sinon `engineModel` invalide → config sur `model`, selon `parseModelRef`) et `engineIssues` (codex : `codexEmbeddedFlag(options)` ; opencode : `parseOpencodeArgv(options).refused`, puis `opencodeArgvIssues(parseOpencodeArgv(options), model, source)` ; dst : `model` défini, puis `dstRefusal(options)`).
 - [ ] **Step 5: Brancher `run.ts`** : importer depuis `../config/engine-rules.ts` ; dans `runAgent`, les trois blocs `fromEngine` (codex, opencode refusé, dst) lèvent le **premier** issue des codes correspondants de `engineIssues(engine, engineSource)`, en `ConfigError` ; dans `prepareOpencode`, remplacer la décision d'erreur des lignes 228 et 231-237 par `opencodeArgvIssues(parsed, engine.model, engineSource)[0]` levé en `UsageError` ou `ConfigError` selon `error`, puis calculer `wanted` par `parseModelRef` (désormais sûr). Les contrôles de `a.passthrough` ne bougent pas.
 - [ ] **Step 6: Lancer** `bun test tests/engine-rules.test.ts tests/run.test.ts 2>&1 | tee /tmp/idnma-t1-green.log` : tout PASS, `tests/run.test.ts` non modifié (`git diff --stat tests/run.test.ts` vide).
-- [ ] **Step 7: Reporter l'écart dans la spec** (§6 « Moment » : validation côté serveur à chaque opération ; §8 : page et fichiers statiques non gardés, routes `/api/` gardées ; §10 : `src/config/engine-rules.ts`, état tenu par le serveur).
+- [ ] **Step 7: Reporter les écarts dans la spec** (tous ceux du paragraphe « Écarts assumés » en tête du plan : §6 « Moment » ; §7 et AC-12, seules les suppressions sont gardées ; §8 jeton par en-tête et `sessionStorage`, page non gardée ; §10 `src/config/engine-rules.ts` et état tenu par le serveur ; §12 limite CRLF ; AC-5 « Vérifié par »).
 - [ ] **Step 8: Commit** `git add src/config/engine-rules.ts src/run/run.ts src/config/network.ts tests/engine-rules.test.ts docs/superpowers/specs/2026-11-05-idnma-configure-design.md && git commit -m "refactor(run): extract engine rules shared with configure"`
 
 ### Task 2: Types, presets fournis, lecture du document et vue
@@ -116,10 +124,11 @@ agents:
   - `reads anthropic and custom providers` : engine claude sans `env` → `{ kind: "anthropic" }` ; engine claude avec `env: { ANTHROPIC_BASE_URL: "x" }` sans fusion → `{ kind: "custom" }` ; engine opencode avec `<<: *ollama` → `provider.kind === "none"`, `mergedPreset === "ollama"`.
   - `marks linked values` : sur `linked-values.yml`, l'engine `default` de `glm` a `modelLinked.anchor === "glm-flash"`, et sa variable `ANTHROPIC_DEFAULT_OPUS_MODEL` a `linked.anchor === "glm"`.
   - `keeps multi-merge engines read-only` : `env: { <<: [*ollama, *openrouter] }` → `readOnly` non vide.
-  - `reports a syntax error with its position` : texte `"agents:\n  a: [\n"` → `parseError` avec `line` et `col` numériques, `buildView(...).agents` vide.
+  - `reports a syntax error with its position` : texte `"agents:\n  a: [\n"` → `parseError` avec `line` et `col` numériques (`linePos` rend un couple : lire `[0]`), `buildView(...).agents` vide, et `buildView` ne lève pas.
+  - `reports an unresolved alias as a parse error` : `"agents:\n  a:\n    label: A\n    engines:\n      default:\n        harness: claude\n        env:\n          <<: *nope\n"` et un alias écrit avant son ancre → `parseError` dont le message nomme l'alias, avec ligne et colonne (position par `range` et un `LineCounter`).
   - `survives an empty or comment-only file` : `""`, `"# rien\n"`, `"agents:\n"` → vue sans agents, sans exception.
 - [ ] **Step 3: Lancer** `bun test tests/configure-view.test.ts 2>&1 | tee /tmp/idnma-t2-red.log` : FAIL.
-- [ ] **Step 4: Implémenter** `types.ts`, `builtins.ts` (valeurs du §4 de la spec, identiques au gabarit), `command.ts`, `document.ts` (`parse` : `parseDocument(text ?? NEW_FILE_TEMPLATE, { merge: true })`, première erreur de `doc.errors` → `parseError` via `linePos`), `view.ts` (lecture des nœuds, jamais de `toJS` pour l'identité des presets : un alias se reconnaît par `isAlias` et son `source`).
+- [ ] **Step 4: Implémenter** `types.ts`, `builtins.ts` (valeurs du §4 de la spec, identiques au gabarit), `command.ts`, `document.ts` (`parse` : `parseDocument(text ?? NEW_FILE_TEMPLATE, { merge: true })`, première erreur de `doc.errors` → `parseError` via `linePos(...)[0]` ; sinon, parcours par `visit` : le premier alias dont l'ancre n'existe pas avant lui → `parseError`), `view.ts` (lecture des nœuds, jamais de `toJS` pour l'identité des presets : un alias se reconnaît par `isAlias` et son `source`). Un fichier vide ou fait de commentaires a un `contents` nul : la première opération qui écrit crée la table racine.
 - [ ] **Step 5: Lancer** les tests : PASS (`tee /tmp/idnma-t2-green.log`).
 - [ ] **Step 6: Commit** `git add src/configure tests/configure-view.test.ts tests/fixtures/configure && git commit -m "feat(configure): read config document into a view"`
 
@@ -138,14 +147,17 @@ agents:
 - [ ] **Step 1: Écrire les tests**, chacun sur une copie de `romain.yml`, en comparant `toText()` au texte d'origine par un `diff` ligne à ligne (helper `changedLines(before, after): { removed: string[]; added: string[] }` dans le fichier de test) :
   - `renaming an engine touches one line` : `renameEngine deepseek-flash opencode → oc` → removed `["      opencode:"]`, added `["      oc:"]`, et `buildView` donne la commande `idnma run deepseek-flash --engine oc`.
   - `renaming an agent keeps its place` : `renameAgent glm → glm-53` → une seule ligne changée, ordre des agents inchangé.
+  - `renaming keeps the comment above the key` : texte `"agents:\n  a:\n    label: A\n\n  # the b agent\n  b:\n    label: B\n"`, `renameAgent b → c` → seule la ligne `  b:` devient `  c:`, le commentaire et la ligne vide restent.
   - `adds an agent at the end in block style` : sur `ConfigDocument.parse(undefined)`, `addAgent opus "Opus"` puis `addEngine opus default claude` → le texte se termine par `"agents:\n  opus:\n    label: Opus\n    engines:\n      default:\n        harness: claude\n"`.
-  - `duplicate copies engines and avatar, not info nor cell` : `duplicateAgent argon` → nouvel agent `argon-copy` en fin de liste, `label: Argon copy`, mêmes engines, `avatar` copié, ni `info` ni `cell`.
+  - `duplicate copies engines and avatar, not info nor cell` : sur `linked-values.yml`, `duplicateAgent agy` (`info: 3.8`, `cell: 0`, `avatar: gemini.png`) → nouvel agent `agy-copy` en fin de liste, `label: <label d'agy> copy`, mêmes engines, `avatar` copié, ni `info` ni `cell`.
+  - `duplicate unlinks anchored values in the copy` : sur `linked-values.yml`, `duplicateAgent glm` → la copie porte les valeurs en clair (aucun `&` ni `*` vers une ancre interne à `glm`), l'original garde les siennes, chaque ancre du document reste unique, et `parseDocument(toText()).toJS()` donne pour la copie les mêmes valeurs résolues que pour l'original.
   - `make default swaps engine names` : `makeDefault argon claude` → l'engine claude s'appelle `default`, l'ancien `default` s'appelle `claude`.
-  - `refuses to delete an anchor used elsewhere` : sur `linked-values.yml`, `deleteAgent glm` lève `EditRefused` dont le message contient le chemin d'un utilisateur de `&glm-flash` ; le texte est inchangé.
+  - `refuses to delete an anchor used elsewhere` : texte `"agents:\n  a:\n    label: A\n    engines:\n      default:\n        harness: claude\n        model: &shared m/x\n  b:\n    label: B\n    engines:\n      default:\n        harness: claude\n        model: *shared\n"`, `deleteAgent a` → `EditRefused` dont le message contient `agents.b.engines.default.model` ; le texte est inchangé. Même refus pour `deleteEngine a default`.
+  - `deletes an agent whose anchors stay inside it` : sur `linked-values.yml`, `deleteAgent glm` réussit et `parseDocument(toText())` n'a aucune erreur.
   - `refuses duplicate or malformed keys` : `renameAgent opus → sonnet` (existe), `addAgent "-x"`, `renameEngine … → "a b"` lèvent `EditRefused`.
   - `setting the avatar to null removes the key` et `setting the label writes it in place`.
 - [ ] **Step 2: Lancer** `bun test tests/configure-agent-ops.test.ts 2>&1 | tee /tmp/idnma-t3-red.log` : FAIL.
-- [ ] **Step 3: Implémenter `agent-ops.ts`.** Renommer une clé = remplacer `pair.key` à sa place. Refus de forme : clés et noms `^[A-Za-z0-9._-]+$`, sans `-` initial, uniques. Garde des ancres : avant `deleteAgent`, `deleteEngine` ou `renameAgent`, collecter les ancres du sous-arbre et refuser si `aliasUsers(anchor)` contient un chemin hors du sous-arbre. Un nouvel agent : `YAMLMap` en bloc ajoutée à `agents` (créée si `agents` vaut `null`).
+- [ ] **Step 3: Implémenter `agent-ops.ts`.** Renommer une clé = `(pair.key as Scalar).value = newKey`. Refus de forme : clés et noms `^[A-Za-z0-9._-]+$`, sans `-` initial, uniques. Garde des ancres : avant `deleteAgent` et `deleteEngine`, collecter les ancres du sous-arbre et refuser si `aliasUsers(anchor)` contient un chemin hors du sous-arbre (les renommages ne sont pas gardés : ils ne touchent pas les ancres). `duplicateAgent` : dans la copie, chaque alias vers une ancre interne au sous-arbre copié est remplacé par le texte de sa valeur, puis ces ancres sont retirées de la copie. Un nouvel agent : `YAMLMap` en bloc ajoutée à `agents` (créée si `agents` vaut `null` ou si le document est vide).
 - [ ] **Step 4: Lancer** les tests : PASS (`tee /tmp/idnma-t3-green.log`).
 - [ ] **Step 5: Commit** `git add src/configure tests/configure-agent-ops.test.ts && git commit -m "feat(configure): agent and engine structure operations"`
 
@@ -167,7 +179,7 @@ agents:
   - `anthropic removes the merge and an empty env` : sur `mistral` → plus de clé `env`.
   - `custom env copies the preset values` : `setProvider muse default { kind: "custom" }` → l'env contient les trois clés d'`openrouter` en clair (dont `"$OPENROUTER_API_KEY"`), plus de `<<`.
   - `custom options copy the preset values in the file's list style` : `setOptions glm default { kind: "custom", values: […] }` écrit une liste **en ligne** dans `romain.yml` ; dans `linked-values.yml` (listes en bloc), une liste **en bloc**.
-  - `changing harness drops what the new one cannot use` : `setHarness deepseek-flash default opencode` → plus de `<<`, plus d'`options`, `model` gardé ; `setHarness … dst` → plus de `model` ; les clés d'env propres restent.
+  - `changing harness drops what the new one cannot use` : `setHarness deepseek-flash default opencode` → plus de `<<`, plus d'`options`, plus de clé `env` si elle reste vide, `model` gardé ; `setHarness … dst` → plus de `model` ; les clés d'env propres restent.
   - `removeMerge on a non-claude engine` retire seulement la paire `<<`.
   - `unlink replaces an alias by its text and drops an unused anchor` : sur `linked-values.yml`, `unlink ["agents","glm","engines","default","env","ANTHROPIC_DEFAULT_OPUS_MODEL"]` → la valeur devient `glm-5.3:cloud[1m]` en clair ; l'ancre `&glm` disparaît si plus aucun alias ne la vise.
   - `quoteValue turns a number into text` : fichier `presets:\n  lmstudio: &lmstudio\n    CLAUDE_CODE_ATTRIBUTION_HEADER: 0\n` → `quoteValue ["presets","lmstudio","CLAUDE_CODE_ATTRIBUTION_HEADER"]` écrit `CLAUDE_CODE_ATTRIBUTION_HEADER: "0"`.
@@ -189,12 +201,13 @@ agents:
 
 - [ ] **Step 1: Écrire les tests** :
   - `using an absent built-in writes it first` : sur le texte `presets:\n  ollama: &ollama\n    ANTHROPIC_BASE_URL: "http://localhost:11434"\n\nagents:\n`, `addAgent t "T"`, `addEngine t default claude`, `setProvider t default { kind: "preset", name: "lmstudio" }` → `presets:` gagne le bloc `lmstudio: &lmstudio` (valeurs du gabarit) après `ollama`, avant `agents:`, et l'engine porte `<<: *lmstudio` ; sur un texte sans section `presets:`, elle est créée en tête du document.
-  - `renaming a preset renames its anchor and every alias` : sur `romain.yml`, `renamePreset ollama → ollama-cloud` → la clé, l'ancre `&ollama-cloud` et les 7 `*ollama-cloud` ; `parseDocument(toText()).toJS()` donne les mêmes env résolus qu'avant pour chaque engine.
+  - `renaming a preset renames its anchor and every alias` : sur `romain.yml`, `renamePreset ollama → ollama-cloud` → la clé, l'ancre `&ollama-cloud` et les 7 `*ollama-cloud` (8 lignes changées) ; `parseDocument(toText()).toJS()` donne les mêmes env résolus qu'avant pour chaque engine.
+  - `refuses an anchor name already taken` : sur `linked-values.yml`, `renamePreset ollama → glm` et `addPreset glm provider` → `EditRefused` (l'ancre `&glm` existe), texte inchangé.
   - `refuses to delete a preset in use` : `deletePreset claude-max` → `EditRefused` qui nomme au moins `idnma run glm` ; un preset inutilisé se supprime.
   - `editing a preset variable changes every user` : `setPresetVar openrouter ANTHROPIC_BASE_URL "https://x"` → une ligne changée.
   - `option set values are edited in place and keep their style` : `setPresetOptions claude-max [...]` garde la forme en ligne.
 - [ ] **Step 2: Lancer** `bun test tests/configure-preset-ops.test.ts 2>&1 | tee /tmp/idnma-t5-red.log` : FAIL.
-- [ ] **Step 3: Implémenter `preset-ops.ts`** (renommer l'ancre : `node.anchor = newName`, puis chaque `Alias` dont `source === oldName` reçoit `source = newName`).
+- [ ] **Step 3: Implémenter `preset-ops.ts`** (renommer : clé par `(pair.key as Scalar).value`, ancre par `node.anchor = newName`, puis chaque `Alias` dont `source === oldAnchor` reçoit `source = newName` ; un preset ajouté reçoit l'ancre de son nom ; tout nom d'ancre déjà présent est refusé).
 - [ ] **Step 4: Lancer** les tests des tâches 2 à 5 : PASS (`tee /tmp/idnma-t5-green.log`).
 - [ ] **Step 5: Commit** `git add src/configure tests/configure-preset-ops.test.ts && git commit -m "feat(configure): preset operations and built-in presets"`
 
@@ -236,7 +249,7 @@ Codes et messages (anglais, exacts) :
   - `app rules` : label absent, clé `-x`, agent sans engine, agent sans `default`, variable `MY VAR`, `harness: foo`, `option:` (clé inconnue) → une erreur chacun avec le bon code.
   - `duplicate labels warn` : deux agents `label: Luna` → deux avertissements, aucune erreur.
 - [ ] **Step 2: Lancer** `bun test tests/configure-validate.test.ts 2>&1 | tee /tmp/idnma-t6-red.log` : FAIL.
-- [ ] **Step 3: Implémenter `validate.ts`** : schéma sur le JS résolu de chaque engine (`EngineSchema.safeParse`), codes zod traduits par la table ; `engineIssues(engine, source)` pour chaque engine dont le schéma passe ; règles d'app sur les nœuds (`not-text` = `Scalar` non chaîne sous `env`, `options` ou une valeur de preset).
+- [ ] **Step 3: Implémenter `validate.ts`** : **une faute, une issue**. Règles d'app sur les nœuds d'abord (`not-text` = `Scalar` non chaîne sous `env`, `options` ou une valeur de preset, signalé là où il se corrige, sur le preset s'il vient d'un preset) ; schéma ensuite sur le JS résolu de chaque engine (`toJS` engine par engine dans un `try/catch` qui produit une issue, jamais un `toJS` global), en ignorant les issues zod `invalid_type` sur `env.*` et `options.*` déjà couvertes par `not-text`, et sans schéma pour un agent déjà en `no-engine` ; `engineIssues(engine, source)` pour chaque engine dont le schéma passe ; codes zod traduits par la table.
 - [ ] **Step 4: Lancer** les tests des tâches 1 à 6 : PASS (`tee /tmp/idnma-t6-green.log`).
 - [ ] **Step 5: Commit** `git add src/configure tests/configure-validate.test.ts && git commit -m "feat(configure): validation shared with idnma run"`
 
@@ -267,7 +280,7 @@ Codes et messages (anglais, exacts) :
 
 **Interfaces:**
 - Consumes : tâches 2 à 7.
-- Produces : `startConfigureServer(o: { path: string; idleMs?: number; token?: string }): { url: string; port: number; token: string; stop(): void; done: Promise<void> }` (`idleMs` par défaut `10_000` ; `url` = `http://127.0.0.1:<port>/?token=<token>` ; `done` se résout à l'arrêt sur inactivité).
+- Produces : `startConfigureServer(o: { path: string; idleMs?: number; token?: string }): { url: string; port: number; token: string; stop(): void; done: Promise<void> }` (`idleMs` par défaut `10_000` ; `url` = `http://127.0.0.1:<port>/?token=<token>` ; `done` se résout à **tout** arrêt, inactivité ou `stop()`).
 - API (JSON, en-tête `x-idnma-token` ; SSE par `?token=`) : `GET /api/state` → `{ view }` ; `POST /api/op` `{ op: EditOp }` → `{ view }` ou 409 `{ refused: string }` ; `POST /api/revert` → `{ view }` ; `POST /api/save` → `{ view }`, 409 `{ changedOnDisk: true }` ou 500 `{ failed: string }` ; `POST /api/reload` → `{ view }` ; `GET /api/events` → flux SSE (commentaire `: ping` toutes les 5 s).
 
 Fait capturé le 05/11 (sonde Bun 1.4.0, `development: false`) : `import page from "./page/index.html"` dans `routes: { "/": page }` sert le HTML avec ses ressources réécrites en `/chunk-<hash>.js` et `/chunk-<hash>.css`, TypeScript transpilé ; le `fetch` du même `Bun.serve` reçoit les autres chemins.
@@ -279,11 +292,12 @@ Fait capturé le 05/11 (sonde Bun 1.4.0, `development: false`) : `import page fr
   - `save without changes writes nothing` (Review Focus 3) : `POST /api/save` sans op sur un fichier en fins de ligne `\r\n` → date de modification et contenu inchangés.
   - `saves a file that still has errors` : une op qui laisse une erreur (label vidé), puis `POST /api/save` → écrit, `view.issues` non vide.
   - `refuses a stale save` (AC-9) : modification manuelle du fichier puis `POST /api/save` → 409 `changedOnDisk`, fichier manuel intact ; `POST /api/reload` → vue du fichier manuel.
-  - `never sends environment values` (AC-8) : serveur lancé avec `process.env.OPENROUTER_API_KEY = "sentinel-7f3a"` ; le corps de chaque réponse (`/`, chunks, `/api/state`, `/api/op`, `/api/save`, `/api/revert`, `/api/reload`) ne contient pas `sentinel-7f3a`.
+  - `never sends environment values` (AC-8) : dans le test, `const sentinel = ["sentinel", "7f3a"].join("-")` puis `process.env["OPENROUTER" + "_API_KEY"] = sentinel` (écrit ainsi pour que l'affichage des outils ne masque pas la ligne ; restaurer en `afterEach`) ; le corps de chaque réponse (`/`, chunks, `/api/state`, `/api/op`, `/api/save`, `/api/revert`, `/api/reload`) ne contient pas `sentinel`. Vérifier `grep -c '"7f3a"' tests/configure-server.test.ts` = 1.
+  - `serves the parse-error view` : fichier `"agents:\n  a: [\n"` → `GET /api/state` 200 avec `view.parseError`, `view.dirty === false` ; `POST /api/op` → 409.
   - `stops when the last page leaves` (AC-11) : `idleMs: 200` ; ouvrir puis fermer `/api/events` → `done` se résout en moins de 1 s et le port ne répond plus.
   - `creates a new file on save` (AC-7) : chemin inexistant → `view.isNew === true` ; `POST /api/save` → le fichier vaut `NEW_FILE_TEMPLATE`.
 - [ ] **Step 2: Lancer** `bun test tests/configure-server.test.ts 2>&1 | tee /tmp/idnma-t8-red.log` : FAIL.
-- [ ] **Step 3: Implémenter `server.ts`** : `Bun.serve({ hostname: "127.0.0.1", port: 0, development: false, routes: { "/": page }, fetch })` ; jeton `randomBytes(32).toString("hex")` ; `dirty` = `isNew || doc.toText() !== ConfigDocument.parse(baseText).toText()` (comparer à la base relue et non au texte brut : un fichier CRLF relu sort en LF et ne doit pas paraître modifié) ; Save sur `!dirty` ne touche pas le disque ; minuteur d'inactivité armé quand le nombre de flux SSE retombe à zéro, annulé à la connexion suivante, jamais armé avant la première connexion.
+- [ ] **Step 3: Implémenter `server.ts`** : `Bun.serve({ hostname: "127.0.0.1", port: 0, development: false, routes: { "/": page }, fetch })` ; jeton `randomBytes(32).toString("hex")` ; `dirty` = `false` si `parseError`, sinon `isNew || doc.toText() !== ConfigDocument.parse(baseText).toText()` (comparer à la base relue et non au texte brut : un fichier CRLF relu sort en LF et ne doit pas paraître modifié) ; Save sur `!dirty` ne touche pas le disque ; minuteur d'inactivité armé quand le nombre de flux SSE retombe à zéro, annulé à la connexion suivante, jamais armé avant la première connexion.
 - [ ] **Step 4: Lancer** les tests : PASS (`tee /tmp/idnma-t8-green.log`).
 - [ ] **Step 5: Commit** `git add src/configure tests/configure-server.test.ts && git commit -m "feat(configure): local server with token, origin and idle guards"`
 
@@ -345,7 +359,7 @@ Composition (maquette `commands.html`, état 1 et état 2) : barre d'outils (nom
 - Consumes : API de la tâche 8, `renderApp` de la tâche 10.
 
 - [ ] **Step 1: `styles.css`** : coller les tokens des quatre fichiers du DS (sans `fonts.css`), puis les styles des composants repris de la maquette `commands.html`, réécrits avec `var()` seulement.
-- [ ] **Step 2: `app.ts`** : jeton lu dans `location.search` puis retiré de la barre d'adresse (`history.replaceState`) ; `fetch` avec `x-idnma-token` et `content-type: application/json` ; `EventSource('/api/events?token=…')` ; délégation d'événements sur `data-action` ; champs envoyés au `change` (la bande de commande suit la clé et le nom d'engine à chaque `input`, par `commandLine`) ; `Copy` par `navigator.clipboard.writeText` ; `⌘S` / `Ctrl-S` → Save ; `beforeunload` si `dirty` ; à `visibilitychange` visible → `GET /api/state` ; refus (`409`) affiché sous le contrôle ; focus rendu par `data-focus-id`.
+- [ ] **Step 2: `app.ts`** : jeton lu dans `location.search`, rangé en `sessionStorage` (relu de là après un rechargement), puis retiré de la barre d'adresse (`history.replaceState`) ; `fetch` avec `x-idnma-token` et `content-type: application/json` ; `EventSource('/api/events?token=…')` ; délégation d'événements sur `data-action` ; champs envoyés au `change` (la bande de commande suit la clé et le nom d'engine à chaque `input`, par `commandLine`) ; `Copy` par `navigator.clipboard.writeText` ; `⌘S` / `Ctrl-S` → Save ; `beforeunload` si `dirty` ; à `visibilitychange` visible → `GET /api/state` ; refus (`409`) affiché sous le contrôle ; focus rendu par `data-focus-id`.
 - [ ] **Step 3: Vérifier** : `bun run typecheck 2>&1 | tee /tmp/idnma-t11-tsc.log` sans erreur (si les types DOM manquent, ajouter `/// <reference lib="dom" />` en tête d'`app.ts` et de `render.ts`) ; `bun test 2>&1 | tee /tmp/idnma-t11-all.log` : toute la suite PASS.
 - [ ] **Step 4: Recette visuelle** : `IDNMA_CONFIG_DIR=<dossier temporaire avec une copie de romain.yml> bun src/cli.ts configure --no-open`, ouvrir l'URL dans Chrome sans tête (`--headless=new --window-size=1340,900 --screenshot=…`) pour quatre captures : vue Agent `deepseek-flash`, vue Provider `lmstudio` sur la fixture AC-6, menu Provider ouvert, fichier neuf ; puis la session principale (pas l'exécutant) lance `/erom-vision:gate-vision ds=application` sur ces captures. Verdict FAIL → corriger et refaire.
 - [ ] **Step 5: Commit** `git add src/configure/page && git commit -m "feat(configure): interactive page with the application design system"`
