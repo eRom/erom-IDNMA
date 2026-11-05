@@ -1,6 +1,7 @@
 import { type Document, isAlias, isMap, isNode, LineCounter, type Node, parseDocument, visit, type YAMLMap } from "yaml";
 import { applyAgentOp } from "./agent-ops.ts";
 import { NEW_FILE_TEMPLATE } from "./builtins.ts";
+import { applyEngineOp } from "./engine-ops.ts";
 import { EditRefused, isMergePair, readablePath } from "./nodes.ts";
 import type { EditOp, ParseErrorView } from "./types.ts";
 
@@ -65,7 +66,7 @@ export class ConfigDocument {
     if (this.applyOp(op)) this.modified = true;
   }
 
-  // Les opérations d'engine et de preset arrivent aux tâches 4 et 5 ; d'ici là, elles refusent.
+  // Les opérations de preset arrivent à la tâche 5 ; d'ici là, elles refusent.
   private applyOp(op: EditOp): boolean {
     switch (op.op) {
       case "addAgent":
@@ -87,6 +88,7 @@ export class ConfigDocument {
       case "removeMerge":
       case "unlink":
       case "quoteValue":
+        return applyEngineOp(this, op);
       case "addPreset":
       case "renamePreset":
       case "deletePreset":

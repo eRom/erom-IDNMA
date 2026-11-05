@@ -1,6 +1,6 @@
 import { isAlias, isMap, isNode, isScalar, type Node, type Pair, type Scalar, visit, YAMLMap } from "yaml";
 import type { ConfigDocument } from "./document.ts";
-import { EditRefused, readablePath } from "./nodes.ts";
+import { EditRefused, findPair, keyIs, readablePath } from "./nodes.ts";
 import type { EditOp } from "./types.ts";
 
 export type AgentOp = Extract<
@@ -188,7 +188,7 @@ function makeDefault(config: ConfigDocument, agent: string, engine: string): boo
  * Refuse de retirer un sous-arbre dont une ancre est reprise par alias hors de lui : les alias
  * pointeraient dans le vide. Les alias internes au sous-arbre partent avec lui.
  */
-function assertAnchorsFree(config: ConfigDocument, subtree: Node | undefined): void {
+export function assertAnchorsFree(config: ConfigDocument, subtree: Node | undefined): void {
   if (!isNode(subtree)) return;
   const anchors = new Set<string>();
   const insideAliases = new Set<unknown>();
@@ -245,21 +245,13 @@ function checkKey(what: "Agent key" | "Engine name", key: string): void {
   }
 }
 
-function keyIs(pair: Pair, name: string): boolean {
-  return isScalar(pair.key) && pair.key.value === name;
-}
-
-function findPair(map: YAMLMap, key: string): Pair | undefined {
-  return map.items.find((pair) => keyIs(pair, key));
-}
-
 /** Renomme la clé de la paire en place : même nœud de clé, donc même position et mêmes commentaires. */
 function renameKey(map: YAMLMap, key: string, newKey: string): void {
   const pair = findPair(map, key);
   if (pair && isScalar(pair.key)) pair.key.value = newKey;
 }
 
-function requireAgent(config: ConfigDocument, key: string): YAMLMap {
+export function requireAgent(config: ConfigDocument, key: string): YAMLMap {
   if (!config.agentsMap()?.has(key)) throw new EditRefused(`Agent "${key}" does not exist.`);
   const agent = config.agentMap(key);
   if (!agent) throw new EditRefused(`Agent "${key}" is not a map of fields.`);
@@ -267,7 +259,7 @@ function requireAgent(config: ConfigDocument, key: string): YAMLMap {
 }
 
 /** La table `engines:` de l'agent, après avoir vérifié que l'engine nommé s'y trouve. */
-function requireEngines(config: ConfigDocument, agent: string, engine: string): YAMLMap {
+export function requireEngines(config: ConfigDocument, agent: string, engine: string): YAMLMap {
   const engines = requireAgent(config, agent).get("engines", true);
   if (!isMap(engines) || !engines.has(engine)) {
     throw new EditRefused(`Engine "${engine}" does not exist on agent "${agent}".`);
@@ -288,7 +280,7 @@ function ensureRootMap(config: ConfigDocument): YAMLMap {
 }
 
 /** La table en bloc sous `key` ; créée si la clé manque ou ne porte rien (`agents:` seul). */
-function ensureMapAt(parent: YAMLMap, key: string): YAMLMap {
+export function ensureMapAt(parent: YAMLMap, key: string): YAMLMap {
   const current = parent.get(key, true);
   if (isMap(current)) {
     if (current.items.length === 0) current.flow = false;

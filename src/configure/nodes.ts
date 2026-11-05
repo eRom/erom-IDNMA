@@ -1,4 +1,4 @@
-import { type Document, isPair, isScalar, isSeq, type Node, type Pair, Scalar } from "yaml";
+import { type Document, isPair, isScalar, isSeq, type Node, type Pair, Scalar, type YAMLMap } from "yaml";
 
 /** Opération refusée : le message est du texte d'interface (anglais, une phrase qui nomme l'obstacle). */
 export class EditRefused extends Error {
@@ -47,4 +47,12 @@ export function readablePath(ancestors: readonly PathItem[], node: unknown): str
     }
   }
   return parts.join(".");
+}
+
+export function keyIs(pair: Pair, name: string): boolean {
+  return isScalar(pair.key) && pair.key.value === name;
+}
+
+export function findPair(map: YAMLMap, key: string): Pair | undefined {
+  return map.items.find((pair) => keyIs(pair, key));
 }
