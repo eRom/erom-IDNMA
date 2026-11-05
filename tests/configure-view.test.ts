@@ -35,10 +35,28 @@ function withEngine(body: string, presets = ""): string {
 
 describe("configure view", () => {
   test("round-trips the real files byte for byte", () => {
-    // `yaml` ne garde pas des espaces seuls après le dernier saut de ligne (l'exemple du dépôt en porte
-    // deux, sans conséquence) : seule cette queue-là est tolérée, tout le reste doit ressortir à l'octet.
     for (const text of [romain, linked, example]) {
-      expect(ConfigDocument.parse(text).toText()).toBe(text.replace(/\n[ \t]+$/, "\n"));
+      expect(ConfigDocument.parse(text).toText()).toBe(text);
+    }
+  });
+
+  test("returns an unmodified file unchanged whatever its tail", () => {
+    const tails = [
+      "agents:\n  a:\n    label: A", // pas de saut de ligne final
+      "agents:\r\n  a:\r\n    label: A\r\n", // fins de ligne CRLF
+      "agents:\n\n\n", // lignes vides en queue
+      "agents:\n  a:\n    label: A\n  ", // espaces seuls en queue
+    ];
+    for (const text of tails) {
+      expect(ConfigDocument.parse(text).toText()).toBe(text);
+    }
+  });
+
+  test("serialises the unchanged tree to the same text apart from the tail", () => {
+    // Garde-fou pour les opérations des tâches 3 à 5 : la sortie du `Document` ne doit pas dériver.
+    for (const text of [romain, linked, example]) {
+      const out = ConfigDocument.parse(text).doc.toString({ flowCollectionPadding: false });
+      expect(out.trimEnd()).toBe(text.trimEnd());
     }
   });
 
@@ -96,10 +114,20 @@ describe("configure view", () => {
     expect(partial.presets.find((p) => p.name === "ollama")?.inFile).toBe(true);
   });
 
-  test("keeps a file preset of another shape apart and read-only", () => {
+  test("classifies a preset of another shape as other, and a custom table as a provider", () => {
     const view = viewOf("presets:\n  odd: &odd 42\n  mine: &mine\n    K: v\nagents:\n");
     expect(view.presets.find((p) => p.name === "odd")).toMatchObject({ kind: "other", builtIn: false, inFile: true });
     expect(view.presets.find((p) => p.name === "mine")).toMatchObject({ kind: "provider", builtIn: false });
+  });
+
+  test("a file preset carrying a built-in anchor is that built-in", () => {
+    const view = viewOf('presets:\n  local: &ollama\n    ANTHROPIC_BASE_URL: "http://localhost:9"\nagents:\n');
+    expect(view.presets.find((p) => p.name === "local")).toMatchObject({ builtIn: true, inFile: true, kind: "provider" });
+    expect(view.presets.some((p) => p.name === "ollama")).toBe(false);
+    // Les trois autres built-ins restent proposés, non écrits.
+    for (const name of ["lmstudio", "openrouter", "claude-max"]) {
+      expect(view.presets.find((p) => p.name === name)).toMatchObject({ builtIn: true, inFile: false });
+    }
   });
 
   test("lists who uses a preset as commands", () => {
@@ -124,11 +152,15 @@ describe("configure view", () => {
   });
 
   test("shows own variables next to a merged preset", () => {
-    const view = viewOf(romain);
-    const engine = engineOf(view, "mistral", "default");
+    const engine = engineOf(viewOf(linked), "glm", "default");
     expect(engine.provider).toEqual({ kind: "preset", name: "ollama" });
     expect(engine.mergedPreset).toBe("ollama");
-    expect(engine.env).toEqual([]);
+    const names = engine.env.map((v) => v.name);
+    expect(names).toContain("ANTHROPIC_MODEL");
+    expect(names).toContain("CLAUDE_CODE_EFFORT_LEVEL");
+    // Les variables du preset fusionné ne sont pas recopiées dans l'env propre de l'engine.
+    expect(names).not.toContain("ANTHROPIC_BASE_URL");
+    expect(engineOf(viewOf(romain), "mistral", "default").env).toEqual([]);
   });
 
   test("marks linked values", () => {

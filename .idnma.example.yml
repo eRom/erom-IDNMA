@@ -69,4 +69,3 @@ agents:
         harness: codex
         model: gpt-6-luna
         options: [--dangerously-bypass-approvals-and-sandbox]
-  

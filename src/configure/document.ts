@@ -82,6 +82,7 @@ export class ConfigDocument {
   readonly parseError?: ParseErrorView;
   readonly doc: Document;
   private readonly source: string;
+  private modified = false;
 
   private constructor(source: string, isNew: boolean) {
     const lineCounter = new LineCounter();
@@ -102,16 +103,25 @@ export class ConfigDocument {
     return new ConfigDocument(text ?? NEW_FILE_TEMPLATE, text === undefined);
   }
 
+  /**
+   * Tant qu'aucune opération n'a réussi, le texte reçu ressort tel quel, à l'octet : la lib ne garde ni
+   * les espaces de fin, ni l'absence de saut de ligne final, ni les fins de ligne CRLF, ni les lignes
+   * vides en queue, et un fichier vide ou fait de commentaires s'écrirait `null`. Un fichier qui ne se lit
+   * pas n'est jamais re-sérialisé non plus.
+   */
   toText(): string {
-    // Un fichier qui ne se lit pas n'est jamais re-sérialisé : on rend le texte reçu tel quel.
-    if (this.parseError) return this.source;
-    // Fichier vide ou fait de commentaires : la lib écrirait `null`. Tant que rien n'y est écrit, le texte reste.
-    if (this.doc.contents === null) return this.source;
+    if (!this.modified || this.parseError) return this.source;
     return this.doc.toString({ flowCollectionPadding: false });
   }
 
-  /** Applique une modification au `Document`. Les opérations arrivent aux tâches 3 à 5. */
+  /** Applique une modification au `Document` ; `modified` ne passe à vrai que si elle a réussi. */
   apply(op: EditOp): void {
+    this.applyOp(op);
+    this.modified = true;
+  }
+
+  // Les opérations arrivent aux tâches 3 à 5 ; d'ici là, aucune n'aboutit et `modified` reste faux.
+  private applyOp(op: EditOp): void {
     switch (op.op) {
       case "addAgent":
       case "duplicateAgent":

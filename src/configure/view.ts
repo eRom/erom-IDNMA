@@ -179,12 +179,18 @@ function readAgents(reader: Reader, usage: Map<string, string[]>): AgentView[] {
 }
 
 /** Un preset rangé par sa forme : table de textes → provider, liste de textes → option set, le reste à part. */
-function readPreset(reader: Reader, name: string, node: unknown, inFile: boolean, usedBy: string[]): PresetView {
+function readPreset(
+  reader: Reader,
+  name: string,
+  node: unknown,
+  flags: { builtIn: boolean; inFile: boolean },
+  usedBy: string[],
+): PresetView {
   const view: PresetView = {
     name,
     kind: "other",
-    builtIn: isBuiltinPreset(name),
-    inFile,
+    builtIn: flags.builtIn,
+    inFile: flags.inFile,
     vars: [],
     options: [],
     usedBy,
@@ -208,16 +214,23 @@ function builtinNode(name: string): unknown {
 
 function readPresets(reader: Reader, usage: Map<string, string[]>): PresetView[] {
   const presets: PresetView[] = [];
-  const inFile = new Set<string>();
+  // Noms de built-ins déjà présents dans le fichier : par la clé du preset ou par son ancre, car ce sont
+  // les alias qui font l'identité (`local: &ollama` est le built-in `ollama`, sous un autre nom de clé).
+  const covered = new Set<string>();
   for (const pair of reader.doc.presetsMap()?.items ?? []) {
     const name = keyName(pair);
     if (name === undefined) continue;
-    inFile.add(name);
-    presets.push(readPreset(reader, name, pair.value, true, usage.get(name) ?? []));
+    const anchor = isNode(pair.value) ? pair.value.anchor : undefined;
+    const builtIns = [name, anchor].filter((n): n is string => n !== undefined && isBuiltinPreset(n));
+    for (const builtIn of builtIns) covered.add(builtIn);
+    const flags = { builtIn: builtIns.length > 0, inFile: true };
+    presets.push(readPreset(reader, name, pair.value, flags, usage.get(name) ?? []));
   }
   // Un built-in absent du fichier reste proposé ; il n'est écrit qu'à son premier usage.
   for (const name of BUILTIN_PRESET_NAMES) {
-    if (!inFile.has(name)) presets.push(readPreset(reader, name, builtinNode(name), false, []));
+    if (!covered.has(name)) {
+      presets.push(readPreset(reader, name, builtinNode(name), { builtIn: true, inFile: false }, []));
+    }
   }
   return presets;
 }
