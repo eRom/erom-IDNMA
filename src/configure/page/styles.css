@@ -60,13 +60,6 @@
 --blur-popover:blur(24px) saturate(1.6);/* @kind other */
 }
 
-/* ==== palette de harnais (propre à la page, hors export du DS) ====
-   Fond d'un badge « Used by » selon le harnais. L'encre est choisie au contraste WCAG : sombre partout,
-   blanche sur dst, seul fond sombre de la palette. */
-:root{
---harness-claude:#d97757;--harness-codex:#10b981;--harness-grok:#f4f4f5;--harness-agy:#a855f7;--harness-opencode:#06b6d4;--harness-dst:#1e40af;
---harness-claude-ink:var(--powerline-ink);--harness-codex-ink:var(--powerline-ink);--harness-grok-ink:var(--powerline-ink);--harness-agy-ink:var(--powerline-ink);--harness-opencode-ink:var(--powerline-ink);--harness-dst-ink:var(--label-strong);
-}
 
 /* ==== tokens/base.css ==== */
 .eds-root{background:var(--surface-window);color:var(--text-body);font-family:var(--font-ui);font-size:var(--text-body-size);-webkit-font-smoothing:antialiased}
@@ -313,18 +306,12 @@ button:focus-visible, select:focus-visible, .field:focus, .field:focus-visible {
 }
 .cmd .ek:focus { box-shadow: var(--shadow-focus); }
 
-/* Badges « Used by » : la couleur est celle du harnais (data-harness) ; un harnais inconnu garde le look de .tag.
-   Pas de transition (DS : aucune animation) ; le focus clavier vient de la règle globale des boutons (--shadow-focus). */
+/* Badges « Used by » : neutres, blanc à opacité comme le reste de l'interface ; le survol éclaire, sans transition
+   (DS : aucune animation) ; le focus clavier vient de la règle globale des boutons (--shadow-focus). */
 .badges { display: flex; flex-wrap: wrap; gap: calc(var(--grid) * 1.5); }
-.badge { display: inline-flex; align-items: center; max-width: 100%; height: var(--button-sm-h); padding: 0 calc(var(--grid) * 2.5); border-radius: var(--radius-keycap); background: var(--fill-tab-active); color: var(--label-2); font-size: var(--text-small); font-weight: var(--weight-medium); white-space: nowrap; }
-.badge:hover { text-decoration: underline; text-underline-offset: calc(var(--grid) * 0.5); }
+.badge { display: inline-flex; align-items: center; max-width: 100%; height: var(--button-sm-h); padding: 0 calc(var(--grid) * 2.5); border-radius: var(--radius-keycap); background: var(--fill-control); color: var(--label-1); font-size: var(--text-small); white-space: nowrap; }
+.badge:hover { background: var(--fill-active); color: var(--label-strong); }
 .badge:focus-visible { box-shadow: var(--shadow-focus); }
-.badge[data-harness="claude"] { background: var(--harness-claude); color: var(--harness-claude-ink); }
-.badge[data-harness="codex"] { background: var(--harness-codex); color: var(--harness-codex-ink); }
-.badge[data-harness="grok"] { background: var(--harness-grok); color: var(--harness-grok-ink); }
-.badge[data-harness="agy"] { background: var(--harness-agy); color: var(--harness-agy-ink); }
-.badge[data-harness="opencode"] { background: var(--harness-opencode); color: var(--harness-opencode-ink); }
-.badge[data-harness="dst"] { background: var(--harness-dst); color: var(--harness-dst-ink); }
 
 .ctl { display: flex; align-items: center; flex-wrap: wrap; gap: calc(var(--grid) * 2) calc(var(--grid) * 4); margin-top: calc(var(--grid) * 2.5); padding-left: calc(var(--grid) * 0.5); }
 .ctl .c { display: flex; align-items: center; gap: calc(var(--grid) * 2); }
