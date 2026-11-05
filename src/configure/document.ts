@@ -3,6 +3,7 @@ import { applyAgentOp } from "./agent-ops.ts";
 import { NEW_FILE_TEMPLATE } from "./builtins.ts";
 import { applyEngineOp } from "./engine-ops.ts";
 import { EditRefused, isMergePair, readablePath } from "./nodes.ts";
+import { applyPresetOp } from "./preset-ops.ts";
 import type { EditOp, ParseErrorView } from "./types.ts";
 
 // Les consommateurs existants importent encore ces deux noms d'ici.
@@ -66,7 +67,6 @@ export class ConfigDocument {
     if (this.applyOp(op)) this.modified = true;
   }
 
-  // Les opérations de preset arrivent à la tâche 5 ; d'ici là, elles refusent.
   private applyOp(op: EditOp): boolean {
     switch (op.op) {
       case "addAgent":
@@ -95,7 +95,7 @@ export class ConfigDocument {
       case "setPresetVar":
       case "deletePresetVar":
       case "setPresetOptions":
-        throw new EditRefused(`Not implemented yet: ${op.op}`);
+        return applyPresetOp(this, op);
       default: {
         const unreachable: never = op;
         throw new EditRefused(`Unknown operation: ${JSON.stringify(unreachable)}`);

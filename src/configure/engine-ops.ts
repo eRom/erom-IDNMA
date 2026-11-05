@@ -1,7 +1,19 @@
 import { isAlias, isMap, isNode, isScalar, isSeq, type Node, Pair, Scalar, visit, type YAMLMap, type YAMLSeq } from "yaml";
 import { assertAnchorsFree, ensureMapAt, requireEngines } from "./agent-ops.ts";
 import type { ConfigDocument } from "./document.ts";
-import { EditRefused, findPair, isMergePair, keyIs } from "./nodes.ts";
+import {
+  asNode,
+  assertNotLinked,
+  EditRefused,
+  ENV_NAME_PATTERN,
+  findPair,
+  isMergePair,
+  keyIs,
+  ownVariable,
+  preferredOptionsFlow,
+  textNode,
+  writeText,
+} from "./nodes.ts";
 import { ensurePresetInFile } from "./preset-ops.ts";
 import type { EditOp, OptionsInput, ProviderInput } from "./types.ts";
 
@@ -20,9 +32,6 @@ export type EngineOp = Extract<
       | "quoteValue";
   }
 >;
-
-/** Forme d'un nom de variable d'environnement : ce que le shell sait exporter. */
-const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** Les clés d'env qui aiguillent claude vers un proxy : « Anthropic » les retire avec le `<<`. */
 const PROXY_KEYS = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"];
@@ -60,24 +69,6 @@ export function applyEngineOp(config: ConfigDocument, op: EngineOp): boolean {
       throw new EditRefused(`Unknown operation: ${JSON.stringify(unreachable)}`);
     }
   }
-}
-
-/**
- * Vrai si la majorité des listes sous une clé `options` sont écrites en ligne (`[a, b]`), et aussi s'il
- * n'y en a aucune : une liste neuve suit le style du fichier, en ligne pour un fichier neuf.
- */
-export function preferredOptionsFlow(config: ConfigDocument): boolean {
-  let flow = 0;
-  let block = 0;
-  visit(config.doc, {
-    Pair(_key, pair) {
-      if (keyIs(pair, "options") && isSeq(pair.value)) {
-        if (pair.value.flow) flow++;
-        else block++;
-      }
-    },
-  });
-  return flow >= block;
 }
 
 // --- Champs simples -----------------------------------------------------------------------------
@@ -177,11 +168,12 @@ function setProvider(config: ConfigDocument, agent: string, engine: string, prov
     return true;
   }
 
-  const preset = ensurePresetInFile(config, provider.name);
-  if (!isMap(preset)) throw new EditRefused(`Preset "${provider.name}" is not a provider.`);
-  if (merge) {
-    if (!isAlias(merge.value)) throw new EditRefused(`The env of ${agent}/${engine} merges several presets; edit the file directly.`);
-    if (preset.anchor !== undefined && merge.value.source === preset.anchor) return false;
+  // Tout refus précède l'appel suivant : il peut écrire un built-in absent dans `presets:`.
+  const mergeAlias = merge && isAlias(merge.value) ? merge.value : undefined;
+  if (merge && !mergeAlias) throw new EditRefused(`The env of ${agent}/${engine} merges several presets; edit the file directly.`);
+  const preset = ensurePresetInFile(config, provider.name, "provider");
+  if (merge && mergeAlias) {
+    if (preset.anchor !== undefined && mergeAlias.source === preset.anchor) return false;
     merge.value = config.doc.createAlias(preset, provider.name);
     return true;
   }
@@ -203,11 +195,11 @@ function setOptions(config: ConfigDocument, agent: string, engine: string, optio
   }
 
   if (options.kind === "preset") {
-    const preset = ensurePresetInFile(config, options.name);
-    if (!isSeq(preset)) throw new EditRefused(`Preset "${options.name}" is not an option set.`);
+    // Tout refus précède l'appel suivant : il peut écrire un built-in absent dans `presets:`.
+    assertAnchorsFree(config, asNode(current));
+    const preset = ensurePresetInFile(config, options.name, "options");
     if (pair && isAlias(current) && preset.anchor !== undefined && current.source === preset.anchor) return false;
     if (pair) {
-      assertAnchorsFree(config, asNode(current));
       pair.value = config.doc.createAlias(preset, options.name);
     } else {
       insertField(target, "options", config.doc.createAlias(preset, options.name));
@@ -420,10 +412,6 @@ function requireEngine(config: ConfigDocument, agent: string, engine: string): Y
   return found;
 }
 
-function asNode(value: unknown): Node | undefined {
-  return isNode(value) ? value : undefined;
-}
-
 /** Texte du harnais de l'engine, alias résolu ; `undefined` s'il manque ou n'est pas un texte. */
 function harnessOf(config: ConfigDocument, target: YAMLMap): string | undefined {
   const node = target.get("harness", true);
@@ -466,11 +454,6 @@ function dropEnvIfEmpty(target: YAMLMap): void {
   if (isMap(env) && env.items.length === 0) target.delete("env");
 }
 
-/** Variable propre à l'engine (la fusion `<<` n'en est pas une). */
-function ownVariable(env: YAMLMap, name: string): Pair | undefined {
-  return env.items.find((item) => !isMergePair(item) && isScalar(item.key) && String(item.key.value) === name);
-}
-
 /** Insère un champ à sa place dans l'ordre `harness`, `model`, `options`, `env`. */
 function insertField(target: YAMLMap, field: string, value: Node): void {
   const rank = FIELD_ORDER.indexOf(field);
@@ -487,23 +470,3 @@ function mergePair(config: ConfigDocument, preset: YAMLMap, name: string): Pair 
   return new Pair(key, config.doc.createAlias(preset, name));
 }
 
-function textNode(config: ConfigDocument, value: string, style: Scalar.Type): Scalar {
-  const node = config.doc.createNode(value) as Scalar;
-  node.type = style;
-  return node;
-}
-
-/** Écrit le texte dans le scalaire en place (son ancre reste) ; `true` si quelque chose a changé. */
-function writeText(scalar: Scalar, value: string, style?: Scalar.Type): boolean {
-  const changed = scalar.value !== value || (style !== undefined && scalar.type !== style);
-  if (!changed) return false;
-  scalar.value = value;
-  if (style !== undefined) scalar.type = style;
-  return true;
-}
-
-/** Un champ lié par ancre ne se modifie pas : l'ancre ou l'alias entraînerait les autres endroits. */
-function assertNotLinked(node: unknown, what: string): void {
-  if (isAlias(node)) throw new EditRefused(`${what} is linked through &${node.source}; unlink it first.`);
-  if (isNode(node) && node.anchor) throw new EditRefused(`${what} is linked through &${node.anchor}; unlink it first.`);
-}

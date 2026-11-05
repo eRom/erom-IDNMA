@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isNode, parseDocument, visit } from "yaml";
+import { builtinPresetText } from "../src/configure/builtins.ts";
 import { ConfigDocument } from "../src/configure/document.ts";
 import type { EditOp } from "../src/configure/types.ts";
 import { buildView } from "../src/configure/view.ts";
@@ -160,10 +161,13 @@ agents:
     expect(config.doc.toString()).toBe(treeBefore);
   });
 
-  // État transitoire : la tâche 5 écrit le built-in manquant dans le fichier et remplace ce test.
-  test("a built-in preset missing from the file is refused by name until it can be written", () => {
-    const config = ConfigDocument.parse(linked);
-    expect(refusal(config, { op: "setProvider", agent: "claude", engine: "default", provider: { kind: "preset", name: "lmstudio" } })).toMatch(/lmstudio/);
+  test("a built-in preset missing from the file is written to presets, then aliased", () => {
+    const result = edit(linked, { op: "setProvider", agent: "claude", engine: "default", provider: { kind: "preset", name: "lmstudio" } });
+    const block = builtinPresetText("lmstudio")
+      .split("\n")
+      .map((line) => `  ${line}`);
+    expect(changedLines(linked, result.text)).toEqual({ removed: [], added: [...block, "        env:", "          <<: *lmstudio"] });
+    expect(read(result.text).agents.claude.engines.default.env.ANTHROPIC_BASE_URL).toBe("http://localhost:1234");
   });
 
   test("custom options copy the preset values in the file's list style", () => {

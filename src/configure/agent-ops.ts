@@ -237,7 +237,7 @@ function unlinkInternalAnchors(root: Node): void {
 
 // --- Aides --------------------------------------------------------------------------------------
 
-function checkKey(what: "Agent key" | "Engine name", key: string): void {
+export function checkKey(what: "Agent key" | "Engine name" | "Preset name", key: string): void {
   if (!KEY_PATTERN.test(key) || key.startsWith("-")) {
     throw new EditRefused(
       `${what} "${key}" is not valid: use letters, digits, dots, underscores and hyphens, and do not start with a hyphen.`,
@@ -268,7 +268,7 @@ export function requireEngines(config: ConfigDocument, agent: string, engine: st
 }
 
 /** La table racine du fichier ; un fichier vide ou fait de commentaires en reçoit une. */
-function ensureRootMap(config: ConfigDocument): YAMLMap {
+export function ensureRootMap(config: ConfigDocument): YAMLMap {
   const contents = config.doc.contents;
   if (isMap(contents)) return contents;
   if (contents === null || (isScalar(contents) && contents.value === null)) {
