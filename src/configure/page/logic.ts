@@ -254,3 +254,38 @@ export function reorderOptions(
   values.splice(target, 0, moved);
   return { values, target };
 }
+
+// --- Saisie en attente ----------------------------------------------------------------------------
+
+/**
+ * Les champs où l'on a tapé sans que le `change` soit parti : tant qu'il y en a un, la page se tient pour
+ * sale, car cliquer Save valide le champ puis enregistre (le geste nominal : taper, puis Save).
+ */
+export class PendingInputs {
+  private readonly ids = new Set<string>();
+
+  /** Un événement `input` : le champ a du texte que le serveur ne connaît pas encore. */
+  input(id: string): void {
+    this.ids.add(id);
+  }
+
+  /** Le `change` (ou la sortie du champ) est parti : son opération est dans la file. */
+  commit(id: string): void {
+    this.ids.delete(id);
+  }
+
+  /** Un rendu remplace tous les champs par les valeurs de la vue. */
+  clear(): void {
+    this.ids.clear();
+  }
+
+  get any(): boolean {
+    return this.ids.size > 0;
+  }
+}
+
+/** Save et Revert servent aussi pour une saisie en attente ; jamais sur un fichier qui ne se lit pas. */
+export function toolbarState(view: Pick<ConfigView, "dirty" | "canRevert" | "parseError">, pending: boolean): { canSave: boolean; canRevert: boolean } {
+  const editable = view.parseError === undefined;
+  return { canSave: editable && (view.dirty || pending), canRevert: editable && (view.canRevert || pending) };
+}

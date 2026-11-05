@@ -7,10 +7,12 @@ import {
   addOps,
   type FieldInput,
   opForField,
+  PendingInputs,
   readToken,
   remapId,
   renameEffect,
   reorderOptions,
+  toolbarState,
   TOKEN_KEY,
 } from "../src/configure/page/logic.ts";
 import type { ConfigView, EditOp } from "../src/configure/types.ts";
@@ -263,5 +265,49 @@ describe("configure page option lists", () => {
     expect(reorderOptions(list, "removeOption", -1)).toBeUndefined();
     expect(reorderOptions(list, "removeOption", Number.NaN)).toBeUndefined();
     expect(list).toEqual(["--a", "--b", "--c"]);
+  });
+});
+
+describe("configure page pending input", () => {
+  test("a field with typed text counts until its change goes out", () => {
+    const pending = new PendingInputs();
+    expect(pending.any).toBe(false);
+    pending.input("agent:a:label");
+    pending.input("agent:a:label");
+    expect(pending.any).toBe(true);
+    pending.commit("agent:a:label");
+    expect(pending.any).toBe(false);
+  });
+
+  test("tracks several fields independently, and a render clears them all", () => {
+    const pending = new PendingInputs();
+    pending.input("a");
+    pending.input("b");
+    pending.commit("a");
+    expect(pending.any).toBe(true);
+    pending.commit("a");
+    expect(pending.any).toBe(true);
+    pending.clear();
+    expect(pending.any).toBe(false);
+    // Valider un champ qui n'a rien en attente est sans effet.
+    pending.commit("never-typed");
+    expect(pending.any).toBe(false);
+  });
+
+  test("a pending input makes a clean file saveable and revertable, the view alone does not", () => {
+    const clean = { dirty: false, canRevert: false };
+    expect(toolbarState(clean, false)).toEqual({ canSave: false, canRevert: false });
+    expect(toolbarState(clean, true)).toEqual({ canSave: true, canRevert: true });
+  });
+
+  test("the revert rule stays the view's own once nothing is pending", () => {
+    // Fichier neuf intact : Create est possible, Revert n'a rien à défaire.
+    expect(toolbarState({ dirty: true, canRevert: false }, false)).toEqual({ canSave: true, canRevert: false });
+    expect(toolbarState({ dirty: true, canRevert: true }, false)).toEqual({ canSave: true, canRevert: true });
+  });
+
+  test("a file that does not parse is never saveable, whatever is typed", () => {
+    const broken = { dirty: false, canRevert: false, parseError: { message: "x", line: 1, col: 1 } };
+    expect(toolbarState(broken, true)).toEqual({ canSave: false, canRevert: false });
   });
 });

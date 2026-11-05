@@ -8,7 +8,7 @@
 import { commandLine } from "../command.ts";
 import type { ConfigView, EditOp } from "../types.ts";
 import { type AddingState, renderApp, type UiState } from "./render.ts";
-import { addOps, type FieldInput, opForField, readToken, remapId, type Remap, renameEffect, reorderOptions } from "./logic.ts";
+import { addOps, type FieldInput, opForField, PendingInputs, readToken, remapId, type Remap, renameEffect, reorderOptions, toolbarState } from "./logic.ts";
 
 // --- Appels ---------------------------------------------------------------------------------------
 
@@ -68,6 +68,22 @@ let renderedAdding: string | undefined;
 let pointerDown = false;
 let renderDeferred = false;
 
+/** Les champs où l'on a tapé sans que leur `change` soit parti : la page se tient alors pour sale (Save, Revert actifs). */
+const pending = new PendingInputs();
+
+/**
+ * Active Save et Revert dès qu'une saisie est en attente. Jamais l'inverse ici : désactiver un bouton que
+ * la souris est en train d'enfoncer lui ferait perdre son clic ; seul un rendu, qui suit la vue, les éteint.
+ */
+function syncToolbar(): void {
+  if (!view) return;
+  const state = toolbarState(view, pending.any);
+  const save = root.querySelector<HTMLButtonElement>('[data-action="save"]');
+  const revert = root.querySelector<HTMLButtonElement>('[data-action="revert"]');
+  if (save && state.canSave) save.disabled = false;
+  if (revert && state.canRevert) revert.disabled = false;
+}
+
 function anchorOf(el: HTMLElement): Anchor {
   // Un item de menu se referme avec son menu : le refus se montre sous le déclencheur.
   const trigger = el.closest(".menu") ? el.closest(".menu-host")?.querySelector<HTMLElement>("[aria-haspopup]") : null;
@@ -92,6 +108,8 @@ function render(): void {
     return;
   }
   renderDeferred = false;
+  // Le rendu remplace chaque champ par la valeur de la vue : plus rien n'est en attente.
+  pending.clear();
   const active = document.activeElement instanceof HTMLElement && root.contains(document.activeElement) ? document.activeElement : undefined;
   let focus: Focus | undefined = pendingFocus;
   if (!focus && active) {
@@ -586,12 +604,23 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("change", (event) => {
   const el = event.target;
-  if ((el instanceof HTMLInputElement || el instanceof HTMLSelectElement) && el.dataset.action) onFieldChange(el);
+  if ((el instanceof HTMLInputElement || el instanceof HTMLSelectElement) && el.dataset.action) {
+    pending.commit(el.id);
+    onFieldChange(el);
+  }
+});
+
+// Sortir d'un champ sans `change` (le texte est revenu à l'original) ne laisse rien en attente.
+document.addEventListener("focusout", (event) => {
+  if (event.target instanceof HTMLInputElement && event.target.dataset.action) pending.commit(event.target.id);
 });
 
 document.addEventListener("input", (event) => {
   const el = event.target;
-  if (el instanceof HTMLInputElement && (el.dataset.action === "renameAgent" || el.dataset.action === "renameEngine")) followCommands();
+  if (!(el instanceof HTMLInputElement) || !el.dataset.action) return;
+  pending.input(el.id);
+  syncToolbar();
+  if (el.dataset.action === "renameAgent" || el.dataset.action === "renameEngine") followCommands();
 });
 
 document.addEventListener("submit", (event) => {
@@ -669,7 +698,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("beforeunload", (event) => {
-  if (!view?.dirty) return;
+  if (!view?.dirty && !pending.any) return;
   event.preventDefault();
   event.returnValue = "";
 });

@@ -19,6 +19,7 @@
 //      fichier modifié sur le disque (avis avec Reload).
 //   2. revue T11, cas A : sur un fichier propre, taper dans un champ puis ⌘S aussitôt enregistre dès le premier ⌘S.
 //   3. revue T11, cas B : appui, attente, relâchement sur Save après une frappe : un seul clic enregistre.
+//   3 bis. fichier propre : taper dans un champ active Save et Revert, puis un clic réel sur Save enregistre (le geste nominal).
 //   4. revue T11, cas C : + Add variable avec un nom existant (engine et preset) est refusé, la valeur reste.
 //   5. revue T11, cas D : un menu ouvert se ferme au clic sur Copy.
 //   6. fichier neuf : écran « Add your first agent », création d'un agent avec son engine, Revert inactif.
@@ -180,6 +181,7 @@ async function main(): Promise<void> {
   const chrome = await startChrome();
   try {
     await scenario(chrome.port, "1. walk through", "romain", async ({ p, disk, file }) => {
+      const startText = disk();
       check("token removed from address bar", (await p.ev<string>("location.search")) === "");
       await p.ev(`document.querySelector('.row[data-key="deepseek-flash"]').click()`);
       await p.wait(200);
@@ -188,7 +190,7 @@ async function main(): Promise<void> {
       await p.wait(100);
       check("command strip follows Key on input", (await p.ev<string>(`[...document.querySelectorAll('.eng .cmd .key')].map(e=>e.textContent).join(',')`)) === "ds-flash,ds-flash,ds-flash");
       check("copy text follows Key on input", (await p.ev<string>(`document.querySelector('.eng [data-action=copy]').dataset.text`)) === "idnma run ds-flash");
-      check("nothing sent before change", (await p.ev<boolean>(`document.querySelector('[data-action=save]').disabled`)) === true);
+      check("typing writes nothing before the change event, and shows no refusal", disk() === startText && (await p.ev<number>(`document.querySelectorAll(".refusal").length`)) === 0);
       await p.key("Tab");
       await p.wait(500);
       check("rename keeps the selection under the new key", (await p.ev<string>(`document.querySelector('.row.sel')?.dataset.key`)) === "ds-flash");
@@ -335,6 +337,33 @@ async function main(): Promise<void> {
       await p.mouse("mouseReleased", dx, dy);
       await p.wait(800);
       check("a click on Duplicate right after typing is not swallowed", (await p.ev<boolean>(`!!document.querySelector('.row[data-key="deepseek-flash-copy"]')`)) === true);
+    });
+
+    await scenario(chrome.port, "3 bis. type in a clean file, then click Save", "romain", async ({ p, disk }) => {
+      const original = disk();
+      await p.ev(`document.querySelector('.row[data-key="deepseek-flash"]').click()`);
+      await p.wait(200);
+      check("starts clean: Save and Revert disabled", (await p.ev<boolean>(`document.querySelector('[data-action=save]').disabled && document.querySelector('[data-action=revert]').disabled`)) === true);
+      await p.ev(selectLabelEnd("agent:deepseek-flash:label"));
+      await p.insert(" ZZC");
+      check("typing enables Save and Revert before any change event", (await p.ev<boolean>(`!document.querySelector('[data-action=save]').disabled && !document.querySelector('[data-action=revert]').disabled`)) === true);
+      check("nothing is written yet", disk() === original);
+      const [x, y] = await p.center("[data-action=save]");
+      await p.mouse("mouseMoved", x, y);
+      await p.mouse("mousePressed", x, y);
+      await p.wait(200);
+      await p.mouse("mouseReleased", x, y);
+      await p.wait(900);
+      check("one click on Save commits the field and saves it", disk() !== original && disk().includes("ZZC"));
+      check("Save is disabled again once saved", (await p.ev<boolean>(`document.querySelector('[data-action=save]').disabled`)) === true);
+
+      // Le chemin par Tab reste valable : le change part au blur, la vue devient sale, rien n'est écrit avant Save.
+      const saved = disk();
+      await p.ev(selectLabelEnd("agent:deepseek-flash:avatar"));
+      await p.insert("q");
+      await p.key("Tab");
+      await p.wait(500);
+      check("the Tab path still works (change sent on blur)", !(await p.ev<boolean>(`document.querySelector('[data-action=save]').disabled`)) && disk() === saved);
     });
 
     await scenario(chrome.port, "4. review case C: + Add variable on an existing name", "romain", async ({ p }) => {
