@@ -114,5 +114,28 @@ export function loadAgentEngine(agentKey: string, engineKey?: string): { engine:
       `Engine "${key}" inconnu pour l'agent "${agentKey}". Engines disponibles : ${Object.keys(agent.engines).sort().join(", ")}.`,
     );
   }
-  return { engine, engineKey: key };
+  return { engine: withModelTierDefaults(engine), engineKey: key };
+}
+
+/** Variables par lesquelles Claude Code choisit son modèle, palier par palier. */
+export const MODEL_TIER_VARS = [
+  "ANTHROPIC_MODEL",
+  "ANTHROPIC_DEFAULT_FABLE_MODEL",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+] as const;
+
+/**
+ * Engine Claude routé hors d'Anthropic (son `env:` fixe `ANTHROPIC_BASE_URL`) : chaque variable de
+ * palier absente de son `env:` reçoit `model:`, pour qu'aucun palier (sous-agent, `/model`) ne
+ * réclame un modèle Anthropic au proxy. Une variable présente, même vide, est gardée telle quelle.
+ * Seul l'`env:` de l'engine compte : une variable exportée dans le shell ne bloque pas le remplissage.
+ */
+export function withModelTierDefaults(engine: Engine): Engine {
+  const { model } = engine;
+  if (engine.harness !== "claude" || model === undefined || !Object.hasOwn(engine.env, "ANTHROPIC_BASE_URL")) return engine;
+  const env = { ...engine.env };
+  for (const name of MODEL_TIER_VARS) if (!Object.hasOwn(env, name)) env[name] = model;
+  return { ...engine, env };
 }

@@ -3,6 +3,8 @@
 # Seule la section agents: est lue : presets: ne fait que porter les ancres, et doit la précéder.
 # Attention, la fusion est superficielle : garder les gabarits au niveau d'env, jamais d'un engine
 # entier, sinon l'env propre de l'agent remplacerait celui du gabarit en bloc.
+# Engine claude dont l'env fixe ANTHROPIC_BASE_URL : ANTHROPIC_MODEL et les ANTHROPIC_DEFAULT_*_MODEL
+# absents reçoivent model: au lancement ; n'écrire que les paliers qui doivent viser un autre modèle.
 presets:
   ollama: &ollama
     ANTHROPIC_BASE_URL: "http://localhost:11434"
@@ -42,11 +44,8 @@ agents:
         options: *claude-max
         env:
           <<: *ollama
-          ANTHROPIC_MODEL: *glm-flash
           ANTHROPIC_DEFAULT_FABLE_MODEL: &glm glm-5.3:cloud[1m]
           ANTHROPIC_DEFAULT_OPUS_MODEL: *glm
-          ANTHROPIC_DEFAULT_SONNET_MODEL: *glm-flash
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: *glm-flash
           CLAUDE_CODE_EFFORT_LEVEL: "max"
   deepseek:
     label: Deepseek Agent
@@ -59,11 +58,7 @@ agents:
         options: *claude-max
         env:
           <<: *ollama
-          ANTHROPIC_MODEL: *deepseek-flash
           ANTHROPIC_DEFAULT_FABLE_MODEL: "deepseek-v4-pro:cloud[1m]"
-          ANTHROPIC_DEFAULT_OPUS_MODEL: *deepseek-flash
-          ANTHROPIC_DEFAULT_SONNET_MODEL: *deepseek-flash
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: *deepseek-flash
           CLAUDE_CODE_AUTO_COMPACT_WINDOW: "786432"
   qwen:
     label: QWEN Agent
@@ -76,9 +71,6 @@ agents:
         options: *claude-max
         env:
           <<: *openrouter
-          ANTHROPIC_MODEL: *qwen-flash
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: *qwen-flash
-          ANTHROPIC_DEFAULT_SONNET_MODEL: *qwen-flash
           ANTHROPIC_DEFAULT_OPUS_MODEL: &qwen-max qwen/qwen3.8-max-0902[1m]
           ANTHROPIC_DEFAULT_FABLE_MODEL: *qwen-max
   kimi:
@@ -92,11 +84,6 @@ agents:
         options: *claude-max
         env:
           <<: *ollama
-          ANTHROPIC_MODEL: *kimi
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: *kimi
-          ANTHROPIC_DEFAULT_SONNET_MODEL: *kimi
-          ANTHROPIC_DEFAULT_OPUS_MODEL: *kimi
-          ANTHROPIC_DEFAULT_FABLE_MODEL: *kimi
   muse:
     label: Muse Spark Agent
     info: Spark 1.3
@@ -108,11 +95,6 @@ agents:
         options: *claude-max
         env:
           <<: *openrouter
-          ANTHROPIC_MODEL: *muse
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: *muse
-          ANTHROPIC_DEFAULT_SONNET_MODEL: *muse
-          ANTHROPIC_DEFAULT_OPUS_MODEL: *muse
-          ANTHROPIC_DEFAULT_FABLE_MODEL: *muse
   grok:
     label: Grok Agent
     info: 4.7

@@ -84,8 +84,84 @@ test("presets: a `<<` merge key fills an engine env, an alias reuses options, ex
       ANTHROPIC_BASE_URL: "http://localhost:11434",
       ANTHROPIC_API_KEY: "explicit-wins",
       ANTHROPIC_MODEL: "kimi-k3:cloud[1m]",
+      ANTHROPIC_DEFAULT_FABLE_MODEL: "kimi-k3:cloud[1m]",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "kimi-k3:cloud[1m]",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "kimi-k3:cloud[1m]",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "kimi-k3:cloud[1m]",
     },
   });
+});
+
+test("a claude engine routed off Anthropic fills only its missing model tiers with model:", () => {
+  writeFileSync(
+    join(dir, ".idnma.yml"),
+    [
+      "agents:",
+      "  mistral:",
+      "    engines:",
+      "      default:",
+      "        harness: claude",
+      "        model: mistral-large-4:cloud[1m]",
+      "        env:",
+      '          ANTHROPIC_BASE_URL: "http://localhost:11434"',
+      "      tiered:",
+      "        harness: claude",
+      "        model: glm-flash",
+      "        env:",
+      '          ANTHROPIC_BASE_URL: "http://localhost:11434"',
+      "          ANTHROPIC_DEFAULT_OPUS_MODEL: glm-pro",
+      '          ANTHROPIC_DEFAULT_HAIKU_MODEL: ""',
+      "  claude:",
+      "    engines:",
+      "      default:",
+      "        harness: claude",
+      "        model: opus",
+      "  codex:",
+      "    engines:",
+      "      default:",
+      "        harness: codex",
+      "        model: gpt-5",
+      "        env:",
+      '          ANTHROPIC_BASE_URL: "http://localhost:11434"',
+      "",
+    ].join("\n"),
+  );
+  const m = "mistral-large-4:cloud[1m]";
+  expect(loadAgentEngine("mistral").engine.env).toEqual({
+    ANTHROPIC_BASE_URL: "http://localhost:11434",
+    ANTHROPIC_MODEL: m,
+    ANTHROPIC_DEFAULT_FABLE_MODEL: m,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: m,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: m,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: m,
+  });
+  // Une variable posée, même vide, l'emporte sur model:.
+  expect(loadAgentEngine("mistral", "tiered").engine.env).toEqual({
+    ANTHROPIC_BASE_URL: "http://localhost:11434",
+    ANTHROPIC_MODEL: "glm-flash",
+    ANTHROPIC_DEFAULT_FABLE_MODEL: "glm-flash",
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-pro",
+    ANTHROPIC_DEFAULT_SONNET_MODEL: "glm-flash",
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "",
+  });
+  // Sans ANTHROPIC_BASE_URL (Claude chez Anthropic) ou hors harnais claude : rien n'est ajouté.
+  expect(loadAgentEngine("claude").engine.env).toEqual({});
+  expect(loadAgentEngine("codex").engine.env).toEqual({ ANTHROPIC_BASE_URL: "http://localhost:11434" });
+});
+
+test("a model tier exported in the shell does not block the fill", () => {
+  const previous = process.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+  process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = "claude-opus-from-shell";
+  try {
+    writeFileSync(
+      join(dir, ".idnma.yml"),
+      ["agents:", "  m:", "    engines:", "      default:", "        harness: claude", "        model: x", "        env:", '          ANTHROPIC_BASE_URL: "http://h"', ""].join("\n"),
+    );
+    expect(loadAgentEngine("m").engine.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("x");
+  } finally {
+    if (previous === undefined) delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+    else process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = previous;
+  }
 });
 
 test("every agent and engine of .idnma.example.yml loads", () => {
