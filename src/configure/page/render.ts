@@ -42,10 +42,10 @@
  * 2. Action d'interface, sans `EditOp` direct :
  *    - `tab` : `data-tab` = `agents`|`providers`|`options`.
  *    - `select` : `data-key` = clé de l'agent ou nom du preset à afficher (l'onglet est celui d'`UiState`).
-    - `groupBy` : bascule `UiState.groupBy` (`harness` ou absent) ; bouton `role="checkbox"` de la barre latérale,
-      onglet Agents seulement. Regroupé, un agent figure sous chaque harnais qu'utilise l'un de ses engines.
-    - `openAgent` : badge « Used by » ; `data-key` = clé de l'agent, `data-harness` = son harnais (la couleur du
-      badge). Ouvre l'onglet Agents sur cet agent et amène sa rangée dans la vue.
+ *    - `groupBy` : bascule `UiState.groupBy` (`harness` ou absent) ; bouton `role="checkbox"` de la barre latérale,
+ *      onglet Agents seulement. Regroupé, un agent figure sous chaque harnais qu'utilise l'un de ses engines.
+ *    - `openAgent` : badge « Used by » ; `data-key` = clé de l'agent, `data-harness` = son harnais (la couleur du
+ *      badge). Ouvre l'onglet Agents sur cet agent et amène sa rangée dans la vue.
  *    - `menu` : ouvre (ou ferme) le menu d'un engine ; `data-agent`, `data-engine`, `data-kind` =
  *      `provider`|`options`. Le menu ouvert est celui d'`UiState.menu`.
  *    - `copy` : `data-text` = le texte exact à copier (bouton Copy de la bande de commande d'un engine).
