@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readConfig, saveConfig, textHash } from "../src/configure/store.ts";
 
@@ -84,6 +84,39 @@ describe("configure store", () => {
 
     expect(saveConfig(path, "mine\n", hash)).toEqual({ kind: "changed-on-disk" });
     expect(readFileSync(path, "utf-8")).toBe("appeared\n");
+  });
+
+  test("writes through a symlink and keeps the link", () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, "real"));
+    const target = join(dir, "real", "network.yml");
+    const link = join(dir, ".idnma.yml");
+    writeFileSync(target, "old\n");
+    symlinkSync(target, link);
+
+    const result = saveConfig(link, "new\n", readConfig(link).hash);
+    expect(result).toEqual({ kind: "written", hash: textHash("new\n") });
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readFileSync(target, "utf-8")).toBe("new\n");
+    expect(readFileSync(link, "utf-8")).toBe("new\n");
+    // Le temporaire vit à côté du fichier réel, et il a disparu.
+    expect(readdirSync(join(dir, "real"))).toEqual(["network.yml"]);
+    expect(readdirSync(dir).sort()).toEqual([".idnma.yml", "real"]);
+  });
+
+  test("refuses when the file changes between the check and the rename", () => {
+    const dir = tempDir();
+    const path = join(dir, ".idnma.yml");
+    writeFileSync(path, "old\n");
+    const { hash } = readConfig(path);
+
+    // Le crochet joue la main qui édite le fichier une fois le temporaire écrit, avant le renommage.
+    const result = saveConfig(path, "mine\n", hash, {
+      afterTemporaryWritten: () => writeFileSync(path, "edited in the meantime\n"),
+    });
+    expect(result).toEqual({ kind: "changed-on-disk" });
+    expect(readFileSync(path, "utf-8")).toBe("edited in the meantime\n");
+    expect(readdirSync(dir)).toEqual([".idnma.yml"]);
   });
 
   test("reports a failed write without leaving a partial file", () => {

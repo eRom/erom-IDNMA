@@ -180,7 +180,7 @@ Découpage des modules et noms exacts ; forme de l'API HTTP ; SSE ou WebSocket ;
 
 **AC-9 - Modification concurrente.** Quand le fichier change sur le disque après l'ouverture de la page, alors Save refuse, le fichier garde le contenu écrit à la main, et la page propose Reload. *Vérifié par* : test (écriture externe entre lecture et Save) ; recette à la main.
 
-**AC-10 - Origine et jeton.** Quand une requête arrive sans jeton ni cookie, avec un `Host` autre que `127.0.0.1:<port>` ou `localhost:<port>`, ou avec une `Origin` étrangère sur une route modifiante, alors le serveur répond 403 et n'écrit rien. *Vérifié par* : tests HTTP sur le serveur démarré ; `curl -H 'Host: evil.test'` en recette.
+**AC-10 - Origine et jeton.** Quand une requête arrive sans jeton valide (en-tête `x-idnma-token`, ou `?token=` pour le flux), avec un `Host` autre que `127.0.0.1:<port>` ou `localhost:<port>`, ou avec une `Origin` étrangère sur une route modifiante, alors le serveur répond 403 et n'écrit rien. *Vérifié par* : tests HTTP sur le serveur démarré ; `curl -H 'Host: evil.test'` en recette.
 
 **AC-11 - Arrêt.** Quand on ferme le dernier onglet, alors le serveur s'arrête en moins de 15 secondes et libère son port ; Ctrl-C l'arrête aussitôt. *Vérifié par* : test du cycle de vie (connexion fermée, délai) ; `lsof` après fermeture en recette.
 

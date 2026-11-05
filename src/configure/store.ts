@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 
 /** Empreinte d'un fichier absent : un fichier qui apparaît change l'empreinte comme une édition. */
 const ABSENT = "absent";
@@ -29,6 +29,15 @@ export function readConfig(path: string): { text: string | undefined; hash: stri
   }
 }
 
+/** Chemin réel du fichier (liens suivis) ; un fichier absent, ou un lien cassé, garde son chemin. */
+function resolveRealPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
 /** Mode du fichier existant (permissions seules), sinon celui d'un fichier neuf. */
 function targetMode(path: string): number {
   try {
@@ -43,8 +52,19 @@ function targetMode(path: string): number {
  * L'écriture passe par un temporaire du même dossier puis `renameSync` : le fichier est remplacé en une fois
  * ou pas du tout. Le seul fichier supprimé est ce temporaire, créé par ce process. L'échec se rend en message
  * (chemin et code d'erreur, jamais le contenu) : l'appelant l'affiche tel quel.
+ *
+ * Un `.idnma.yml` lien symbolique s'écrit par son chemin réel : le temporaire et le renommage visent le
+ * fichier pointé, le lien survit. Le contenu est relu juste avant le renommage : une édition arrivée
+ * pendant l'écriture du temporaire est refusée, pas écrasée. `hooks` ne sert qu'aux tests, pour jouer
+ * cette édition dans la fenêtre.
  */
-export function saveConfig(path: string, text: string, baseHash: string): SaveResult {
+export function saveConfig(
+  requestedPath: string,
+  text: string,
+  baseHash: string,
+  hooks?: { afterTemporaryWritten?: () => void },
+): SaveResult {
+  const path = resolveRealPath(requestedPath);
   const temporary = `${path}.idnma-tmp-${process.pid}`;
   try {
     if (readConfig(path).hash !== baseHash) return { kind: "changed-on-disk" };
@@ -59,6 +79,11 @@ export function saveConfig(path: string, text: string, baseHash: string): SaveRe
     try {
       // Le masque de création (umask) a pu réduire le mode demandé.
       chmodSync(temporary, mode);
+      hooks?.afterTemporaryWritten?.();
+      if (readConfig(path).hash !== baseHash) {
+        removeOwnTemporary(temporary);
+        return { kind: "changed-on-disk" };
+      }
       renameSync(temporary, path);
     } catch (error) {
       removeOwnTemporary(temporary);
@@ -66,7 +91,7 @@ export function saveConfig(path: string, text: string, baseHash: string): SaveRe
     }
     return { kind: "written", hash: textHash(text) };
   } catch (error) {
-    return { kind: "failed", message: `Could not write ${path}: ${errorCode(error) ?? "unknown error"}.` };
+    return { kind: "failed", message: `Could not write ${requestedPath}: ${errorCode(error) ?? "unknown error"}.` };
   }
 }
 
