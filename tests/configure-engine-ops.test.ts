@@ -160,6 +160,7 @@ agents:
     expect(config.doc.toString()).toBe(treeBefore);
   });
 
+  // État transitoire : la tâche 5 écrit le built-in manquant dans le fichier et remplace ce test.
   test("a built-in preset missing from the file is refused by name until it can be written", () => {
     const config = ConfigDocument.parse(linked);
     expect(refusal(config, { op: "setProvider", agent: "claude", engine: "default", provider: { kind: "preset", name: "lmstudio" } })).toMatch(/lmstudio/);
@@ -416,6 +417,175 @@ agents:
       { op: "removeMerge", agent: "ghost", engine: "default" },
     ];
     for (const op of ops) expect(refusal(config, op)).toMatch(/ghost/);
+    expect(config.doc.toString()).toBe(treeBefore);
+  });
+
+  test("anthropic also removes the engine's own proxy keys and keeps the others", () => {
+    const source = `presets:
+  ollama: &ollama
+    ANTHROPIC_BASE_URL: "http://localhost:11434"
+
+agents:
+  a:
+    label: A
+    engines:
+      default:
+        harness: claude
+        env:
+          ANTHROPIC_BASE_URL: "http://proxy"
+          ANTHROPIC_AUTH_TOKEN: "t"
+          ANTHROPIC_API_KEY: ""
+          CLAUDE_CODE_EFFORT_LEVEL: "max"
+      merged:
+        harness: claude
+        env:
+          <<: *ollama
+          ANTHROPIC_API_KEY: "k"
+`;
+    const custom = edit(source, { op: "setProvider", agent: "a", engine: "default", provider: { kind: "anthropic" } });
+    expect(changedLines(source, custom.text).removed).toEqual([
+      '          ANTHROPIC_BASE_URL: "http://proxy"',
+      '          ANTHROPIC_AUTH_TOKEN: "t"',
+      '          ANTHROPIC_API_KEY: ""',
+    ]);
+    expect(engineView(custom.config, "a", "default").provider).toEqual({ kind: "anthropic" });
+    expect(read(custom.text).agents.a.engines.default.env).toEqual({ CLAUDE_CODE_EFFORT_LEVEL: "max" });
+
+    const merged = edit(source, { op: "setProvider", agent: "a", engine: "merged", provider: { kind: "anthropic" } });
+    expect(read(merged.text).agents.a.engines.merged).not.toHaveProperty("env");
+    expect(engineView(merged.config, "a", "merged").provider).toEqual({ kind: "anthropic" });
+  });
+
+  test("never removes an env whose anchor another place still uses", () => {
+    /** Un agent `a` dont l'env porte `&e`, un agent `b` qui le reprend par alias. */
+    const shared = (body: string): string => `presets:
+  o: &o
+    ANTHROPIC_BASE_URL: "http://x"
+  empty: &empty {}
+
+agents:
+  a:
+    label: A
+    engines:
+      default:
+        harness: claude
+        env: &e
+${body}
+  b:
+    label: B
+    engines:
+      default:
+        harness: claude
+        env: *e
+`;
+    const mergeOnly = shared("          <<: *o");
+    const cases: Array<[string, EditOp]> = [
+      [mergeOnly, { op: "setProvider", agent: "a", engine: "default", provider: { kind: "anthropic" } }],
+      [mergeOnly, { op: "removeMerge", agent: "a", engine: "default" }],
+      [shared("          <<: *empty"), { op: "setProvider", agent: "a", engine: "default", provider: { kind: "custom" } }],
+      [shared('          X: "1"'), { op: "deleteEnvVar", agent: "a", engine: "default", name: "X" }],
+      [mergeOnly, { op: "setHarness", agent: "a", engine: "default", harness: "codex" }],
+    ];
+    for (const [source, op] of cases) {
+      const config = ConfigDocument.parse(source);
+      const treeBefore = config.doc.toString();
+      expect(refusal(config, op)).toMatch(/&e/);
+      expect(config.doc.toString()).toBe(treeBefore);
+      expect(config.toText()).toBe(source);
+    }
+  });
+
+  test("an env that stays non-empty keeps its anchor through the same operations", () => {
+    const source = `presets:
+  o: &o
+    ANTHROPIC_BASE_URL: "http://x"
+
+agents:
+  a:
+    label: A
+    engines:
+      default:
+        harness: claude
+        env: &e
+          <<: *o
+          X: "1"
+  b:
+    label: B
+    engines:
+      default:
+        harness: claude
+        env: *e
+`;
+    const { text } = edit(source, { op: "removeMerge", agent: "a", engine: "default" });
+    expect(read(text).agents.b.engines.default.env).toEqual({ X: "1" });
+  });
+
+  test("a written file is never wrapped at 80 columns", () => {
+    const values = ["--effort", "high", "--dangerously-skip-permissions", "--remote-control", "--add-dir", "/Users/someone/projects/a-rather-long-directory-name"];
+    const long = "v".repeat(120);
+    const { text } = edit(
+      romain,
+      { op: "setOptions", agent: "opus", engine: "default", options: { kind: "custom", values } },
+      { op: "setEnvVar", agent: "opus", engine: "default", name: "LONG", value: long },
+    );
+    const flowLine = `        options: [${values.join(", ")}]`;
+    expect(flowLine.length).toBeGreaterThan(80);
+    expect(text.split("\n")).toContain(flowLine);
+    expect(text.split("\n")).toContain(`          LONG: "${long}"`);
+  });
+
+  test("unlink refuses an anchor name defined twice", () => {
+    const source = `agents:
+  a:
+    label: A
+    engines:
+      default:
+        harness: claude
+        model: &x one
+        env:
+          M: *x
+  b:
+    label: B
+    engines:
+      default:
+        harness: claude
+        model: &x two
+        env:
+          M: *x
+`;
+    const config = ConfigDocument.parse(source);
+    const treeBefore = config.doc.toString();
+    expect(refusal(config, { op: "unlink", path: ["agents", "b", "engines", "default", "env", "M"] })).toMatch(/&x is defined twice/);
+    expect(refusal(config, { op: "unlink", path: ["agents", "a", "engines", "default", "model"] })).toMatch(/&x is defined twice/);
+    expect(config.doc.toString()).toBe(treeBefore);
+  });
+
+  test("a variable with an unusual name can still change its value", () => {
+    const source = 'agents:\n  a:\n    label: A\n    engines:\n      default:\n        harness: claude\n        env:\n          my-var: "1"\n';
+    const { text } = edit(source, { op: "setEnvVar", agent: "a", engine: "default", name: "my-var", value: "2" });
+    expect(changedLines(source, text)).toEqual({ removed: ['          my-var: "1"'], added: ['          my-var: "2"'] });
+    const config = ConfigDocument.parse(source);
+    expect(refusal(config, { op: "setEnvVar", agent: "a", engine: "default", name: "my var", previousName: "my-var", value: "2" })).toMatch(/my var/);
+    expect(refusal(config, { op: "setEnvVar", agent: "a", engine: "default", name: "other-name", value: "2" })).toMatch(/other-name/);
+  });
+
+  test("anthropic refuses to drop a proxy key whose anchor is used elsewhere", () => {
+    const source = `agents:
+  a:
+    label: A
+    engines:
+      default:
+        harness: claude
+        env:
+          ANTHROPIC_API_KEY: &key "k"
+      other:
+        harness: claude
+        env:
+          ANTHROPIC_API_KEY: *key
+`;
+    const config = ConfigDocument.parse(source);
+    const treeBefore = config.doc.toString();
+    expect(refusal(config, { op: "setProvider", agent: "a", engine: "default", provider: { kind: "anthropic" } })).toMatch(/&key/);
     expect(config.doc.toString()).toBe(treeBefore);
   });
 });

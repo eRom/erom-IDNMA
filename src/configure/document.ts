@@ -53,7 +53,7 @@ export class ConfigDocument {
    */
   toText(): string {
     if (!this.modified || this.parseError) return this.source;
-    return this.doc.toString({ flowCollectionPadding: false });
+    return this.doc.toString({ flowCollectionPadding: false, lineWidth: 0 });
   }
 
   /**

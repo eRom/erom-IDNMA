@@ -24,6 +24,9 @@ export type EngineOp = Extract<
 /** Forme d'un nom de variable d'environnement : ce que le shell sait exporter. */
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+/** Les clés d'env qui aiguillent claude vers un proxy : « Anthropic » les retire avec le `<<`. */
+const PROXY_KEYS = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"];
+
 /** Ordre des champs d'un engine dans le fichier : un champ créé s'insère à sa place. */
 const FIELD_ORDER = ["harness", "model", "options", "env"];
 
@@ -97,13 +100,14 @@ function setHarness(config: ConfigDocument, agent: string, engine: string, harne
   const env = envMapOf(target, agent, engine);
   const merge = previous === "claude" && harness !== "claude" ? env?.items.find(isMergePair) : undefined;
   for (const dropped of [optionsPair?.value, modelPair?.value]) assertAnchorsFree(config, asNode(dropped));
+  if (env && merge) assertEnvRemovable(config, env, [merge]);
 
   if (isScalar(current)) writeText(current, harness);
   else insertField(target, "harness", config.doc.createNode(harness));
   if (optionsPair) target.delete("options");
   if (modelPair) target.delete("model");
   if (env && merge) {
-    env.items.splice(env.items.indexOf(merge), 1);
+    removePairs(env, [merge]);
     dropEnvIfEmpty(target);
   }
   return true;
@@ -138,8 +142,13 @@ function setProvider(config: ConfigDocument, agent: string, engine: string, prov
   const merge = env?.items.find(isMergePair);
 
   if (provider.kind === "anthropic") {
-    if (!env || !merge) return false;
-    env.items.splice(env.items.indexOf(merge), 1);
+    // « Sans proxy » : le `<<` part avec les trois clés qui aiguillent claude vers un proxy ; les autres clés restent.
+    if (!env) return false;
+    const removed = env.items.filter((item) => isMergePair(item) || PROXY_KEYS.some((key) => keyIs(item, key)));
+    if (removed.length === 0) return false;
+    for (const pair of removed) assertAnchorsFree(config, asNode(pair.value));
+    assertEnvRemovable(config, env, removed);
+    removePairs(env, removed);
     dropEnvIfEmpty(target);
     return true;
   }
@@ -162,6 +171,7 @@ function setProvider(config: ConfigDocument, agent: string, engine: string, prov
       const text = item.value.value === null || item.value.value === undefined ? "" : String(item.value.value);
       copies.push(config.doc.createPair(name, textNode(config, text, Scalar.QUOTE_DOUBLE)));
     }
+    if (copies.length === 0) assertEnvRemovable(config, env, [merge]);
     env.items.splice(env.items.indexOf(merge), 1, ...copies);
     dropEnvIfEmpty(target);
     return true;
@@ -231,13 +241,14 @@ function setOptions(config: ConfigDocument, agent: string, engine: string, optio
 // --- Env ----------------------------------------------------------------------------------------
 
 function setEnvVar(config: ConfigDocument, agent: string, engine: string, name: string, value: string, previousName?: string): boolean {
-  if (!ENV_NAME_PATTERN.test(name)) {
-    throw new EditRefused(`Variable name "${name}" is not valid: use letters, digits and underscores, and do not start with a digit.`);
-  }
   const target = requireEngine(config, agent, engine);
   const env = envMapOf(target, agent, engine);
   const renaming = previousName !== undefined && previousName !== name;
   const existing = env ? ownVariable(env, renaming ? previousName : name) : undefined;
+  // Le motif ne vaut que pour un nom qu'on écrit : la valeur d'une variable au nom inhabituel reste modifiable.
+  if ((renaming || !existing) && !ENV_NAME_PATTERN.test(name)) {
+    throw new EditRefused(`Variable name "${name}" is not valid: use letters, digits and underscores, and do not start with a digit.`);
+  }
 
   if (renaming) {
     if (!env || !existing) throw new EditRefused(`Variable "${previousName}" does not exist on ${agent}/${engine}.`);
@@ -267,7 +278,8 @@ function deleteEnvVar(config: ConfigDocument, agent: string, engine: string, nam
   const existing = env ? ownVariable(env, name) : undefined;
   if (!env || !existing) throw new EditRefused(`Variable "${name}" does not exist on ${agent}/${engine}.`);
   assertAnchorsFree(config, asNode(existing.value));
-  env.items.splice(env.items.indexOf(existing), 1);
+  assertEnvRemovable(config, env, [existing]);
+  removePairs(env, [existing]);
   dropEnvIfEmpty(target);
   return true;
 }
@@ -277,7 +289,8 @@ function removeMerge(config: ConfigDocument, agent: string, engine: string): boo
   const env = envMapOf(target, agent, engine);
   const merge = env?.items.find(isMergePair);
   if (!env || !merge) return false;
-  env.items.splice(env.items.indexOf(merge), 1);
+  assertEnvRemovable(config, env, [merge]);
+  removePairs(env, [merge]);
   dropEnvIfEmpty(target);
   return true;
 }
@@ -330,6 +343,10 @@ function unlink(config: ConfigDocument, path: (string | number)[]): boolean {
   const { node, replace } = locate(config, path);
   const presets = presetValues(config);
   if (presets.has(node)) throw new EditRefused(`Preset "${path[1]}" keeps its anchor: it is shared by design.`);
+  const anchorName = isAlias(node) ? node.source : node.anchor;
+  if (anchorName !== undefined && countDefinitions(config, anchorName) > 1) {
+    throw new EditRefused(`Anchor &${anchorName} is defined twice; edit the file by hand.`);
+  }
 
   if (isAlias(node)) {
     const source = node.resolve(config.doc);
@@ -420,6 +437,27 @@ function envMapOf(target: YAMLMap, agent: string, engine: string): YAMLMap | und
   if (env === undefined || (isScalar(env) && env.value === null)) return undefined;
   if (!isMap(env)) throw new EditRefused(`The env of ${agent}/${engine} is not a table of variables.`);
   return env;
+}
+
+/**
+ * Refuse de vider un `env:` dont l'ancre est reprise ailleurs : le retirer laisserait des alias dans le vide.
+ * À appeler avant la première écriture, avec les paires qu'on s'apprête à retirer.
+ */
+function assertEnvRemovable(config: ConfigDocument, env: YAMLMap, removed: Pair[]): void {
+  if (env.items.length - removed.length === 0) assertAnchorsFree(config, env);
+}
+
+function removePairs(env: YAMLMap, removed: Pair[]): void {
+  env.items = env.items.filter((item) => !removed.includes(item));
+}
+
+/** Combien de nœuds du fichier définissent cette ancre (un nom redéfini lie chaque alias à la définition qui le précède). */
+function countDefinitions(config: ConfigDocument, anchor: string): number {
+  let count = 0;
+  visit(config.doc, (_key, node) => {
+    if (!isAlias(node) && isNode(node) && node.anchor === anchor) count++;
+  });
+  return count;
 }
 
 /** Retire `env:` quand il ne reste rien dedans : `env: {}` n'a aucun sens dans le fichier. */
