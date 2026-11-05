@@ -10,6 +10,7 @@ import { codexUnderstudyPid, controlRequest } from "./understudy/control.ts";
 import { parseRunArgs, UsageError } from "./run/args.ts";
 import { installTeammateLine, uninstallTeammateLine } from "./install/teammate.ts";
 import { installAgy, uninstallAgy } from "./install/agy.ts";
+import { configureCommand } from "./configure/command-line.ts";
 import { installDst, uninstallDst } from "./install/dst.ts";
 import { installGrok, uninstallGrok } from "./install/grok.ts";
 import { CLAUDE_SKILL, GENERIC_SKILL, installSkill, uninstallSkill } from "./install/skill.ts";
@@ -32,6 +33,7 @@ Usage :
   idnma hook <grok|agy> <événement>  (interne) point d'entrée des hooks de Grok et d'agy
   idnma install --agent <agent>      pose la skill, les hooks et la ligne coéquipier d'un agent (voir idnma install --help)
   idnma uninstall --agent <agent>    retire ce que install a posé pour cet agent
+  idnma configure [--no-open]         ouvre l'éditeur de ~/.idnma.yml dans le navigateur
   idnma --version                    affiche la version
   idnma --help                       affiche cette aide
 
@@ -481,6 +483,8 @@ export async function main(argv: string[]): Promise<number> {
         return installCommand("install", rest);
       case "uninstall":
         return installCommand("uninstall", rest);
+      case "configure":
+        return await configureCommand(rest);
       case "--help":
       case "-h":
         process.stdout.write(MAIN_HELP);
@@ -503,7 +507,8 @@ if (import.meta.main) {
   const code = await main(argv);
   // `run` : la doublure rend 129 ou 143 sans attendre l'enfant, qui pourrait retenir le process.
   // `hook` : un stdin laissé ouvert et muet par le harnais ne doit pas retenir le process.
-  if (argv[0] === "run" || argv[0] === "hook") process.exit(code);
+  // `configure` : le serveur arrêté, rien ne doit retenir le process (flux SSE coupés, connexions en attente).
+  if (argv[0] === "run" || argv[0] === "hook" || argv[0] === "configure") process.exit(code);
   // Ailleurs, `exitCode` plutôt que `process.exit` : la sortie standard finit de se vider avant l'arrêt.
   process.exitCode = code;
 }
