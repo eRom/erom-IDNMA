@@ -669,7 +669,7 @@ function envControl(ui: UiState, engine: EngineView, base: { agent: string; engi
       ? `<div class="merge"><span class="ref">${esc(`<< ${engine.mergedPreset}`)}</span>${buttonHtml("Remove", "btn pill sm", { action: "removeMerge", ...base }, false, `Remove merged preset ${engine.mergedPreset}`)}</div>`
       : "";
   const addTarget: AddingState = { action: "addEnvVar", ...base };
-  const add = ro ? "" : addControl(ui, addTarget, buttonHtml("+ Add variable", "btn ghost sm", { action: "addEnvVar", ...base }, false, `Add variable to engine ${engine.name}`));
+  const add = ro ? "" : addControl(ui, addTarget, buttonHtml("+ Add Environment variable", "btn ghost sm", { action: "addEnvVar", ...base }, false, `Add environment variable to engine ${engine.name}`));
   // Replié quand l'engine n'a rien en propre : une petite action suffit (spec §5).
   if (engine.env.length === 0 && merge === "") return add === "" ? "" : `<div class="envadd">${add}</div>`;
 
