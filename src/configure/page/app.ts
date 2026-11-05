@@ -2,33 +2,15 @@
  * Page `idnma configure` : le câblage du DOM autour de `renderApp` (voir le contrat des attributs dans
  * `render.ts`). La page ne valide rien : elle envoie des opérations au serveur, qui rend la vue complète,
  * et redessine. Tout passe par une délégation d'événements sur `document` : le HTML de `#app` est
- * remplacé à chaque rendu, aucun écouteur n'est posé sur un élément.
+ * remplacé à chaque rendu, aucun écouteur n'est posé sur un élément. Ce qui se décide sans DOM (jeton,
+ * renommages, champ vers opération, formulaire de création, options) est dans `logic.ts`.
  */
-import type { Harness } from "../../config/network.ts";
 import { commandLine } from "../command.ts";
 import type { ConfigView, EditOp } from "../types.ts";
 import { type AddingState, renderApp, type UiState } from "./render.ts";
+import { addOps, type FieldInput, opForField, readToken, remapId, type Remap, renameEffect, reorderOptions } from "./logic.ts";
 
-// --- Jeton et appels ------------------------------------------------------------------------------
-
-const TOKEN_KEY = "idnma-configure-token";
-
-/**
- * Le jeton arrive dans l'adresse (`?token=`), passe en `sessionStorage` pour survivre à un rechargement, puis
- * quitte la barre d'adresse (historique, copier-coller). Les autres paramètres et le `#` restent.
- */
-function readToken(): string | undefined {
-  const params = new URLSearchParams(location.search);
-  const given = params.get("token");
-  if (given) {
-    sessionStorage.setItem(TOKEN_KEY, given);
-    params.delete("token");
-    const rest = params.toString();
-    history.replaceState(null, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
-    return given;
-  }
-  return sessionStorage.getItem(TOKEN_KEY) ?? undefined;
-}
+// --- Appels ---------------------------------------------------------------------------------------
 
 interface ApiBody {
   view?: ConfigView;
@@ -43,7 +25,7 @@ interface ApiResult {
   body: ApiBody;
 }
 
-const token = readToken();
+const token = readToken(location, history, sessionStorage);
 
 async function call(method: "GET" | "POST", path: string, body?: unknown): Promise<ApiResult> {
   try {
@@ -76,8 +58,15 @@ let refusal: { anchor: Anchor; message: string } | undefined;
 /** Focus demandé pour le prochain rendu ; à défaut, celui du contrôle actif. */
 let pendingFocus: Focus | undefined;
 /** Renommages acceptés : le préfixe d'identifiant de focus change, le focus du contrôle actif le suit. */
-let remaps: [from: string, to: string][] = [];
+let remaps: Remap[] = [];
 let resetScroll = false;
+/** La création affichée au dernier rendu : le texte tapé dans sa ligne ne survit qu'à un rendu de la même. */
+let renderedAdding: string | undefined;
+
+// Un rendu qui remplace `#app` pendant qu'un bouton de souris est enfoncé fait perdre le clic (l'élément
+// pressé n'existe plus au relâchement) : il attend le relâchement, et passe après le `click`.
+let pointerDown = false;
+let renderDeferred = false;
 
 function anchorOf(el: HTMLElement): Anchor {
   // Un item de menu se referme avec son menu : le refus se montre sous le déclencheur.
@@ -94,30 +83,32 @@ function findAnchor(anchor: Anchor): HTMLElement | null {
   return null;
 }
 
-function remapId(id: string): string {
-  for (const [from, to] of remaps) if (id.startsWith(from)) return to + id.slice(from.length);
-  return id;
-}
-
 // --- Rendu ----------------------------------------------------------------------------------------
 
 function render(): void {
   if (!view) return;
+  if (pointerDown) {
+    renderDeferred = true;
+    return;
+  }
+  renderDeferred = false;
   const active = document.activeElement instanceof HTMLElement && root.contains(document.activeElement) ? document.activeElement : undefined;
   let focus: Focus | undefined = pendingFocus;
   if (!focus && active) {
     const anchor = anchorOf(active);
-    focus = "id" in anchor ? { id: remapId(anchor.id) } : anchor;
+    focus = "id" in anchor ? { id: remapId(remaps, anchor.id) } : anchor;
   }
   const caret = !pendingFocus && active instanceof HTMLInputElement ? [active.selectionStart, active.selectionEnd] : undefined;
   pendingFocus = undefined;
   remaps = [];
 
-  // Ce qui se tape dans une ligne de création survit à un rendu venu d'ailleurs.
-  const typed = [...root.querySelectorAll<HTMLInputElement | HTMLSelectElement>(".addrow input, .addrow select")].map((el) => [el.id, el.value] as const);
+  // Ce qui se tape dans une ligne de création survit à un rendu venu d'ailleurs, pas au passage à une autre création.
+  const sameAdding = JSON.stringify(ui.adding) === renderedAdding;
+  const typed = sameAdding ? [...root.querySelectorAll<HTMLInputElement | HTMLSelectElement>(".addrow input, .addrow select")].map((el) => [el.id, el.value] as const) : [];
   const scroll = { main: root.querySelector(".main")?.scrollTop ?? 0, rows: root.querySelector(".rows")?.scrollTop ?? 0 };
 
   root.innerHTML = renderApp(view, ui);
+  renderedAdding = JSON.stringify(ui.adding);
 
   for (const [id, value] of typed) {
     const el = document.getElementById(id);
@@ -180,9 +171,12 @@ notice.className = "notice";
 notice.setAttribute("role", "alert");
 notice.hidden = true;
 document.body.append(notice);
+/** « Le fichier a changé sur le disque » vaut jusqu'à Reload ou Save : ni une opération ni un rafraîchissement ne l'effacent. */
+let noticeSticky = false;
 
-function showNotice(message: string, reload = false): void {
+function showNotice(message: string, changedOnDisk = false): void {
   notice.replaceChildren();
+  noticeSticky = changedOnDisk;
   const text = document.createElement("span");
   text.textContent = message;
   notice.append(text);
@@ -194,12 +188,14 @@ function showNotice(message: string, reload = false): void {
     el.textContent = label;
     notice.append(el);
   };
-  if (reload) button("Reload", "reload");
+  if (changedOnDisk) button("Reload", "reload");
   button("Dismiss", "dismissNotice");
   notice.hidden = false;
 }
 
-function hideNotice(): void {
+function hideNotice(force = false): void {
+  if (noticeSticky && !force) return;
+  noticeSticky = false;
   notice.hidden = true;
 }
 
@@ -212,7 +208,10 @@ type Hook = (before: ConfigView, after: ConfigView) => void;
 let queue: Promise<void> = Promise.resolve();
 
 function enqueue(job: () => Promise<void>): void {
-  queue = queue.then(job).catch(() => showNotice("Something went wrong in the page. Reload it."));
+  queue = queue.then(job).catch((error: unknown) => {
+    console.error(error);
+    showNotice("Something went wrong in the page. Reload it.");
+  });
 }
 
 function fail(result: ApiResult, anchor?: Anchor): void {
@@ -235,46 +234,54 @@ function accept(next: ConfigView): void {
 
 /** Les identifiants de focus qui changent avec un renommage, et la sélection qui le suit. */
 function followRename(op: EditOp): void {
-  switch (op.op) {
-    case "renameAgent":
-      remaps.push([`agent:${op.key}:`, `agent:${op.newKey}:`]);
-      if (ui.selected === op.key) ui.selected = op.newKey;
-      break;
-    case "renameEngine":
-      remaps.push([`agent:${op.agent}:engine:${op.engine}:`, `agent:${op.agent}:engine:${op.newName}:`]);
-      break;
-    case "setEnvVar":
-      if (op.previousName !== undefined) remaps.push([`agent:${op.agent}:engine:${op.engine}:env:${op.previousName}:`, `agent:${op.agent}:engine:${op.engine}:env:${op.name}:`]);
-      break;
-    case "setPresetVar":
-      if (op.previousName !== undefined) remaps.push([`preset:${op.name}:var:${op.previousName}:`, `preset:${op.name}:var:${op.varName}:`]);
-      break;
-    case "renamePreset":
-      remaps.push([`preset:${op.name}:`, `preset:${op.newName}:`]);
-      if (ui.selected === op.name) ui.selected = op.newName;
-      break;
-  }
+  const effect = renameEffect(op);
+  remaps.push(...effect.remaps);
+  if (effect.selected && ui.selected === effect.selected.from) ui.selected = effect.selected.to;
 }
 
-function send(op: EditOp, anchor?: Anchor, hook?: Hook): void {
+/**
+ * Envoie une opération, ou plusieurs qui partent l'une après l'autre (la création d'un agent crée aussi son
+ * engine). `rerenderOnRefusal` : un refus rend sa valeur d'avant à un champ qui ne se retape pas (un `<select>`).
+ */
+function send(input: EditOp | EditOp[], anchor?: Anchor, hook?: Hook, rerenderOnRefusal = false): void {
+  const ops = Array.isArray(input) ? input : [input];
   enqueue(async () => {
     const before = view;
-    const result = await call("POST", "/api/op", { op });
-    if (result.status !== 200 || !result.body.view) return fail(result, anchor);
-    followRename(op);
-    accept(result.body.view);
+    let last: ConfigView | undefined;
+    for (const op of ops) {
+      const result = await call("POST", "/api/op", { op });
+      if (result.status !== 200 || !result.body.view) {
+        // Ce qui a abouti avant le refus reste affiché ; le refus se montre sous son contrôle.
+        if (last) {
+          accept(last);
+          ui.menu = undefined;
+        }
+        if (last || rerenderOnRefusal) render();
+        return fail(result, anchor);
+      }
+      followRename(op);
+      last = result.body.view;
+    }
+    if (!last) return;
+    accept(last);
     ui.menu = undefined;
-    if (before) hook?.(before, result.body.view);
+    if (before) hook?.(before, last);
     render();
   });
 }
 
-/** Les actions sans opération : Save, Revert, Reload rendent la vue entière. */
+/**
+ * Save, Revert, Reload rendent la vue entière. Save ne part que si le document est sale et lisible, ce
+ * qu'on ne sait qu'une fois les opérations en attente passées : le test se fait dans la file.
+ */
 function sendAction(path: "/api/save" | "/api/revert" | "/api/reload"): void {
   enqueue(async () => {
+    if (path === "/api/save" && (!view || view.parseError || !view.dirty)) return;
     const result = await call("POST", path);
     if (result.status === 200 && result.body.view) {
       accept(result.body.view);
+      // Relu ou écrit : le fichier du disque n'est plus en avance sur la page.
+      if (path !== "/api/revert") hideNotice(true);
       ui.adding = undefined;
       ui.menu = undefined;
       render();
@@ -294,71 +301,35 @@ async function refetch(): Promise<void> {
   render();
 }
 
-// --- Champs : de la valeur saisie à l'opération ---------------------------------------------------
+// --- Champs ---------------------------------------------------------------------------------------
 
 const text = (value: string | undefined): string => value ?? "";
 
-/** L'opération d'un champ qui vient de changer, ou rien (valeur identique, champ sans action). */
-function opForField(el: HTMLInputElement | HTMLSelectElement): EditOp | undefined {
-  const d = el.dataset;
-  const value = el.value;
-  const trimmed = value.trim();
-  const agent = text(d.agent);
-  const engine = text(d.engine);
-  const preset = text(d.preset);
-  switch (d.action) {
-    case "setAgentField":
-      return { op: "setAgentField", key: agent, field: d.field === "avatar" ? "avatar" : "label", value: trimmed === "" ? null : trimmed };
-    case "renameAgent":
-      return trimmed === agent ? undefined : { op: "renameAgent", key: agent, newKey: trimmed };
-    case "renameEngine":
-      return trimmed === engine ? undefined : { op: "renameEngine", agent, engine, newName: trimmed };
-    case "setHarness":
-      return { op: "setHarness", agent, engine, harness: value as Harness };
-    case "setModel":
-      return { op: "setModel", agent, engine, value: trimmed === "" ? null : trimmed };
-    case "renamePreset":
-      return trimmed === preset ? undefined : { op: "renamePreset", name: preset, newName: trimmed };
-    case "setEnvVar":
-    case "setPresetVar": {
-      // Une paire est deux champs : renommer garde la valeur du voisin, éditer la valeur garde le nom.
-      const row = el.closest(".kv");
-      const sibling = (field: string): string => row?.querySelector<HTMLInputElement>(`[data-field="${field}"]`)?.value ?? "";
-      const renaming = d.field === "name";
-      if (renaming && trimmed === d.name) return undefined;
-      const name = renaming ? trimmed : text(d.name);
-      const content = renaming ? sibling("value") : value;
-      const previousName = renaming ? text(d.name) : undefined;
-      return d.action === "setEnvVar"
-        ? { op: "setEnvVar", agent, engine, name, value: content, ...(previousName !== undefined && { previousName }) }
-        : { op: "setPresetVar", name: preset, varName: name, value: content, ...(previousName !== undefined && { previousName }) };
-    }
-    case "setOptions":
-    case "setPresetOptions": {
-      if (!(el instanceof HTMLInputElement)) return undefined;
-      const list = el.closest<HTMLElement>("[data-options-list]");
-      if (!list) return undefined;
-      // Les jetons non vides du groupe, dans l'ordre : vider un jeton le retire, le dernier (vide) en ajoute un.
-      const values = [...list.querySelectorAll<HTMLInputElement>("input")].map((input) => input.value.trim()).filter((v) => v !== "");
-      return d.action === "setPresetOptions"
-        ? { op: "setPresetOptions", name: text(list.dataset.preset), values }
-        : { op: "setOptions", agent: text(list.dataset.agent), engine: text(list.dataset.engine), options: { kind: "custom", values } };
-    }
-    default:
-      return undefined;
-  }
+function fieldInput(el: HTMLInputElement | HTMLSelectElement): FieldInput {
+  const list = el.closest<HTMLElement>("[data-options-list]");
+  return {
+    dataset: el.dataset,
+    value: el.value,
+    sibling: el.closest(".kv")?.querySelector<HTMLInputElement>('[data-field="value"]')?.value,
+    group: list ? { dataset: list.dataset, values: [...list.querySelectorAll<HTMLInputElement>("input")].map((input) => input.value) } : undefined,
+  };
 }
 
 function onFieldChange(el: HTMLInputElement | HTMLSelectElement): void {
-  const op = opForField(el);
+  const op = opForField(fieldInput(el));
   if (!op) return;
   const wasLastToken = el instanceof HTMLInputElement && el.classList.contains("add") && el.value.trim() !== "" && document.activeElement === el;
-  send(op, anchorOf(el), () => {
-    // Entrée dans le jeton qui sert à en ajouter : le focus passe au nouveau jeton vide.
-    if (wasLastToken && op.op === "setOptions" && op.options.kind === "custom") {
-      pendingFocus = { id: `agent:${op.agent}:engine:${op.engine}:options:${op.options.values.length}` };
-    }
-  });
+  send(
+    op,
+    anchorOf(el),
+    () => {
+      // Entrée dans le jeton qui sert à en ajouter : le focus passe au nouveau jeton vide.
+      if (wasLastToken && op.op === "setOptions" && op.options.kind === "custom") {
+        pendingFocus = { id: `agent:${op.agent}:engine:${op.engine}:options:${op.options.values.length}` };
+      }
+    },
+    el instanceof HTMLSelectElement,
+  );
 }
 
 /** La bande de commande suit la clé et le nom d'engine à chaque frappe, sans attendre l'envoi. */
@@ -409,78 +380,28 @@ function cancelAdding(): void {
 }
 
 function submitAdding(form: HTMLFormElement): void {
-  const d = form.dataset;
-  const input = (id: string): HTMLInputElement | HTMLSelectElement | null => form.querySelector(`[data-focus-id="add:${id}"]`);
-  const value = (id: string): string => input(id)?.value.trim() ?? "";
-  const first = input(d.add === "addAgent" ? "key" : d.add === "addOption" ? "option" : "name");
-  const anchor: Anchor | undefined = first ? { id: first.id } : undefined;
-  if (value(d.add === "addAgent" ? "key" : d.add === "addOption" ? "option" : "name") === "") {
-    refusal = anchor ? { anchor, message: d.add === "addOption" ? "Enter an option." : "Enter a name." } : undefined;
+  const values: Record<string, string> = {};
+  for (const el of form.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select")) values[el.id.replace(/^add:/, "")] = el.value.trim();
+  const result = addOps({ add: text(form.dataset.add), dataset: form.dataset, values }, view);
+
+  if (!result.ok) {
+    refusal = { anchor: { id: result.field }, message: result.message };
     showRefusal();
-    first?.focus();
+    // Une variable qui existe déjà : le focus va à son champ, pas à la ligne de création.
+    const target = document.getElementById(result.focus ?? result.field);
+    target?.focus();
+    if (result.focus) target?.scrollIntoView({ block: "nearest" });
     return;
   }
-  const agent = text(d.agent);
-  const engine = text(d.engine);
-  const preset = text(d.preset);
-  const done = (): void => {
+  send(result.ops, { id: `add:${form.dataset.add === "addAgent" ? "key" : form.dataset.add === "addOption" ? "option" : "name"}` }, () => {
     ui.adding = undefined;
-  };
-  switch (d.add) {
-    case "addAgent": {
-      const key = value("key");
-      send({ op: "addAgent", key, label: value("label") || key }, anchor, () => {
-        done();
-        ui.tab = "agents";
-        ui.selected = key;
-        resetScroll = true;
-        pendingFocus = { id: `agent:${key}:engine:default:model` };
-      });
-      break;
+    if (result.select !== undefined) {
+      ui.selected = result.select;
+      if (form.dataset.add === "addAgent") ui.tab = "agents";
+      resetScroll = true;
     }
-    case "addEngine": {
-      const name = value("name");
-      send({ op: "addEngine", agent, name, harness: value("harness") as Harness }, anchor, () => {
-        done();
-        pendingFocus = { id: `agent:${agent}:engine:${name}:harness` };
-      });
-      break;
-    }
-    case "addPreset": {
-      const name = value("name");
-      send({ op: "addPreset", name, kind: d.kind === "options" ? "options" : "provider" }, anchor, () => {
-        done();
-        ui.selected = name;
-        resetScroll = true;
-      });
-      break;
-    }
-    case "addEnvVar": {
-      const name = value("name");
-      send({ op: "setEnvVar", agent, engine, name, value: "" }, anchor, () => {
-        done();
-        pendingFocus = { id: `agent:${agent}:engine:${engine}:env:${name}:value` };
-      });
-      break;
-    }
-    case "addPresetVar": {
-      const name = value("name");
-      send({ op: "setPresetVar", name: preset, varName: name, value: "" }, anchor, () => {
-        done();
-        pendingFocus = { id: `preset:${preset}:var:${name}:value` };
-      });
-      break;
-    }
-    case "addOption": {
-      const current = view?.presets.find((p) => p.name === preset)?.options ?? [];
-      const values = [...current, value("option")];
-      send({ op: "setPresetOptions", name: preset, values }, anchor, () => {
-        done();
-        pendingFocus = { id: `preset:${preset}:option:${values.length - 1}` };
-      });
-      break;
-    }
-  }
+    if (result.focus) pendingFocus = { id: result.focus };
+  });
 }
 
 // --- Clics ----------------------------------------------------------------------------------------
@@ -562,7 +483,7 @@ function onAction(button: HTMLElement): void {
     case "cancelAdd":
       return cancelAdding();
     case "dismissNotice":
-      return hideNotice();
+      return hideNotice(true);
     case "copy":
       return void copyText(button);
     case "save":
@@ -627,20 +548,12 @@ function onAction(button: HTMLElement): void {
     }
     case "removeOption":
     case "moveOption": {
-      const options = [...(view?.presets.find((p) => p.name === preset)?.options ?? [])];
-      const index = Number(d.index);
-      if (!Number.isInteger(index) || index < 0 || index >= options.length) return;
-      let target = index;
-      if (action === "removeOption") options.splice(index, 1);
-      else {
-        target = index + (Number(d.dir) < 0 ? -1 : 1);
-        const moved = options.splice(index, 1)[0];
-        if (moved === undefined || target < 0 || target > options.length) return;
-        options.splice(target, 0, moved);
-      }
-      return send({ op: "setPresetOptions", name: preset, values: options }, anchor, () => {
+      const current = view?.presets.find((p) => p.name === preset)?.options ?? [];
+      const changed = reorderOptions(current, action, Number(d.index), Number(d.dir));
+      if (!changed) return;
+      return send({ op: "setPresetOptions", name: preset, values: changed.values }, anchor, () => {
         // Un déplacement garde le focus sur la même option, à sa nouvelle place.
-        if (action === "moveOption") pendingFocus = { data: { action, preset, index: String(target), dir: d.dir ?? "1" } };
+        if (action === "moveOption") pendingFocus = { data: { action, preset, index: String(changed.target), dir: d.dir ?? "1" } };
       });
     }
   }
@@ -654,10 +567,17 @@ document.addEventListener("click", (event) => {
     ui.menu = undefined;
     closed = true;
   }
-  const control = event.target.closest<HTMLElement>("[data-action]");
+  let control: HTMLElement | null = event.target.closest<HTMLElement>("[data-action]");
   if (!(control instanceof HTMLButtonElement) || control.disabled) {
     if (closed) render();
     return;
+  }
+  if (closed) {
+    // Le menu part avec un rendu : le contrôle cliqué se retrouve dans le nouveau DOM avant d'agir.
+    const clicked = anchorOf(control);
+    render();
+    control = findAnchor(clicked);
+    if (!(control instanceof HTMLButtonElement)) return;
   }
   onAction(control);
 });
@@ -680,16 +600,25 @@ document.addEventListener("submit", (event) => {
   submitAdding(event.target);
 });
 
-/** Valide d'abord le champ en cours de saisie (son `change` part au `blur`), puis enregistre. */
+document.addEventListener("pointerdown", () => void (pointerDown = true), true);
+function releasePointer(): void {
+  if (!pointerDown) return;
+  pointerDown = false;
+  // Après le `click`, qui suit le relâchement dans la même tâche.
+  if (renderDeferred) setTimeout(() => void (renderDeferred && !pointerDown && render()), 0);
+}
+document.addEventListener("pointerup", releasePointer, true);
+document.addEventListener("pointercancel", releasePointer, true);
+window.addEventListener("blur", releasePointer);
+
+/** Valide d'abord le champ en cours de saisie (son `change` part au `blur`), puis enregistre si le document est sale. */
 function saveNow(): void {
   const active = document.activeElement;
-  if (active instanceof HTMLInputElement || active instanceof HTMLSelectElement) {
-    if (active.dataset.action) {
-      active.blur();
-      active.focus();
-    }
+  if ((active instanceof HTMLInputElement || active instanceof HTMLSelectElement) && active.dataset.action) {
+    active.blur();
+    active.focus();
   }
-  if (!view || view.parseError || !view.dirty) return;
+  // Le test de saleté se fait dans la file, une fois l'opération du champ passée.
   sendAction("/api/save");
 }
 
