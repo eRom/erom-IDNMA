@@ -40,7 +40,7 @@ export function applyPresetOp(config: ConfigDocument, op: PresetOp): boolean {
     case "deletePreset":
       return deletePreset(config, op.name);
     case "setPresetVar":
-      return setPresetVar(config, op.name, op.varName, op.value, op.previousName);
+      return setPresetVar(config, op.name, op.varName, op.value, op.previousName, op.create);
     case "deletePresetVar":
       return deletePresetVar(config, op.name, op.varName);
     case "setPresetOptions":
@@ -253,7 +253,7 @@ function providerMap(located: LocatedPreset, name: string): YAMLMap {
   return located.node;
 }
 
-function setPresetVar(config: ConfigDocument, name: string, varName: string, value: string, previousName?: string): boolean {
+function setPresetVar(config: ConfigDocument, name: string, varName: string, value: string, previousName?: string, create?: boolean): boolean {
   const located = locatePreset(config, name);
   const map = providerMap(located, name);
   const renaming = previousName !== undefined && previousName !== varName;
@@ -262,6 +262,8 @@ function setPresetVar(config: ConfigDocument, name: string, varName: string, val
   if ((renaming || !existing) && !ENV_NAME_PATTERN.test(varName)) {
     throw new EditRefused(`Variable name "${varName}" is not valid: use letters, digits and underscores, and do not start with a digit.`);
   }
+  // Une création ne réécrit jamais une variable existante (la ligne « + Add variable » viderait sa valeur).
+  if (create && previousName === undefined && existing) throw new EditRefused(`Variable "${varName}" already exists in preset "${name}".`);
   if (renaming) {
     if (!existing) throw new EditRefused(`Variable "${previousName}" does not exist in preset "${name}".`);
     if (ownVariable(map, varName)) throw new EditRefused(`Variable "${varName}" already exists in preset "${name}".`);

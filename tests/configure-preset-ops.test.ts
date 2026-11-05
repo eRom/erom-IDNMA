@@ -411,6 +411,17 @@ describe("editing preset contents", () => {
     expect(changedLines(romain, deleted.text)).toEqual({ removed: ['    ANTHROPIC_API_KEY: ""'], added: [] });
   });
 
+  test("a creation never rewrites an existing preset variable, an edit still does", () => {
+    const config = ConfigDocument.parse(romain);
+    const treeBefore = config.doc.toString();
+    expect(refusal(config, { op: "setPresetVar", name: "ollama", varName: "ANTHROPIC_AUTH_TOKEN", value: "", create: true })).toMatch(/ANTHROPIC_AUTH_TOKEN.*already exists/);
+    expect(config.doc.toString()).toBe(treeBefore);
+    const edited = edit(romain, { op: "setPresetVar", name: "ollama", varName: "ANTHROPIC_AUTH_TOKEN", value: "x" });
+    expect(changedLines(romain, edited.text).added).toEqual(['    ANTHROPIC_AUTH_TOKEN: "x"']);
+    const created = edit(romain, { op: "setPresetVar", name: "ollama", varName: "FRESH", value: "", create: true });
+    expect(changedLines(romain, created.text).added).toEqual(['    FRESH: ""']);
+  });
+
   test("setting a variable to its current value changes nothing", () => {
     const result = edit(romain, { op: "setPresetVar", name: "ollama", varName: "ANTHROPIC_API_KEY", value: "" });
     expect(result.text).toBe(romain);

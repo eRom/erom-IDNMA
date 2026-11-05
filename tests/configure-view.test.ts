@@ -5,7 +5,7 @@ import type { YAMLMap } from "yaml";
 import { BUILTIN_PRESET_NAMES, builtinPresetText, NEW_FILE_TEMPLATE } from "../src/configure/builtins.ts";
 import { ConfigDocument, isMergePair } from "../src/configure/document.ts";
 import type { AgentView, ConfigView, EngineView } from "../src/configure/types.ts";
-import { buildView } from "../src/configure/view.ts";
+import { buildView, displayPathOf } from "../src/configure/view.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "configure");
 const romain = readFileSync(join(FIXTURES, "romain.yml"), "utf-8");
@@ -270,5 +270,42 @@ describe("configure view", () => {
       expect(view.parseError).toBeUndefined();
       expect(ConfigDocument.parse(text).toText()).toBe(text);
     }
+  });
+});
+
+describe("configure view display path and revert", () => {
+  test("writes the home directory as ~ and leaves other paths intact", () => {
+    expect(displayPathOf("/Users/romain/.idnma.yml", "/Users/romain")).toBe("~/.idnma.yml");
+    expect(displayPathOf("/Users/romain", "/Users/romain")).toBe("~");
+    // Un dossier voisin au nom proche n'est pas le dossier personnel.
+    expect(displayPathOf("/Users/romain-old/.idnma.yml", "/Users/romain")).toBe("/Users/romain-old/.idnma.yml");
+    expect(displayPathOf("/tmp/x/.idnma.yml", "/Users/romain")).toBe("/tmp/x/.idnma.yml");
+    expect(displayPathOf("/etc/idnma.yml", "")).toBe("/etc/idnma.yml");
+  });
+
+  test("keeps the real path next to the display path", () => {
+    const view = buildView(ConfigDocument.parse(romain), "/tmp/.idnma.yml", false);
+    expect(view.path).toBe("/tmp/.idnma.yml");
+    expect(view.displayPath).toBe("/tmp/.idnma.yml");
+  });
+
+  test("offers Revert only once an operation changed the document", () => {
+    const doc = ConfigDocument.parse(romain);
+    expect(buildView(doc, "/tmp/.idnma.yml", false).canRevert).toBe(false);
+    doc.apply({ op: "setAgentField", key: "opus", field: "label", value: "Opus 2" });
+    expect(buildView(doc, "/tmp/.idnma.yml", true).canRevert).toBe(true);
+    // Revert relit la base : le document neuf n'a rien à défaire.
+    expect(buildView(ConfigDocument.parse(romain), "/tmp/.idnma.yml", false).canRevert).toBe(false);
+  });
+
+  test("an untouched new file is dirty but has nothing to revert, until it is edited", () => {
+    const doc = ConfigDocument.parse(undefined);
+    expect(buildView(doc, "/tmp/.idnma.yml", true).canRevert).toBe(false);
+    doc.apply({ op: "addAgent", key: "a", label: "A" });
+    expect(buildView(doc, "/tmp/.idnma.yml", true).canRevert).toBe(true);
+  });
+
+  test("a file that does not parse has nothing to revert", () => {
+    expect(buildView(ConfigDocument.parse("agents:\n  a: [\n"), "/tmp/.idnma.yml", true).canRevert).toBe(false);
   });
 });

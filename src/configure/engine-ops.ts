@@ -55,7 +55,7 @@ export function applyEngineOp(config: ConfigDocument, op: EngineOp): boolean {
     case "setOptions":
       return setOptions(config, op.agent, op.engine, op.options);
     case "setEnvVar":
-      return setEnvVar(config, op.agent, op.engine, op.name, op.value, op.previousName);
+      return setEnvVar(config, op.agent, op.engine, op.name, op.value, op.previousName, op.create);
     case "deleteEnvVar":
       return deleteEnvVar(config, op.agent, op.engine, op.name);
     case "removeMerge":
@@ -232,7 +232,7 @@ function setOptions(config: ConfigDocument, agent: string, engine: string, optio
 
 // --- Env ----------------------------------------------------------------------------------------
 
-function setEnvVar(config: ConfigDocument, agent: string, engine: string, name: string, value: string, previousName?: string): boolean {
+function setEnvVar(config: ConfigDocument, agent: string, engine: string, name: string, value: string, previousName?: string, create?: boolean): boolean {
   const target = requireEngine(config, agent, engine);
   const env = envMapOf(target, agent, engine);
   const renaming = previousName !== undefined && previousName !== name;
@@ -242,6 +242,8 @@ function setEnvVar(config: ConfigDocument, agent: string, engine: string, name: 
     throw new EditRefused(`Variable name "${name}" is not valid: use letters, digits and underscores, and do not start with a digit.`);
   }
 
+  // Une création ne réécrit jamais une variable existante (la ligne « + Add variable » viderait sa valeur).
+  if (create && previousName === undefined && existing) throw new EditRefused(`Variable "${name}" already exists on ${agent}/${engine}.`);
   if (renaming) {
     if (!env || !existing) throw new EditRefused(`Variable "${previousName}" does not exist on ${agent}/${engine}.`);
     if (ownVariable(env, name)) throw new EditRefused(`Variable "${name}" already exists on ${agent}/${engine}.`);

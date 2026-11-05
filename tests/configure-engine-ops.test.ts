@@ -307,6 +307,19 @@ agents:
     expect(changedLines(romain, text)).toEqual({ removed: ["        env:", '          DSH_PERMISSION_MODE: "danger-full-access"'], added: [] });
   });
 
+  test("a creation never rewrites an existing variable, an edit still does", () => {
+    const config = ConfigDocument.parse(romain);
+    const treeBefore = config.doc.toString();
+    const name = "DSH_PERMISSION_MODE";
+    expect(refusal(config, { op: "setEnvVar", agent: "deepseek-flash", engine: "dst", name, value: "", create: true })).toMatch(/DSH_PERMISSION_MODE.*already exists/);
+    expect(config.doc.toString()).toBe(treeBefore);
+    // Sans `create`, la même opération modifie la valeur ; avec `create`, un nom libre se crée.
+    const edited = edit(romain, { op: "setEnvVar", agent: "deepseek-flash", engine: "dst", name, value: "" });
+    expect(changedLines(romain, edited.text).added).toEqual([`          ${name}: ""`]);
+    const created = edit(romain, { op: "setEnvVar", agent: "deepseek-flash", engine: "dst", name: "FRESH", value: "", create: true });
+    expect(changedLines(romain, created.text).added).toEqual(['          FRESH: ""']);
+  });
+
   test("refuses a bad env variable name, a clash and a missing variable", () => {
     const config = ConfigDocument.parse(romain);
     const treeBefore = config.doc.toString();

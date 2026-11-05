@@ -246,6 +246,22 @@ describe("configure server", () => {
     expect(readFileSync(path, "utf-8")).toBe(before);
   });
 
+  test("accepts the create flag on variables and refuses a creation over an existing name", async () => {
+    const path = configFile();
+    const server = start(path);
+    const post = (op: EditOp) => call(server, "/api/op", { method: "POST", body: { op } });
+    const existing = { op: "setEnvVar", agent: "deepseek-flash", engine: "dst", name: "DSH_PERMISSION_MODE", value: "" } as const;
+
+    const refused = await post({ ...existing, create: true });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { refused: string }).refused).toMatch(/already exists/);
+    expect((await view(await call(server, "/api/state"))).dirty).toBe(false);
+
+    expect((await view(await post({ ...existing, name: "FRESH", create: true }))).dirty).toBe(true);
+    // Un indicateur qui n'est pas un booléen reste une opération mal formée.
+    expect((await post({ ...existing, create: "yes" } as unknown as EditOp)).status).toBe(400);
+  });
+
   test("rejects a malformed operation body", async () => {
     const path = configFile();
     const before = readFileSync(path, "utf-8");

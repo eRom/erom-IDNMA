@@ -41,6 +41,11 @@ export class ConfigDocument {
     }
   }
 
+  /** Vrai dès qu'une opération a changé l'arbre depuis la lecture ; ce que Revert défait. */
+  get isModified(): boolean {
+    return this.modified;
+  }
+
   /** `undefined` ouvre un fichier neuf (le gabarit des presets fournis) ; une chaîne vide est un fichier vide. */
   static parse(text: string | undefined): ConfigDocument {
     return new ConfigDocument(text ?? NEW_FILE_TEMPLATE, text === undefined);

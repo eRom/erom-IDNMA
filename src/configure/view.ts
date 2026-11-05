@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { sep } from "node:path";
 import { isAlias, isMap, isNode, isScalar, isSeq, type Pair, parseDocument, type YAMLMap } from "yaml";
 import { BUILTIN_PRESET_NAMES, isBuiltinPreset, NEW_FILE_TEMPLATE } from "./builtins.ts";
 import { commandLine } from "./command.ts";
@@ -231,9 +233,24 @@ function readPresets(reader: Reader, usage: Map<string, string[]>): PresetView[]
   return presets;
 }
 
+/** Le chemin pour l'affichage : le dossier personnel devient `~` (un dossier voisin au nom proche reste intact). */
+export function displayPathOf(path: string, home = homedir()): string {
+  if (home === "" || home === sep) return path;
+  return path === home || path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+}
+
 /** Vue du fichier pour la page. Un fichier qui ne se lit pas montre son erreur de syntaxe et rien d'autre. */
 export function buildView(doc: ConfigDocument, path: string, dirty: boolean): ConfigView {
-  const view: ConfigView = { path, isNew: doc.isNew, dirty, agents: [], presets: [], issues: [] };
+  const view: ConfigView = {
+    path,
+    displayPath: displayPathOf(path),
+    isNew: doc.isNew,
+    dirty,
+    canRevert: !doc.parseError && doc.isModified,
+    agents: [],
+    presets: [],
+    issues: [],
+  };
   if (doc.parseError) {
     view.parseError = doc.parseError;
     return view;

@@ -84,8 +84,12 @@ export interface ParseErrorView {
 
 export interface ConfigView {
   path: string;
+  /** `path` pour l'affichage : le dossier personnel y est écrit `~`. */
+  displayPath: string;
   isNew: boolean;
   dirty: boolean;
+  /** Vrai quand une opération a modifié le document depuis la base (un fichier neuf intact : faux). */
+  canRevert: boolean;
   parseError?: ParseErrorView;
   agents: AgentView[];
   presets: PresetView[];
@@ -115,7 +119,8 @@ export type EditOp =
   | { op: "setModel"; agent: string; engine: string; value: string | null }
   | { op: "setProvider"; agent: string; engine: string; provider: ProviderInput }
   | { op: "setOptions"; agent: string; engine: string; options: OptionsInput }
-  | { op: "setEnvVar"; agent: string; engine: string; name: string; value: string; previousName?: string }
+  /** `create: true` : le nom ne doit pas exister (ligne « + Add variable ») ; sans lui, écrire sur un nom existant le modifie. */
+  | { op: "setEnvVar"; agent: string; engine: string; name: string; value: string; previousName?: string; create?: boolean }
   | { op: "deleteEnvVar"; agent: string; engine: string; name: string }
   | { op: "removeMerge"; agent: string; engine: string }
   | { op: "unlink"; path: (string | number)[] }
@@ -124,6 +129,6 @@ export type EditOp =
   | { op: "addPreset"; name: string; kind: "provider" | "options" }
   | { op: "renamePreset"; name: string; newName: string }
   | { op: "deletePreset"; name: string }
-  | { op: "setPresetVar"; name: string; varName: string; value: string; previousName?: string }
+  | { op: "setPresetVar"; name: string; varName: string; value: string; previousName?: string; create?: boolean }
   | { op: "deletePresetVar"; name: string; varName: string }
   | { op: "setPresetOptions"; name: string; values: string[] };
