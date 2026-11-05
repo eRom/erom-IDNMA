@@ -298,4 +298,215 @@ agents:
     for (const field of html.matchAll(/<(?:input|select)\b[^>]*>/g)) expect(field[0]).toContain("data-focus-id=");
     expect(renderApp(viewOf(romain), agentsTab("deepseek-flash"))).toBe(html);
   });
+
+  test("rings the name input for a bad variable name and the value input for a non text value", () => {
+    const text = `agents:
+  a:
+    label: A
+    engines:
+      default:
+        harness: codex
+        env:
+          "bad name": "x"
+          PRICE: 0
+`;
+    const inputOf = (html: string, field: string, name: string): string =>
+      [...html.matchAll(/<input\b[^>]*>/g)].map((m) => m[0]).find((tag) => tag.includes(`data-field="${field}"`) && tag.includes(`data-name="${name}"`)) ?? "";
+    const html = renderApp(viewOf(text), agentsTab("a"));
+    expect(inputOf(html, "name", "bad name")).toContain('aria-invalid="true"');
+    expect(inputOf(html, "value", "bad name")).not.toContain("aria-invalid");
+    expect(inputOf(html, "value", "PRICE")).toContain('aria-invalid="true"');
+    expect(inputOf(html, "name", "PRICE")).not.toContain("aria-invalid");
+    // Même règle pour les variables d'un provider.
+    const preset = renderApp(viewOf(`presets:\n  p:\n    "bad name": "x"\n    PRICE: 0\n`), { tab: "providers", selected: "p" });
+    expect(inputOf(preset, "name", "bad name")).toContain('aria-invalid="true"');
+    expect(inputOf(preset, "value", "PRICE")).toContain('aria-invalid="true"');
+    expect(inputOf(preset, "name", "PRICE")).not.toContain("aria-invalid");
+  });
+});
+
+/** Les éléments et attributs que le rendu a le droit de produire ; tout le reste vient d'une valeur du fichier. */
+const ALLOWED_TAGS = new Set(["div", "header", "span", "button", "nav", "main", "h2", "p", "i", "label", "input", "select", "option", "code", "section", "form"]);
+const ALLOWED_ATTRIBUTES = new Set([
+  "class", "type", "id", "value", "role", "disabled", "readonly", "placeholder", "spellcheck", "autocomplete", "for", "selected", "novalidate",
+]);
+
+interface Structure {
+  tags: Set<string>;
+  attributes: Set<string>;
+  ariaLabels: string[];
+  /** Éléments de bloc rencontrés sous un `span` ou un `button`. */
+  blockInInline: string[];
+}
+
+/** Parcourt le HTML avec le `HTMLRewriter` de Bun : la structure que le navigateur verrait, pas une regex. */
+async function structureOf(html: string): Promise<Structure> {
+  const result: Structure = { tags: new Set(), attributes: new Set(), ariaLabels: [], blockInInline: [] };
+  const open: string[] = [];
+  const block = new Set(["div", "main", "nav", "header", "section", "form", "p", "h2"]);
+  await new HTMLRewriter()
+    .on("*", {
+      element(el) {
+        result.tags.add(el.tagName);
+        for (const [name, value] of el.attributes) {
+          result.attributes.add(name);
+          if (name === "aria-label") result.ariaLabels.push(value);
+        }
+        if (block.has(el.tagName) && (open.includes("span") || open.includes("button"))) result.blockInInline.push(el.tagName);
+        // Un élément vide (`input`) n'a pas de balise fermante.
+        if (el.tagName !== "input") {
+          open.push(el.tagName);
+          el.onEndTag(() => void open.pop());
+        }
+      },
+    })
+    .transform(new Response(html))
+    .text();
+  return result;
+}
+
+const unexpected = (s: Structure): { tags: string[]; attributes: string[] } => ({
+  tags: [...s.tags].filter((t) => !ALLOWED_TAGS.has(t)),
+  attributes: [...s.attributes].filter((a) => !ALLOWED_ATTRIBUTES.has(a) && !/^(data|aria)-[a-z-]+$/.test(a)),
+});
+
+const HOSTILE = `"><svg onload=x> ' onfocus='`;
+const Q = JSON.stringify(HOSTILE);
+
+/** Un agent minimal dont un seul champ porte la chaîne hostile. */
+function agentYaml(o: { key?: string; label?: string; info?: string; avatar?: string; engines?: string; model?: string; options?: string; env?: string }): string {
+  return `agents:
+  ${o.key ?? "a"}:
+    label: ${o.label ?? "A"}
+${o.info ? `    info: ${o.info}\n` : ""}${o.avatar ? `    avatar: ${o.avatar}\n` : ""}    engines:
+      default:
+        harness: claude
+${o.model ? `        model: ${o.model}\n` : ""}${o.options ? `        options: [${o.options}]\n` : ""}${o.env ? `        env:\n          ${o.env}\n` : ""}${o.engines ?? ""}`;
+}
+
+describe("configure render escaping", () => {
+  const cases: [string, string, UiState][] = [
+    ["agent key", agentYaml({ key: Q }), agentsTab(HOSTILE)],
+    ["label", agentYaml({ label: Q }), agentsTab("a")],
+    ["info", agentYaml({ info: Q }), agentsTab("a")],
+    ["avatar", agentYaml({ avatar: Q }), agentsTab("a")],
+    ["engine name", agentYaml({ engines: `      ${Q}:\n        harness: codex\n` }), agentsTab("a")],
+    ["model", agentYaml({ model: Q }), agentsTab("a")],
+    ["option", agentYaml({ options: Q }), agentsTab("a")],
+    ["env name", agentYaml({ env: `${Q}: "x"` }), agentsTab("a")],
+    ["env value", agentYaml({ env: `K: ${Q}` }), agentsTab("a")],
+    ["preset name", `presets:\n  ${Q}:\n    ANTHROPIC_BASE_URL: "x"\n`, { tab: "providers", selected: HOSTILE }],
+    ["preset variable name", `presets:\n  p:\n    ${Q}: "x"\n`, { tab: "providers", selected: "p" }],
+    ["preset variable value", `presets:\n  p:\n    K: ${Q}\n`, { tab: "providers", selected: "p" }],
+    ["option item of an option set", `presets:\n  p: [${Q}]\n`, { tab: "options", selected: "p" }],
+    ["preset in the provider menu", `presets:\n  ${Q}:\n    ANTHROPIC_BASE_URL: "x"\n${agentYaml({})}`, { ...agentsTab("a"), menu: { agent: "a", engine: "default", kind: "provider" } }],
+    ["option set in the options menu", `presets:\n  ${Q}: [--x]\n${agentYaml({})}`, { ...agentsTab("a"), menu: { agent: "a", engine: "default", kind: "options" } }],
+  ];
+
+  for (const [place, yaml, ui] of cases) {
+    test(`keeps a hostile ${place} inside its text or attribute`, async () => {
+      const view = buildView(ConfigDocument.parse(yaml), "/tmp/.idnma.yml", false);
+      const html = renderApp(view, ui);
+      // La chaîne est bien rendue (le test n'est pas vide), échappée.
+      expect(html).toContain("&lt;svg");
+      expect(unexpected(await structureOf(html))).toEqual({ tags: [], attributes: [] });
+    });
+  }
+
+  test("keeps a hostile file path inside its text", async () => {
+    const view = buildView(ConfigDocument.parse(agentYaml({})), HOSTILE, false);
+    const html = renderApp(view, agentsTab("a"));
+    expect(html).toContain("&lt;svg");
+    expect(unexpected(await structureOf(html))).toEqual({ tags: [], attributes: [] });
+  });
+
+  test("keeps hostile names inside an add row", async () => {
+    const view = buildView(ConfigDocument.parse(agentYaml({ key: Q })), "/tmp/.idnma.yml", false);
+    const html = renderApp(view, { ...agentsTab(HOSTILE), adding: { action: "addEngine", agent: HOSTILE } });
+    expect(html).toContain('class="addrow"');
+    expect(unexpected(await structureOf(html))).toEqual({ tags: [], attributes: [] });
+  });
+});
+
+describe("configure render accessibility", () => {
+  const menuOf = (kind: "provider" | "options"): UiState => ({ ...agentsTab("deepseek-flash"), menu: { agent: "deepseek-flash", engine: "default", kind } });
+
+  test("names the Provider and Options triggers with their caption and hides the chevron", () => {
+    const html = renderApp(viewOf(romain), agentsTab("deepseek-flash"));
+    expect(html).toContain('aria-label="Provider: ollama"');
+    expect(html).toContain('aria-label="Options: claude-max"');
+    const triggers = [...html.matchAll(/<button\b[^>]*aria-haspopup="menu"[^>]*>.*?<\/button>/g)].map((m) => m[0]);
+    expect(triggers.length).toBeGreaterThan(1);
+    for (const trigger of triggers) expect(trigger).toContain('<span class="cv" aria-hidden="true">⌄</span>');
+  });
+
+  test("gives repeated controls a name that includes the engine or the variable", async () => {
+    const structure = await structureOf(renderApp(viewOf(romain), agentsTab("deepseek-flash")));
+    // Trois engines : chaque Copy, Model et Harness se distingue des autres.
+    expect(structure.ariaLabels).toContain("Copy idnma run deepseek-flash --engine dst");
+    expect(structure.ariaLabels).toContain("Model of engine opencode");
+    expect(structure.ariaLabels).toContain("Harness of engine dst");
+    expect(structure.ariaLabels).toContain("Name of variable DSH_PERMISSION_MODE");
+    expect(structure.ariaLabels).toContain("DSH_PERMISSION_MODE value");
+    expect(new Set(structure.ariaLabels).size).toBe(structure.ariaLabels.length);
+  });
+
+  test("never nests a block element in a span or a button, in any view", async () => {
+    const views = [
+      renderApp(viewOf(romain), menuOf("provider")),
+      renderApp(viewOf(romain), menuOf("options")),
+      renderApp(viewOf(romain), { tab: "providers", selected: "ollama" }),
+      renderApp(viewOf(romain), { tab: "options", selected: "claude-max" }),
+      renderApp(viewOf(romain), { ...agentsTab("deepseek-flash"), adding: { action: "addEnvVar", agent: "deepseek-flash", engine: "default" } }),
+      renderApp(viewOf(linked), agentsTab()),
+    ];
+    for (const html of views) expect((await structureOf(html)).blockInInline).toEqual([]);
+  });
+
+  test("puts the alert role on the parse error message, not on main", () => {
+    const view = buildView(ConfigDocument.parse("agents:\n  a: [unclosed\n"), "/tmp/.idnma.yml", false);
+    const html = renderApp(view, agentsTab());
+    expect(html).not.toMatch(/<main[^>]*role="alert"/);
+    expect(html).toMatch(/<p class="message" role="alert">/);
+  });
+});
+
+describe("configure render env section", () => {
+  test("folds an engine without own variables into one small add action", () => {
+    const [claude, dst] = engineBlocks(renderApp(viewOf(romain), agentsTab("deepseek-flash")));
+    expect(claude).toContain('data-action="addEnvVar"');
+    expect(claude).not.toContain('class="kv"');
+    expect(claude).not.toContain('class="envbox"');
+    expect(textOf(claude ?? "")).not.toContain("Env");
+    // Un engine qui a des variables garde la section.
+    expect(dst).toContain('class="kv"');
+    expect(textOf(dst ?? "")).toContain("Env");
+  });
+
+  test("keeps the section for a merged preset even without own variables", () => {
+    const text = `presets:\n  ollama: &ollama\n    ANTHROPIC_BASE_URL: "http://localhost:11434"\nagents:\n  a:\n    label: A\n    engines:\n      default:\n        harness: codex\n        env:\n          <<: *ollama\n`;
+    const html = renderApp(viewOf(text), agentsTab("a"));
+    expect(html).toContain("&lt;&lt; ollama");
+    expect(html).toContain('data-action="addEnvVar"');
+  });
+
+  test("shows no add action on a read only engine without variables", () => {
+    const view = viewOf(romain);
+    const agent = view.agents.find((a) => a.engines.some((e) => e.harness === "claude"));
+    const engine = agent?.engines.find((e) => e.harness === "claude");
+    if (!agent || !engine) throw new Error("fixture has no claude engine");
+    engine.readOnly = "Defined by an alias.";
+    engine.env = [];
+    const block = engineBlocks(renderApp(view, agentsTab(agent.key))).find((b) => b.includes(`data-text="${engine.command}"`)) ?? "";
+    expect(block).not.toContain('data-action="addEnvVar"');
+  });
+
+  test("swaps the add button for its input row only where the creation is in progress", () => {
+    const ui: UiState = { ...agentsTab("deepseek-flash"), adding: { action: "addEnvVar", agent: "deepseek-flash", engine: "dst" } };
+    const [claude, dst] = engineBlocks(renderApp(viewOf(romain), ui));
+    expect(dst).toContain('<form class="addrow" data-add="addEnvVar" data-agent="deepseek-flash" data-engine="dst"');
+    expect(dst).toContain('id="add:name"');
+    expect(claude).not.toContain("addrow");
+    expect(claude).toContain('data-action="addEnvVar"');
+  });
 });

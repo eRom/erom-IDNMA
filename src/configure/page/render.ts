@@ -3,7 +3,7 @@
  * Aucun DOM, aucun `document`, aucun `window` ; toute valeur venue de la vue passe par `escapeHtml`,
  * attributs compris. Aucun style en ligne : la mise en forme est la feuille `styles.css` (tâche 11).
  *
- * CONTRAT DES ATTRIBUTS (la tâche 11 s'appuie dessus, `app.ts` délègue les événements sur `#app`)
+ * CONTRAT DES ATTRIBUTS (la tâche 11 s'appuie dessus, `app.ts` délègue les événements sur `document`)
  *
  * Chaque contrôle agissant porte `data-action`. Deux familles :
  *
@@ -30,7 +30,10 @@
  *    - `setEnvVar` / `deleteEnvVar` : `data-agent`, `data-engine`, `data-name`, `data-field`.
  *    - `unlink` : `data-path`.
  *    - `addAgent`, `addEngine` (`data-agent`), `addPreset` (`data-kind` = `provider`|`options`) : boutons
- *      sans nom ni clé, la page doit les demander à l'utilisateur avant d'envoyer l'opération.
+ *      sans nom ni clé, la page doit les demander à l'utilisateur avant d'envoyer l'opération. La page
+ *      pose `UiState.adding` (même action, mêmes `data-*`) : le bouton est alors remplacé par un
+ *      `<form class="addrow" data-add="<action>" …>` dont les champs ont les ids `add:key|label|name|harness|option` ;
+ *      son `submit` fournit les noms, `cancelAdd` (bouton Cancel) l'abandonne.
  *    - `duplicateAgent`, `deleteAgent`, `deleteEngine`, `makeDefault`, `removeMerge`, `deletePreset` :
  *      boutons, paramètres en `data-*`.
  *
@@ -44,9 +47,11 @@
  *    - `quote` : bouton « Quote it », `data-path` = chemin de la valeur à passer en texte, à envoyer en
  *      `quoteValue`.
  *    - `addEnvVar` (`data-agent`, `data-engine`), `addPresetVar` (`data-preset`) : ajoutent une variable,
- *      le nom est à demander puis envoyé en `setEnvVar` / `setPresetVar`.
- *    - `addOption`, `removeOption`, `moveOption` (`data-preset`, `data-index`, `data-dir`) : sur un option
- *      set ; calculer le nouveau tableau à partir des champs et envoyer `setPresetOptions`.
+ *      le nom est à demander (ligne de saisie ci-dessus) puis envoyé en `setEnvVar` / `setPresetVar`. Sans
+ *      variable propre, l'engine n'affiche que ce bouton (section Env repliée).
+ *    - `addOption` (ligne de saisie), `removeOption`, `moveOption` (`data-preset`, `data-index`, `data-dir`) :
+ *      sur un option set ; calculer le nouveau tableau et envoyer `setPresetOptions`.
+ *    - `cancelAdd` : abandonne la création en cours.
  *
  * Chaque `<input>`, `<select>` et bouton de menu porte `data-focus-id` (aussi son `id`) : identifiant
  * stable d'un rendu à l'autre tant que la clé de l'agent, le nom d'engine ou de variable ne change pas.
@@ -67,10 +72,20 @@ import type {
   PresetView,
 } from "../types.ts";
 
+/** Une création en cours de saisie : le bouton `+ Add …` correspondant est remplacé par une ligne de saisie. */
+export interface AddingState {
+  action: "addAgent" | "addEngine" | "addPreset" | "addEnvVar" | "addPresetVar" | "addOption";
+  agent?: string;
+  engine?: string;
+  preset?: string;
+  kind?: "provider" | "options";
+}
+
 export interface UiState {
   tab: "agents" | "providers" | "options";
   selected?: string;
   menu?: { agent: string; engine: string; kind: "harness" | "provider" | "options" };
+  adding?: AddingState;
 }
 
 export function escapeHtml(s: string): string {
@@ -135,8 +150,53 @@ function inputHtml(o: FieldOptions): string {
   );
 }
 
-function buttonHtml(label: string, classes: string, attrs: DataAttrs, disabled = false): string {
-  return `<button type="button" class="${classes}"${data(attrs)}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
+/** `ariaLabel` donne un nom accessible distinct aux boutons répétés (Copy, Delete, + Add variable…). */
+function buttonHtml(label: string, classes: string, attrs: DataAttrs, disabled = false, ariaLabel?: string): string {
+  return `<button type="button" class="${classes}"${data(attrs)}${ariaLabel ? ` aria-label="${esc(ariaLabel)}"` : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
+}
+
+// --- Création en cours ----------------------------------------------------------------------------
+
+function sameAdding(current: AddingState | undefined, target: AddingState): boolean {
+  return (
+    current !== undefined &&
+    current.action === target.action &&
+    current.agent === target.agent &&
+    current.engine === target.engine &&
+    current.preset === target.preset &&
+    current.kind === target.kind
+  );
+}
+
+/** Ligne de saisie d'un nom (et de ce que l'opération exige en plus) ; `app.ts` l'envoie au `submit`. */
+function addForm(target: AddingState): string {
+  const text = (id: string, label: string, placeholder: string): string => inputHtml({ id: `add:${id}`, value: "", label, placeholder, mono: true });
+  let inputs: string;
+  switch (target.action) {
+    case "addAgent":
+      inputs = text("key", "Agent key", "Key") + text("label", "Agent label", "Label");
+      break;
+    case "addEngine": {
+      const harness = HARNESS_NAMES.map((h) => `<option value="${h}">${h}</option>`).join("");
+      inputs = text("name", "Engine name", "Engine name") + `<select class="pop" id="add:harness" data-focus-id="add:harness" aria-label="Harness">${harness}</select>`;
+      break;
+    }
+    case "addPreset":
+      inputs = text("name", target.kind === "options" ? "Option set name" : "Provider name", "Name");
+      break;
+    case "addOption":
+      inputs = text("option", "New option", "--flag");
+      break;
+    default:
+      inputs = text("name", "Variable name", "NAME");
+  }
+  const attrs = data({ add: target.action, agent: target.agent, engine: target.engine, preset: target.preset, kind: target.kind });
+  return `<form class="addrow"${attrs} novalidate>${inputs}<button type="submit" class="btn pill sm">Add</button>${buttonHtml("Cancel", "btn pill sm", { action: "cancelAdd" })}</form>`;
+}
+
+/** Le bouton de création, ou sa ligne de saisie quand c'est celle-là qui se remplit. */
+function addControl(ui: UiState, target: AddingState, button: string): string {
+  return sameAdding(ui.adding, target) ? addForm(target) : button;
 }
 
 // --- Problèmes ------------------------------------------------------------------------------------
@@ -186,7 +246,7 @@ function issuesHtml(issues: IssueView[]): string {
     .map((issue) => {
       const path = quotePath(issue);
       const level = issue.severity === "error" ? "err" : "warn";
-      const quote = path ? buttonHtml("Quote it", "btn pill sm", { action: "quote", path: JSON.stringify(path) }) : "";
+      const quote = path ? buttonHtml("Quote it", "btn pill sm", { action: "quote", path: JSON.stringify(path) }, false, `Quote it: ${issue.field ?? "value"}`) : "";
       return `<div class="issue ${level}" role="${level === "err" ? "alert" : "status"}"><i class="dot ${level}"></i><span>${esc(issue.message)}</span>${quote}</div>`;
     })
     .join("");
@@ -241,14 +301,13 @@ function sidebar(view: ConfigView, ui: UiState, selected: string | undefined): s
   let add: string;
   if (ui.tab === "agents") {
     rows = view.agents.map((agent) => agentRow(view, agent, agent.key === selected)).join("");
-    add = buttonHtml("+ Add agent", "row add", { action: "addAgent" });
+    add = addControl(ui, { action: "addAgent" }, buttonHtml("+ Add agent", "row add", { action: "addAgent" }));
   } else {
     const list = ui.tab === "providers" ? providers : optionSets;
     rows = list.map((preset) => presetRow(view, preset, preset.name === selected)).join("");
-    add =
-      ui.tab === "providers"
-        ? buttonHtml("+ Add provider", "row add", { action: "addPreset", kind: "provider" })
-        : buttonHtml("+ Add option set", "row add", { action: "addPreset", kind: "options" });
+    const kind = ui.tab === "providers" ? "provider" : "options";
+    const label = kind === "provider" ? "+ Add provider" : "+ Add option set";
+    add = addControl(ui, { action: "addPreset", kind }, buttonHtml(label, "row add", { action: "addPreset", kind }));
   }
   return `<nav class="side"><div class="seg" role="tablist">${seg}</div><div class="rows">${rows}</div>${add}</nav>`;
 }
@@ -287,7 +346,7 @@ function agentPane(view: ConfigView, ui: UiState, agent: AgentView): string {
   const head =
     `<div class="head"><span class="av lg">${esc(initialOf(name))}</span><h2>${esc(name)}</h2>` +
     (agent.info ? `<span class="info">${esc(agent.info)}</span>` : "") +
-    `<span class="acts">${buttonHtml("Duplicate", "btn pill sm", { action: "duplicateAgent", agent: key })}${buttonHtml("Delete", "btn pill sm", { action: "deleteAgent", agent: key })}</span></div>`;
+    `<span class="acts">${buttonHtml("Duplicate", "btn pill sm", { action: "duplicateAgent", agent: key }, false, `Duplicate agent ${key}`)}${buttonHtml("Delete", "btn pill sm", { action: "deleteAgent", agent: key }, false, `Delete agent ${key}`)}</span></div>`;
 
   const ident =
     `<div class="ident">` +
@@ -299,7 +358,7 @@ function agentPane(view: ConfigView, ui: UiState, agent: AgentView): string {
   const engines = agent.engines.map((engine) => engineBlock(view, ui, agent, engine)).join("");
   return (
     `<main class="main">${head}${ident}${issuesHtml(general)}` +
-    `<div class="sect"><span>Engines</span>${buttonHtml("+ Add engine", "btn ghost sm", { action: "addEngine", agent: key })}</div>` +
+    `<div class="sect"><span>Engines</span>${addControl(ui, { action: "addEngine", agent: key }, buttonHtml("+ Add engine", "btn ghost sm", { action: "addEngine", agent: key }, false, `Add engine to ${key}`))}</div>` +
     `${engines}</main>`
   );
 }
@@ -326,13 +385,13 @@ function engineBlock(view: ConfigView, ui: UiState, agent: AgentView, engine: En
     `<span class="key">${esc(parts.key)}</span>` +
     (engine.isDefault
       ? ""
-      : `<span class="fl">--engine</span>${inputHtml({ id: id("name"), value: engine.name, mono: true, label: "Engine name", className: "ek", disabled: ro, attrs: { action: "renameEngine", ...base } })}`);
+      : `<span class="fl">--engine</span>${inputHtml({ id: id("name"), value: engine.name, mono: true, label: `Name of engine ${engine.name}`, className: "ek", disabled: ro, attrs: { action: "renameEngine", ...base } })}`);
   const strip =
     `<div class="cmd"><span class="p">❯</span>${line}` +
     (engine.isDefault ? '<span class="def">default</span>' : '<span class="push"></span>') +
-    (engine.isDefault ? "" : buttonHtml("Make default", "btn pill sm", { action: "makeDefault", ...base })) +
-    buttonHtml("Copy", "btn pill sm", { action: "copy", text: engine.command }) +
-    (engine.isDefault ? "" : buttonHtml("Delete", "btn pill sm", { action: "deleteEngine", ...base })) +
+    (engine.isDefault ? "" : buttonHtml("Make default", "btn pill sm", { action: "makeDefault", ...base }, false, `Make ${engine.name} the default engine`)) +
+    buttonHtml("Copy", "btn pill sm", { action: "copy", text: engine.command }, false, `Copy ${engine.command}`) +
+    (engine.isDefault ? "" : buttonHtml("Delete", "btn pill sm", { action: "deleteEngine", ...base }, false, `Delete engine ${engine.name}`)) +
     "</div>";
 
   // Harnais : un `<select>` natif suffit (six valeurs fixes, rien à légender).
@@ -343,10 +402,9 @@ function engineBlock(view: ConfigView, ui: UiState, agent: AgentView, engine: En
   const harnessIssues = take(issues, (i) => i.field === "harness");
   const harness =
     `<span class="c"><label class="k" for="${esc(id("harness"))}">Harness</label>` +
-    `<select class="pop${hasError(harnessIssues) ? " invalid" : ""}" id="${esc(id("harness"))}" data-focus-id="${esc(id("harness"))}"${data({ action: "setHarness", ...base })}${ro ? " disabled" : ""}>${harnessOptions}</select></span>`;
+    `<select class="pop${hasError(harnessIssues) ? " invalid" : ""}" id="${esc(id("harness"))}" data-focus-id="${esc(id("harness"))}" aria-label="Harness of engine ${esc(engine.name)}"${data({ action: "setHarness", ...base })}${ro ? " disabled" : ""}>${harnessOptions}</select></span>`;
 
-  const provider = claude ? providerControl(view, ui, engine, base, id("provider"), ro) : "";
-  const optionsIssues = take(issues, (i) => i.field === "options" || (i.field ?? "").startsWith("options."));
+  const provider = claude ? providerControl(view, ui, engine, base, id("provider"), ro) : "";  const optionsIssues = take(issues, (i) => i.field === "options" || (i.field ?? "").startsWith("options."));
   const options = optionsControl(view, ui, engine, base, id, ro, optionsIssues);
   const dst = engine.harness === "dst" ? '<span class="c"><span class="k dim">Model is chosen inside dst with /model</span></span>' : "";
   const controls = `<div class="ctl">${harness}${provider}${dst}${options}</div>${issuesHtml(harnessIssues)}${issuesHtml(optionsIssues)}`;
@@ -360,28 +418,29 @@ function engineBlock(view: ConfigView, ui: UiState, agent: AgentView, engine: En
       id: id("model"),
       value: engine.model ?? "",
       mono: true,
-      label: "Model",
+      label: `Model of engine ${engine.name}`,
       placeholder: place,
       disabled: ro,
       readonly: engine.modelLinked !== undefined,
       invalid: hasError(modelIssues),
       attrs: { action: "setModel", ...base },
     });
-    const link = engine.modelLinked ? linkHtml(engine.modelLinked, ["agents", agent.key, "engines", engine.name, "model"]) : "";
+    const link = engine.modelLinked ? linkHtml(engine.modelLinked, ["agents", agent.key, "engines", engine.name, "model"], `model of engine ${engine.name}`) : "";
     model = `<div class="mrow"><label class="k" for="${esc(id("model"))}">Model</label><div class="val">${field}${link}</div></div>${issuesHtml(modelIssues)}`;
   }
 
-  const env = envControl(engine, base, id, ro, issues, agent.key);
+  const env = envControl(ui, engine, base, id, ro, issues, agent.key);
   const note = ro ? `<p class="hint">${esc(engine.readOnly ?? "")}</p>` : "";
   // Ce que ni un champ ni une commande n'a réclamé : problème de l'engine entier.
   return `<section class="eng" data-engine="${esc(engine.name)}">${strip}${issuesHtml(issues)}${note}${controls}${model}${env}</section>`;
 }
 
-function linkHtml(link: LinkView, path: Path): string {
+/** `what` nomme la valeur liée pour le nom accessible du bouton Unlink. */
+function linkHtml(link: LinkView, path: Path, what: string): string {
   const others = link.sharedWith.length > 0 ? ` · also used by ${link.sharedWith.join(", ")}` : "";
   return (
     `<span class="linked"><span class="tag">linked</span><span class="hint">&amp;${esc(link.anchor)}${esc(others)}</span>` +
-    `${buttonHtml("Unlink", "btn pill sm", { action: "unlink", path: JSON.stringify(path) })}</span>`
+    `${buttonHtml("Unlink", "btn pill sm", { action: "unlink", path: JSON.stringify(path) }, false, `Unlink ${what}`)}</span>`
   );
 }
 
@@ -410,10 +469,11 @@ function isOpen(ui: UiState, engine: { agent: string; engine: string }, kind: "p
   return m !== undefined && m.agent === engine.agent && m.engine === engine.engine && m.kind === kind;
 }
 
-function trigger(label: string, open: boolean, id: string, kind: "provider" | "options", base: { agent: string; engine: string }, ro: boolean): string {
+/** Le nom accessible porte la légende (« Provider: ollama ») ; le chevron est décoratif. */
+function trigger(caption: string, label: string, open: boolean, id: string, kind: "provider" | "options", base: { agent: string; engine: string }, ro: boolean): string {
   return (
-    `<button type="button" class="pop${open ? " open" : ""}" id="${esc(id)}" data-focus-id="${esc(id)}" aria-haspopup="menu" aria-expanded="${open}"` +
-    `${data({ action: "menu", kind, ...base })}${ro ? " disabled" : ""}>${esc(label)} <span class="cv">⌄</span></button>`
+    `<button type="button" class="pop${open ? " open" : ""}" id="${esc(id)}" data-focus-id="${esc(id)}" aria-haspopup="menu" aria-expanded="${open}" aria-label="${esc(`${caption}: ${label}`)}"` +
+    `${data({ action: "menu", kind, ...base })}${ro ? " disabled" : ""}>${esc(label)} <span class="cv" aria-hidden="true">⌄</span></button>`
   );
 }
 
@@ -442,7 +502,7 @@ function providerControl(view: ConfigView, ui: UiState, engine: EngineView, base
       ],
     );
   }
-  return `<span class="c menu-host"><span class="k">Provider</span>${trigger(label, open, id, "provider", base, ro)}${menu}</span>`;
+  return `<div class="c menu-host"><span class="k">Provider</span>${trigger("Provider", label, open, id, "provider", base, ro)}${menu}</div>`;
 }
 
 function optionsControl(
@@ -489,7 +549,7 @@ function optionsControl(
         id: id(`options:${index}`),
         value,
         mono: true,
-        label: last ? "Add option" : `Option ${index + 1}`,
+        label: last ? `Add option to engine ${base.engine}` : `Option ${index + 1} of engine ${base.engine}`,
         placeholder: last ? "+" : "",
         disabled: ro,
         className: last ? "chip add" : "chip",
@@ -498,22 +558,27 @@ function optionsControl(
       });
     tokens = `<span class="chips" data-options-list data-agent="${esc(base.agent)}" data-engine="${esc(base.engine)}">${values.map((v, i) => chip(v, i, false)).join("")}${chip("", values.length, true)}</span>`;
   }
-  return `<span class="c menu-host"><span class="k">Options</span>${trigger(label, open, id("options-menu"), "options", base, ro)}${menu}${tokens}</span>`;
+  return `<div class="c menu-host"><span class="k">Options</span>${trigger("Options", label, open, id("options-menu"), "options", base, ro)}${menu}${tokens}</div>`;
 }
 
 // --- Env ------------------------------------------------------------------------------------------
 
-function envControl(engine: EngineView, base: { agent: string; engine: string }, id: (field: string) => string, ro: boolean, issues: IssueView[], agentKey: string): string {
+function envControl(ui: UiState, engine: EngineView, base: { agent: string; engine: string }, id: (field: string) => string, ro: boolean, issues: IssueView[], agentKey: string): string {
   const merge =
     engine.harness !== "claude" && engine.mergedPreset !== undefined
-      ? `<div class="merge"><span class="ref">${esc(`<< ${engine.mergedPreset}`)}</span>${buttonHtml("Remove", "btn pill sm", { action: "removeMerge", ...base })}</div>`
+      ? `<div class="merge"><span class="ref">${esc(`<< ${engine.mergedPreset}`)}</span>${buttonHtml("Remove", "btn pill sm", { action: "removeMerge", ...base }, false, `Remove merged preset ${engine.mergedPreset}`)}</div>`
       : "";
+  const addTarget: AddingState = { action: "addEnvVar", ...base };
+  const add = ro ? "" : addControl(ui, addTarget, buttonHtml("+ Add variable", "btn ghost sm", { action: "addEnvVar", ...base }, false, `Add variable to engine ${engine.name}`));
+  // Replié quand l'engine n'a rien en propre : une petite action suffit (spec §5).
+  if (engine.env.length === 0 && merge === "") return add === "" ? "" : `<div class="envadd">${add}</div>`;
+
   const rows = engine.env
     .map((v) => {
       const mine = take(issues, (i) => i.field === `env.${v.name}`);
       const row = varRow(v, {
         idBase: id(`env:${v.name}`),
-        invalid: hasError(mine),
+        ...varInvalid(mine),
         disabled: ro,
         setAttrs: { action: "setEnvVar", ...base, name: v.name },
         deleteAttrs: { action: "deleteEnvVar", ...base, name: v.name },
@@ -522,13 +587,22 @@ function envControl(engine: EngineView, base: { agent: string; engine: string },
       return row + issuesHtml(mine);
     })
     .join("");
-  const add = ro ? "" : buttonHtml("+ Add variable", "btn ghost sm", { action: "addEnvVar", ...base });
   return `<div class="mrow"><span class="k">Env</span><div class="envbox">${merge}${rows}${add}</div></div>`;
+}
+
+/** Un problème `env-name-form` cerne le champ du nom ; tout autre problème d'une variable cerne sa valeur. */
+function varInvalid(issues: IssueView[]): { invalidName: boolean; invalidValue: boolean } {
+  const errors = issues.filter((i) => i.severity === "error");
+  return {
+    invalidName: errors.some((i) => i.code === "env-name-form"),
+    invalidValue: errors.some((i) => i.code !== "env-name-form"),
+  };
 }
 
 interface VarRowOptions {
   idBase: string;
-  invalid: boolean;
+  invalidName: boolean;
+  invalidValue: boolean;
   disabled: boolean;
   setAttrs: DataAttrs;
   deleteAttrs: DataAttrs;
@@ -545,12 +619,20 @@ function varRow(v: EnvVarView, o: VarRowOptions): string {
     placeholder: "empty",
     disabled: o.disabled,
     readonly: v.linked !== undefined,
-    invalid: o.invalid,
+    invalid: o.invalidValue,
     attrs: { ...o.setAttrs, field: "value" },
   });
-  const name = inputHtml({ id: `${o.idBase}:name`, value: v.name, mono: true, label: "Variable name", disabled: o.disabled || v.linked !== undefined, attrs: { ...o.setAttrs, field: "name" } });
+  const name = inputHtml({
+    id: `${o.idBase}:name`,
+    value: v.name,
+    mono: true,
+    label: `Name of variable ${v.name}`,
+    disabled: o.disabled || v.linked !== undefined,
+    invalid: o.invalidName,
+    attrs: { ...o.setAttrs, field: "name" },
+  });
   const remove = `<button type="button" class="x" aria-label="Remove ${esc(v.name)}"${data(o.deleteAttrs)}${o.disabled ? " disabled" : ""}>−</button>`;
-  const link = v.linked ? linkHtml(v.linked, o.path) : "";
+  const link = v.linked ? linkHtml(v.linked, o.path, `variable ${v.name}`) : "";
   return `<div class="kv">${name}${value}${remove}</div>${link}`;
 }
 
@@ -560,38 +642,38 @@ function usedBy(preset: PresetView): string {
   const commands = preset.usedBy
     .map(
       (command) =>
-        `<div class="cmd"><span class="p">❯</span><code class="line">${esc(command)}</code><span class="push"></span>${buttonHtml("Copy", "btn pill sm", { action: "copy", text: command })}</div>`,
+        `<div class="cmd"><span class="p">❯</span><code class="line">${esc(command)}</code><span class="push"></span>${buttonHtml("Copy", "btn pill sm", { action: "copy", text: command }, false, `Copy ${command}`)}</div>`,
     )
     .join("");
   const body = commands || '<p class="hint">No engine uses this yet.</p>';
   return `<div class="sect used-head"><span>Used by</span></div><div class="used">${body}</div>`;
 }
 
-function presetPane(view: ConfigView, preset: PresetView): string {
+function presetPane(view: ConfigView, ui: UiState, preset: PresetView): string {
   const general = issuesIn(view.issues, { preset: preset.name });
   const head =
     `<div class="head"><h2>${esc(preset.name)}</h2>${preset.builtIn ? '<span class="tag">Built-in</span>' : ""}` +
     (preset.inFile ? "" : '<span class="info">Written to the file when first used</span>') +
-    (preset.inFile ? `<span class="acts">${buttonHtml("Delete", "btn pill sm", { action: "deletePreset", preset: preset.name })}</span>` : "") +
+    (preset.inFile ? `<span class="acts">${buttonHtml("Delete", "btn pill sm", { action: "deletePreset", preset: preset.name }, false, `Delete ${preset.name}`)}</span>` : "") +
     "</div>";
   const name = preset.inFile
     ? `<div class="ident"><div class="fld"><label class="lbl" for="preset:${esc(preset.name)}:name">Name</label>${inputHtml({ id: `preset:${preset.name}:name`, value: preset.name, mono: true, attrs: { action: "renamePreset", preset: preset.name } })}</div></div>`
     : "";
 
   let body: string;
-  if (preset.kind === "provider") body = providerBody(preset, general);
-  else if (preset.kind === "options") body = optionsBody(preset, general);
+  if (preset.kind === "provider") body = providerBody(ui, preset, general);
+  else if (preset.kind === "options") body = optionsBody(ui, preset, general);
   else body = `<p class="hint">This preset is neither a table of variables nor a list of options. Edit the file directly.</p>`;
   return `<main class="main">${head}${name}${body}${issuesHtml(general)}${usedBy(preset)}</main>`;
 }
 
-function providerBody(preset: PresetView, general: IssueView[]): string {
+function providerBody(ui: UiState, preset: PresetView, general: IssueView[]): string {
   const rows = preset.vars
     .map((v) => {
       const mine = take(general, (i) => i.field === `env.${v.name}`);
       const row = varRow(v, {
         idBase: `preset:${preset.name}:var:${v.name}`,
-        invalid: hasError(mine),
+        ...varInvalid(mine),
         disabled: false,
         setAttrs: { action: "setPresetVar", preset: preset.name, name: v.name },
         deleteAttrs: { action: "deletePresetVar", preset: preset.name, name: v.name },
@@ -600,29 +682,32 @@ function providerBody(preset: PresetView, general: IssueView[]): string {
       return row + issuesHtml(mine);
     })
     .join("");
+  const add = buttonHtml("+ Add variable", "btn ghost sm", { action: "addPresetVar", preset: preset.name }, false, `Add variable to ${preset.name}`);
   return (
     `<div class="sect"><span>Environment</span></div>${rows}` +
-    buttonHtml("+ Add variable", "btn ghost sm", { action: "addPresetVar", preset: preset.name }) +
+    addControl(ui, { action: "addPresetVar", preset: preset.name }, add) +
     '<p class="hint">Values are written as typed. A <span class="ref">$VARIABLE</span> stays a reference, read from your shell when the agent starts.</p>'
   );
 }
 
-function optionsBody(preset: PresetView, general: IssueView[]): string {
+function optionsBody(ui: UiState, preset: PresetView, general: IssueView[]): string {
   const last = preset.options.length - 1;
   const rows = preset.options
     .map((value, index) => {
       const mine = take(general, (i) => i.field === `options.${index}`);
       const attrs = { preset: preset.name, index };
+      const n = index + 1;
       return (
-        `<div class="tok">${inputHtml({ id: `preset:${preset.name}:option:${index}`, value, mono: true, label: `Option ${index + 1}`, invalid: hasError(mine), attrs: { action: "setPresetOptions", ...attrs } })}` +
-        buttonHtml("↑", "btn pill sm", { action: "moveOption", ...attrs, dir: -1 }, index === 0) +
-        buttonHtml("↓", "btn pill sm", { action: "moveOption", ...attrs, dir: 1 }, index === last) +
-        buttonHtml("−", "btn pill sm", { action: "removeOption", ...attrs }) +
+        `<div class="tok">${inputHtml({ id: `preset:${preset.name}:option:${index}`, value, mono: true, label: `Option ${n} of ${preset.name}`, invalid: hasError(mine), attrs: { action: "setPresetOptions", ...attrs } })}` +
+        buttonHtml("↑", "btn pill sm", { action: "moveOption", ...attrs, dir: -1 }, index === 0, `Move option ${n} of ${preset.name} up`) +
+        buttonHtml("↓", "btn pill sm", { action: "moveOption", ...attrs, dir: 1 }, index === last, `Move option ${n} of ${preset.name} down`) +
+        buttonHtml("−", "btn pill sm", { action: "removeOption", ...attrs }, false, `Remove option ${n} of ${preset.name}`) +
         `</div>${issuesHtml(mine)}`
       );
     })
     .join("");
-  return `<div class="sect"><span>Options</span></div><div data-options-list data-preset="${esc(preset.name)}">${rows}</div>${buttonHtml("+ Add option", "btn ghost sm", { action: "addOption", preset: preset.name })}`;
+  const add = buttonHtml("+ Add option", "btn ghost sm", { action: "addOption", preset: preset.name }, false, `Add option to ${preset.name}`);
+  return `<div class="sect"><span>Options</span></div><div data-options-list data-preset="${esc(preset.name)}">${rows}</div>${addControl(ui, { action: "addOption", preset: preset.name }, add)}`;
 }
 
 // --- Écran d'erreur de syntaxe --------------------------------------------------------------------
@@ -631,8 +716,8 @@ function parseErrorScreen(view: ConfigView): string {
   const error = view.parseError;
   if (!error) return "";
   return (
-    `<main class="main parse-error" role="alert"><h2>This file cannot be read</h2>` +
-    `<p class="path">${esc(view.path)}</p><p class="message">${esc(error.message)}</p>` +
+    `<main class="main parse-error"><h2>This file cannot be read</h2>` +
+    `<p class="path">${esc(view.path)}</p><p class="message" role="alert">${esc(error.message)}</p>` +
     `<p class="where">Line ${error.line}, column ${error.col}</p>` +
     `<p class="hint">Fix the file in your editor, then reload. Nothing can be edited until it parses.</p>` +
     `${buttonHtml("Reload", "btn sec", { action: "reload" })}</main>`
@@ -653,7 +738,7 @@ export function renderApp(view: ConfigView, ui: UiState): string {
     main = agent ? agentPane(view, ui, agent) : '<main class="main empty"><p class="hint">No agents yet. Add one to get started.</p></main>';
   } else {
     const preset = view.presets.find((p) => p.name === selected);
-    main = preset ? presetPane(view, preset) : '<main class="main empty"><p class="hint">Nothing here yet.</p></main>';
+    main = preset ? presetPane(view, ui, preset) : '<main class="main empty"><p class="hint">Nothing here yet.</p></main>';
   }
   return `<div class="win">${toolbar(view)}<div class="body">${sidebar(view, ui, selected)}${main}</div></div>`;
 }
