@@ -318,8 +318,9 @@ describe("configure agent and engine operations", () => {
     expect(config.toText()).toBe("agents:\n  a: [unclosed\n");
   });
 
-  test("leaves the operations of later tasks unimplemented", () => {
-    const config = ConfigDocument.parse(romain);
-    expect(refusal(config, { op: "setHarness", agent: "opus", engine: "default", harness: "codex" })).toMatch(/Not implemented yet/);
+  test("an operation that changes nothing leaves a CRLF file byte for byte", () => {
+    const crlf = "agents:\r\n  a:\r\n    label: A\r\n    engines:\r\n      default:\r\n        harness: claude\r\n";
+    const { text } = edit(crlf, { op: "setAgentField", key: "a", field: "avatar", value: null });
+    expect(text).toBe(crlf);
   });
 });

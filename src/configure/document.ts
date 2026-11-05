@@ -1,76 +1,16 @@
-import {
-  type Document,
-  isAlias,
-  isMap,
-  isNode,
-  isPair,
-  isScalar,
-  isSeq,
-  LineCounter,
-  type Node,
-  type Pair,
-  parseDocument,
-  Scalar,
-  visit,
-  type YAMLMap,
-} from "yaml";
+import { type Document, isAlias, isMap, isNode, LineCounter, type Node, parseDocument, visit, type YAMLMap } from "yaml";
 import { applyAgentOp } from "./agent-ops.ts";
 import { NEW_FILE_TEMPLATE } from "./builtins.ts";
+import { EditRefused, isMergePair, readablePath } from "./nodes.ts";
 import type { EditOp, ParseErrorView } from "./types.ts";
 
-/** Opération refusée : le message est du texte d'interface (anglais, une phrase qui nomme l'obstacle). */
-export class EditRefused extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "EditRefused";
-  }
-}
-
-/** Une paire est une fusion (`<<: *preset`) si sa clé est le scalaire `<<` non quoté. */
-export function isMergePair(pair: Pair): boolean {
-  const key = pair.key;
-  if (!isScalar(key)) return false;
-  if (key.type === Scalar.QUOTE_DOUBLE || key.type === Scalar.QUOTE_SINGLE) return false;
-  const value = key.value;
-  const isMergeValue = typeof value === "symbol" ? value.description === "<<" : value === "<<";
-  return isMergeValue || key.source === "<<";
-}
+// Les consommateurs existants importent encore ces deux noms d'ici.
+export { EditRefused, isMergePair };
 
 /** Où une ancre est définie et où elle est reprise par alias, en chemins lisibles. */
 export interface AnchorSites {
   definedAt?: string;
   aliases: string[];
-}
-
-type PathItem = Document | Node | Pair;
-
-/**
- * Chemin lisible d'un nœud à partir de ses ancêtres : `agents.glm.engines.default.env`.
- * La clé de fusion `<<` et l'indice d'une liste de fusion n'y figurent pas : un alias fusionné
- * se lit comme appartenant à l'`env` qui le fusionne.
- */
-export function readablePath(ancestors: readonly PathItem[], node: unknown): string {
-  const chain: unknown[] = [...ancestors, node];
-  const parts: string[] = [];
-  let inMerge = false;
-  for (let i = 0; i < chain.length - 1; i++) {
-    const item = chain[i];
-    if (isPair(item)) {
-      if (isMergePair(item)) {
-        inMerge = true;
-        continue;
-      }
-      inMerge = false;
-      parts.push(String(isScalar(item.key) ? item.key.value : item.key));
-    } else if (isSeq(item)) {
-      if (inMerge) {
-        inMerge = false;
-        continue;
-      }
-      parts.push(String(item.items.indexOf(chain[i + 1])));
-    }
-  }
-  return parts.join(".");
 }
 
 /**
@@ -116,17 +56,17 @@ export class ConfigDocument {
   }
 
   /**
-   * Applique une modification au `Document` ; `modified` ne passe à vrai que si elle a réussi. Une
-   * opération qui refuse n'a rien touché : chacune vérifie tout avant sa première écriture.
+   * Applique une modification au `Document` ; `modified` ne passe à vrai que si elle a changé l'arbre
+   * (une opération sans effet laisse `toText()` rendre le texte reçu à l'octet). Une opération qui
+   * refuse n'a rien touché : chacune vérifie tout avant sa première écriture.
    */
   apply(op: EditOp): void {
     if (this.parseError) throw new EditRefused("Fix the syntax error first.");
-    this.applyOp(op);
-    this.modified = true;
+    if (this.applyOp(op)) this.modified = true;
   }
 
   // Les opérations d'engine et de preset arrivent aux tâches 4 et 5 ; d'ici là, elles refusent.
-  private applyOp(op: EditOp): void {
+  private applyOp(op: EditOp): boolean {
     switch (op.op) {
       case "addAgent":
       case "duplicateAgent":
@@ -137,8 +77,7 @@ export class ConfigDocument {
       case "deleteEngine":
       case "renameEngine":
       case "makeDefault":
-        applyAgentOp(this, op);
-        return;
+        return applyAgentOp(this, op);
       case "setHarness":
       case "setModel":
       case "setProvider":

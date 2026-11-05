@@ -1,5 +1,6 @@
 import { isAlias, isMap, isNode, isScalar, type Node, type Pair, type Scalar, visit, YAMLMap } from "yaml";
-import { type ConfigDocument, EditRefused, readablePath } from "./document.ts";
+import type { ConfigDocument } from "./document.ts";
+import { EditRefused, readablePath } from "./nodes.ts";
 import type { EditOp } from "./types.ts";
 
 export type AgentOp = Extract<
@@ -23,9 +24,10 @@ const KEY_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 /**
  * Opérations de structure sur les agents et leurs engines. Chacune vérifie tout avant sa première
- * écriture : un refus (`EditRefused`) laisse le `Document` exactement comme il était.
+ * écriture : un refus (`EditRefused`) laisse le `Document` exactement comme il était. Rend `true`
+ * si l'arbre a changé, `false` si l'opération n'avait rien à faire.
  */
-export function applyAgentOp(config: ConfigDocument, op: AgentOp): void {
+export function applyAgentOp(config: ConfigDocument, op: AgentOp): boolean {
   switch (op.op) {
     case "addAgent":
       return addAgent(config, op.key, op.label);
@@ -54,11 +56,12 @@ export function applyAgentOp(config: ConfigDocument, op: AgentOp): void {
 
 // --- Agents -------------------------------------------------------------------------------------
 
-function addAgent(config: ConfigDocument, key: string, label: string): void {
+function addAgent(config: ConfigDocument, key: string, label: string): boolean {
   checkKey("Agent key", key);
   if (config.agentsMap()?.has(key)) throw new EditRefused(`Agent "${key}" already exists.`);
   const agents = ensureMapAt(ensureRootMap(config), "agents");
   agents.add(config.doc.createPair(key, config.doc.createNode({ label })));
+  return true;
 }
 
 /**
@@ -66,7 +69,7 @@ function addAgent(config: ConfigDocument, key: string, label: string): void {
  * `<clé>-copy` et un label `<label> copy`. Les ancres définies dans l'agent sont dépliées dans la copie
  * (valeurs en clair), sinon le fichier porterait deux fois la même ancre.
  */
-function duplicateAgent(config: ConfigDocument, key: string): void {
+function duplicateAgent(config: ConfigDocument, key: string): boolean {
   const original = requireAgent(config, key);
   const agents = config.agentsMap() as YAMLMap;
 
@@ -87,29 +90,33 @@ function duplicateAgent(config: ConfigDocument, key: string): void {
     if (pair) copy.items.push(pair);
   }
   agents.add(config.doc.createPair(newKey, copy));
+  return true;
 }
 
-function deleteAgent(config: ConfigDocument, key: string): void {
+function deleteAgent(config: ConfigDocument, key: string): boolean {
   const agent = requireAgent(config, key);
   assertAnchorsFree(config, agent);
   (config.agentsMap() as YAMLMap).delete(key);
+  return true;
 }
 
-function renameAgent(config: ConfigDocument, key: string, newKey: string): void {
+function renameAgent(config: ConfigDocument, key: string, newKey: string): boolean {
   checkKey("Agent key", newKey);
   requireAgent(config, key);
   const agents = config.agentsMap() as YAMLMap;
   if (agents.has(newKey)) throw new EditRefused(`Agent "${newKey}" already exists.`);
   renameKey(agents, key, newKey);
+  return true;
 }
 
-function setAgentField(config: ConfigDocument, key: string, field: "label" | "avatar", value: string | null): void {
+function setAgentField(config: ConfigDocument, key: string, field: "label" | "avatar", value: string | null): boolean {
   const agent = requireAgent(config, key);
   const pair = findPair(agent, field);
 
   if (value === null) {
-    if (pair) agent.delete(field);
-    return;
+    if (!pair) return false;
+    agent.delete(field);
+    return true;
   }
   if (pair) {
     const current = pair.value;
@@ -121,22 +128,23 @@ function setAgentField(config: ConfigDocument, key: string, field: "label" | "av
     } else {
       throw new EditRefused(`Field "${field}" of agent "${key}" is not a text value.`);
     }
-    return;
+    return true;
   }
 
   const created = config.doc.createPair(field, value);
   if (field === "label") {
     agent.items.unshift(created);
-    return;
+    return true;
   }
   const enginesAt = agent.items.findIndex((item) => keyIs(item, "engines"));
   if (enginesAt === -1) agent.items.push(created);
   else agent.items.splice(enginesAt, 0, created);
+  return true;
 }
 
 // --- Engines ------------------------------------------------------------------------------------
 
-function addEngine(config: ConfigDocument, agent: string, name: string, harness: string): void {
+function addEngine(config: ConfigDocument, agent: string, name: string, harness: string): boolean {
   checkKey("Engine name", name);
   const agentMap = requireAgent(config, agent);
   const existing = agentMap.get("engines", true);
@@ -145,29 +153,33 @@ function addEngine(config: ConfigDocument, agent: string, name: string, harness:
   }
   const engines = ensureMapAt(agentMap, "engines");
   engines.add(config.doc.createPair(name, config.doc.createNode({ harness })));
+  return true;
 }
 
-function deleteEngine(config: ConfigDocument, agent: string, engine: string): void {
+function deleteEngine(config: ConfigDocument, agent: string, engine: string): boolean {
   const engines = requireEngines(config, agent, engine);
   assertAnchorsFree(config, engines.get(engine, true) as Node | undefined);
   engines.delete(engine);
+  return true;
 }
 
-function renameEngine(config: ConfigDocument, agent: string, engine: string, newName: string): void {
+function renameEngine(config: ConfigDocument, agent: string, engine: string, newName: string): boolean {
   checkKey("Engine name", newName);
   const engines = requireEngines(config, agent, engine);
   if (engines.has(newName)) throw new EditRefused(`Engine "${newName}" already exists on agent "${agent}".`);
   renameKey(engines, engine, newName);
+  return true;
 }
 
 /** Échange les noms de l'engine et de `default` ; sans `default`, l'engine prend ce nom. */
-function makeDefault(config: ConfigDocument, agent: string, engine: string): void {
+function makeDefault(config: ConfigDocument, agent: string, engine: string): boolean {
   if (engine === "default") throw new EditRefused(`Engine "default" of agent "${agent}" is already the default.`);
   const engines = requireEngines(config, agent, engine);
   const target = findPair(engines, engine) as Pair;
   const current = findPair(engines, "default");
   (target.key as Scalar).value = "default";
   if (current) (current.key as Scalar).value = engine;
+  return true;
 }
 
 // --- Garde des ancres et dépliage --------------------------------------------------------------
