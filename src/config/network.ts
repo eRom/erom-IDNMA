@@ -24,7 +24,7 @@ const HARNESSES = ["claude", "codex", "grok", "agy", "opencode", "dst"] as const
 
 // Strict : une clé mal tapée (`option:` pour `options:`) serait sinon retirée en silence, et
 // l'agent démarrerait sans ses options (codex en mode prompting, sans un mot).
-const EngineSchema = z.strictObject({
+export const EngineSchema = z.strictObject({
   harness: z.enum(HARNESSES),
   model: z.string().optional(),
   options: z.array(z.string()).default([]),
@@ -34,7 +34,7 @@ const EngineSchema = z.strictObject({
 // Seul `engines` compte ici : label, info, cell et avatar servent à d'autres outils
 // (affichage), zod retire les clés inconnues, un agent n'est donc jamais refusé pour eux.
 // Le niveau agent reste donc permissif ; seul l'engine est strict.
-const AgentSchema = z.object({
+export const AgentSchema = z.object({
   engines: z.record(z.string(), EngineSchema),
 });
 

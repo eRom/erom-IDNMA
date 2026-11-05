@@ -88,7 +88,7 @@ Maquette de référence : `commands.html` (deux états : un agent, un provider).
 
 **Règles propres à l'app** (en plus) : `label` présent et non vide ; clé d'agent non vide, unique, de forme `[A-Za-z0-9._-]+` et ne commençant pas par `-` (elle se tape en argument) ; nom d'engine de même forme, unique dans l'agent ; valeurs d'env et d'options en texte (un nombre YAML comme `0` est une erreur, correction proposée « Quote it ») ; tout alias pointe vers une ancre existante. Avertissement, non bloquant : deux agents portent le même `label`.
 
-**Moment.** À chaque modification, côté page, avec le module partagé (zod et yaml se regroupent dans le bundle de la page). Le serveur revalide au Save.
+**Moment.** *(Écart assumé à la tâche 1 du plan.)* La validation tourne côté serveur, à chaque opération, avec le module partagé `src/config/engine-rules.ts` ; le serveur renvoie les erreurs à la page, qui ne valide rien elle-même. Raisons : un seul runtime, aucun module Node à empaqueter pour le navigateur (`dst-argv.ts` lit le disque), tout testable par `bun test`. Le serveur revalide au Save.
 
 **Affichage.** L'erreur apparaît là où elle se corrige : point rouge sur la rangée de l'agent ou du preset, anneau rouge sur le champ, message sous le champ. Le compte total est dans la barre d'outils. Save reste possible avec des erreurs : `idnma run` valide agent par agent, un agent cassé n'empêche pas d'en lancer un autre.
 
@@ -99,7 +99,7 @@ Maquette de référence : `commands.html` (deux états : un agent, un provider).
 - Sonde du 05/11 sur le fichier de Romain (`yaml` installé dans le dépôt) : sans modification, la sortie est identique à l'octet près ; avec trois modifications (un label, une valeur d'env passée en `"0"`, un engine ajouté), `diff` ne montre que ces lignes, ancres, alias, `<<` et commentaires intacts. Sans `flowCollectionPadding: false`, chaque liste en ligne prend des espaces (`[ --auto ]`).
 - Un nœud créé par `doc.createNode` sort en style bloc : une liste d'options nouvelle suit le style majoritaire des listes d'options déjà présentes dans le fichier (en ligne chez Romain, en bloc dans `.idnma.example.yml`), en ligne pour un fichier neuf ; les valeurs d'env sont écrites entre guillemets doubles.
 - Sonde refaite par le relecteur du 05/11 : l'aller-retour sans modification est aussi identique à l'octet près sur `.idnma.example.yml`.
-- **Ancres.** Un nœud qui porte une ancre (`&nom`) se modifie en place (sa `value`), jamais par remplacement, sinon l'ancre disparaît et les alias pointent dans le vide. Supprimer ou renommer un agent, un engine ou un preset dont une ancre est utilisée ailleurs est refusé, avec la liste des utilisateurs. Renommer un preset renomme son ancre et tous ses alias.
+- **Ancres.** Un nœud qui porte une ancre (`&nom`) se modifie en place (sa `value`), jamais par remplacement, sinon l'ancre disparaît et les alias pointent dans le vide. Supprimer un agent, un engine ou un preset dont une ancre est utilisée ailleurs est refusé, avec la liste des utilisateurs. Renommer un preset renomme son ancre et tous ses alias. *(Écart assumé à la tâche 1 du plan.)* Renommer la clé d'un agent ou d'un engine ne casse aucune ancre, car les ancres vivent sur les valeurs : seules les suppressions sont gardées (AC-12 en tient compte).
 - Renommer une clé (agent, engine, preset) remplace le nœud de clé de la paire, à sa place, sans déplacer la paire.
 - Ordre : conservé ; un nouvel agent va en fin de `agents:`, un nouveau preset en fin de `presets:`, qui reste avant `agents:`.
 - **Écriture atomique** : fichier temporaire dans le même dossier, puis `rename`, mode du fichier d'origine conservé (`0644` pour un fichier neuf).
@@ -108,7 +108,7 @@ Maquette de référence : `commands.html` (deux états : un agent, un provider).
 ## 8. Serveur local et sécurité
 
 - `Bun.serve` sur `127.0.0.1`, port libre choisi par le système.
-- Jeton aléatoire de 32 octets dans l'URL imprimée ; la première requête le pose en cookie `HttpOnly; SameSite=Strict` ; toute autre requête sans jeton ni cookie valide reçoit 403.
+- Jeton aléatoire de 32 octets dans l'URL imprimée. *(Écart assumé à la tâche 1 du plan.)* Pas de cookie : le jeton passe par l'en-tête `x-idnma-token` (et `?token=` pour le flux SSE), la page le garde en `sessionStorage` pour survivre à un rechargement. La page et ses fichiers statiques ne portent aucune donnée et ne sont pas gardés par le jeton ; toutes les routes `/api/` le sont (403 sans jeton valide).
 - En-tête `Host` restreint à `127.0.0.1:<port>` et `localhost:<port>` (rebinding DNS) ; requête modifiante dont l'`Origin` n'est pas celle de la page : 403. Pas de CORS.
 - API minimale : lire le fichier (texte et empreinte), écrire (texte et empreinte de base). Le serveur ne lit jamais l'environnement pour le renvoyer, ne lit aucun fichier d'env, ne lance aucun processus hormis l'ouverture du navigateur.
 - Cycle de vie : la page garde une connexion ouverte (SSE ou WebSocket) ; quand plus aucune page n'est connectée pendant 10 secondes (marge pour un rechargement), le serveur s'arrête ; Ctrl-C l'arrête aussitôt. Modifications non sauvées à la fermeture de l'onglet : demande de confirmation native du navigateur (`beforeunload`).
@@ -128,7 +128,7 @@ Choix de Romain du 05/11 (option « a ») : `idnma configure` devient l'accueil 
 
 ## 10. Architecture du code
 
-- `src/config/` : le module de règles partagé (§6), sans dépendance à Bun ni au système de fichiers, importable par la page.
+- `src/config/` : le module de règles partagé (§6), `src/config/engine-rules.ts` (tâche 1 du plan), importé par `runAgent` et par le serveur de l'app. *(Écart assumé.)* Il n'est pas importé par la page : il réutilise `dst-argv.ts`, qui lit le disque. L'état du fichier (texte, `Document`, erreurs) est tenu par le serveur ; la page ne fait que l'afficher et envoyer des opérations.
 - `src/configure/` : le serveur (jeton, garde-fous, cycle de vie), les opérations sur le `Document` (lecture, modifications typées, écriture), les presets built-in, et la page (`index.html`, son script, sa feuille de styles avec les tokens du DS).
 - `src/cli.ts` : la commande `configure`.
 - La page est servie par le bundler HTML de Bun (à vérifier dans le brief avant plan : import d'un `.html` dans `Bun.serve` sous Bun 1.4.0). Pas de framework imposé ; s'il en faut un, le plan le justifie.
@@ -141,6 +141,7 @@ Découpage des modules et noms exacts ; forme de l'API HTTP ; SSE ou WebSocket ;
 
 - Un `<<` vers plusieurs presets (`<<: [*a, *b]`) s'affiche, mais l'engine concerné passe en lecture seule.
 - Les commentaires attachés à un nœud supprimé partent avec lui.
+- Un fichier en fins de ligne CRLF modifié est réécrit en LF.
 - Aucune vérification que le modèle existe chez le provider ni que le harnais est installé.
 
 ## 13. Arbitrages
@@ -167,7 +168,7 @@ Découpage des modules et noms exacts ; forme de l'API HTTP ; SSE ou WebSocket ;
 
 **AC-4 - Commande titre.** Quand on renomme l'engine `opencode` de `deepseek-flash` en `oc`, alors son titre devient `❯ idnma run deepseek-flash --engine oc` avant le Save, et après le Save la ligne copiée, collée dans un pane tmux, lance opencode avec le modèle de cet engine. *Vérifié par* : recette par Romain dans un pane tmux ; test de la fonction qui construit la ligne.
 
-**AC-5 - Parité de validation.** Quand un engine enfreint une règle d'`idnma run` (clé inconnue, harnais hors liste, valeur d'env numérique, modèle opencode sans `/`, option refusée par opencode, flag qui sort Codex de son serveur, `model` sur dst), alors l'app le signale sur l'agent et sur le champ, et `idnma run` refuse ce même fichier pour cet engine ; un fichier que l'app dit valide passe `loadAgentEngine` et les contrôles d'engine pour tous ses engines. *Vérifié par* : tests table par règle, chaque fixture passée à la fois au validateur de l'app et au chemin de `runAgent` jusqu'au lancement exclu.
+**AC-5 - Parité de validation.** Quand un engine enfreint une règle d'`idnma run` (clé inconnue, harnais hors liste, valeur d'env numérique, modèle opencode sans `/`, option refusée par opencode, flag qui sort Codex de son serveur, `model` sur dst), alors l'app le signale sur l'agent et sur le champ, et `idnma run` refuse ce même fichier pour cet engine ; un fichier que l'app dit valide passe `loadAgentEngine` et les contrôles d'engine pour tous ses engines. *Vérifié par* : tests table par règle sur le module partagé (`tests/engine-rules.test.ts`) et `tests/run.test.ts` inchangé. *(Écart assumé à la tâche 1 du plan.)* La parité est garantie par construction (`runAgent` et l'app appellent les mêmes fonctions), pas par un test qui traverse `runAgent` avec chaque fixture.
 
 **AC-6 - Valeur numérique.** Quand le fichier contient `CLAUDE_CODE_ATTRIBUTION_HEADER: 0` dans un provider, alors la barre affiche « 1 issue », le provider porte un point rouge, et « Quote it » écrit `"0"` ; après le Save, `idnma run oss20` ne refuse plus le fichier. *Vérifié par* : fixture reprenant le fichier de Romain du 05/11 à 14 h ; test du validateur et de l'écriture.
 
@@ -183,6 +184,6 @@ Découpage des modules et noms exacts ; forme de l'API HTTP ; SSE ou WebSocket ;
 
 **AC-11 - Arrêt.** Quand on ferme le dernier onglet, alors le serveur s'arrête en moins de 15 secondes et libère son port ; Ctrl-C l'arrête aussitôt. *Vérifié par* : test du cycle de vie (connexion fermée, délai) ; `lsof` après fermeture en recette.
 
-**AC-12 - Ancres protégées.** Quand on supprime ou renomme un preset, un agent ou un engine dont une ancre est utilisée ailleurs, alors l'app refuse en nommant les utilisateurs ; renommer un preset renomme son ancre et ses alias. *Vérifié par* : tests sur fixture.
+**AC-12 - Ancres protégées.** Quand on supprime un preset, un agent ou un engine dont une ancre est utilisée ailleurs, alors l'app refuse en nommant les utilisateurs ; renommer un preset renomme son ancre et ses alias (renommer la clé d'un agent ou d'un engine ne casse aucune ancre et n'est pas gardé). *Vérifié par* : tests sur fixture.
 
 **AC-13 - Rendu.** Quand la page est ouverte sur le fichier de Romain, alors elle passe le juge vision sur la grille du DS Application, puis Romain la valide à l'œil. *Vérifié par* : `/erom-vision:gate-vision ds=application` sur des captures de l'app réelle (vue Agent, vue Provider, menu Provider ouvert, champ en erreur), puis Romain.

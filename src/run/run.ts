@@ -3,6 +3,7 @@ import { ProtocolMismatchError, registerPeer, type Registration } from "../bus/r
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import { createCodexCourier, type CodexCourierOptions } from "../codex/courier.ts";
+import { CODEX_EMBEDDED_REASON, codexEmbeddedFlag, engineIssues, flagName, OPENCODE_STANDALONE_REASON, opencodeArgvIssues, type EngineIssue, type EngineIssueCode } from "../config/engine-rules.ts";
 import { ConfigError, loadAgentEngine, type Engine, type ForeignHarness, type Harness } from "../config/network.ts";
 import { createDstCourier, type DstCourierOptions } from "../dst/courier.ts";
 import { dstPluginState, type DstPluginState } from "../install/dst.ts";
@@ -23,7 +24,7 @@ import { errorMessage, logEvent } from "../log.ts";
 import { assertNameFree, chooseName, nameFormatProblem, withNameLock } from "../naming/choose.ts";
 import { UsageError, type RunArgs } from "./args.ts";
 import { dstRefusal, dstWorkingDirectory, withDshBackend } from "./dst-argv.ts";
-import { OPENCODE_SHORT_ALIASES, parseOpencodeArgv, stripOpencodeModel } from "./opencode-argv.ts";
+import { parseOpencodeArgv, stripOpencodeModel } from "./opencode-argv.ts";
 import { assertOwnPane, PaneError, tagPane, tmuxTarget, type PaneProbe } from "./pane.ts";
 
 export interface RunDeps {
@@ -66,29 +67,6 @@ export function isResume(passthrough: string[]): boolean {
   return passthrough.some((arg) => RESUME_FLAGS.has(arg) || arg.startsWith("--resume=") || arg.startsWith("--from-pr="));
 }
 
-// Alias courts des flags à valeur qu'un engine peut porter (relevés sur `--help` : Claude 2.1.312,
-// Codex 0.164.0, Grok 1.0.70, opencode 2.2.0). Sans eux, `-m x` tapé laisserait le `--model` de l'engine
-// en place, et Codex comme Grok refusent un flag donné deux fois. Tous prennent une valeur, collée ou non,
-// sauf `-c` d'opencode et de dst (`--continue`) et `-p` de dst (`--print`, refusé de toute façon) : ils n'en prennent pas.
-const SHORT_ALIASES: Record<Harness, Record<string, string>> = {
-  claude: { "-n": "--name" },
-  codex: { "-m": "--model", "-c": "--config", "-C": "--cd", "-p": "--profile", "-s": "--sandbox", "-a": "--ask-for-approval" },
-  grok: { "-m": "--model" },
-  agy: {},
-  opencode: OPENCODE_SHORT_ALIASES,
-  dst: { "-c": "--continue", "-p": "--print" },
-};
-
-/**
- * Nom long d'un flag : `--x=v` vaut `--x`, un alias court, seul ou collé à sa valeur (`-mgpt-x`),
- * vaut sa forme longue ; `undefined` pour une valeur ou un positionnel.
- */
-function flagName(harness: Harness, token: string): string | undefined {
-  if (!token.startsWith("-") || token === "-" || token === "--") return undefined;
-  if (token.startsWith("--")) return token.split("=", 1)[0]!;
-  return SHORT_ALIASES[harness][token.slice(0, 2)] ?? token.split("=", 1)[0]!;
-}
-
 /** Valeur de la dernière occurrence de `flag` (nom long, à valeur) dans `argv` : `--x v`, `--x=v`, `-a v` ou `-av`. */
 function flagValue(harness: Harness, argv: string[], flag: string): string | undefined {
   let value: string | undefined;
@@ -124,32 +102,6 @@ export function buildHarnessArgv(engine: Engine, o: { name?: string; passthrough
     if (!token.includes("=") && next !== undefined && flagName(engine.harness, next) === undefined) i += 1;
   }
   return [engine.harness, ...kept, ...o.passthrough];
-}
-
-// Flags qui font tourner Codex hors du daemon local : son thread n'existe alors pas pour le daemon,
-// la doublure ne peut plus l'adopter ni lui livrer le bus (`codex-adoption-timeout` du 27/10 après
-// un `--config` posé). Codex 0.164.0, mesuré dans un pane (« Running without the shared background
-// server: … requires embedded mode ») : `-c/--config` (collé compris), `--enable`, `--disable`,
-// `--search`, `--profile`, `--strict-config`, `--dangerously-bypass-hook-trust`. Lu dans `--help` :
-// `--no-daemon` (« Run without the shared background server »), `--remote` (serveur distant).
-// Listé par le binaire parmi les mêmes causes, non mesuré : `--oss`.
-const CODEX_EMBEDDED_FLAGS = new Set([
-  "--config",
-  "--enable",
-  "--disable",
-  "--search",
-  "--profile",
-  "--strict-config",
-  "--dangerously-bypass-hook-trust",
-  "--no-daemon",
-  "--remote",
-  "--oss",
-]);
-const CODEX_EMBEDDED_REASON =
-  "fait démarrer Codex sans son serveur partagé : idnma ne pourrait plus lui livrer les messages du bus. Règle ce réglage dans le config.toml de Codex.";
-
-function codexEmbeddedFlag(argv: string[]): string | undefined {
-  return argv.map((token) => flagName("codex", token)).find((name) => name !== undefined && CODEX_EMBEDDED_FLAGS.has(name));
 }
 
 /**
@@ -190,19 +142,21 @@ export function logControlFrame(frame: Record<string, unknown>): void {
   });
 }
 
-// Le modèle de dst se règle dans la TUI (`/model`), qui le retient : il n'existe pas de flag de lancement (F16).
-const DST_MODEL_REASON = "dst ne prend pas de modèle au lancement ; choisis-le avec /model dans dst, la TUI le retient";
-
-const OPENCODE_STANDALONE_REASON = "fait démarrer opencode hors de son service partagé : idnma ne pourrait plus lui livrer les messages du bus.";
-
 /** Message du service montrable à l'utilisateur : son champ `message` s'il en a un, sinon la requête en échec. */
 function serviceFailure(error: unknown): string {
   return error instanceof OpencodeHttpError ? (error.serviceMessage ?? error.message) : errorMessage(error);
 }
 
-/** Le modèle d'un engine de `.idnma.yml` a une forme invalide : erreur de configuration, qui nomme l'engine. */
-function failEngineModel(engineSource: string, text: string): never {
-  throw new ConfigError(`${engineSource} : model « ${text} » n'a pas la forme <fournisseur>/<modèle>.`);
+/** Lève l'erreur d'un contrôle d'engine, de la classe que `runAgent` a toujours employée pour lui. */
+function throwIssue(issue: EngineIssue): never {
+  if (issue.error === "usage") throw new UsageError(issue.message);
+  throw new ConfigError(issue.message);
+}
+
+/** Lève le premier contrôle d'engine échoué parmi `codes`, s'il y en a un. */
+function throwFirstIssue(engine: Engine, engineSource: string, codes: EngineIssueCode[]): void {
+  const issue = engineIssues(engine, engineSource).find((candidate) => codes.includes(candidate.code));
+  if (issue !== undefined) throwIssue(issue);
 }
 
 /** Lit une référence de modèle `fournisseur/modèle[#variante]` ou refuse sa forme. */
@@ -225,16 +179,13 @@ interface OpencodeLaunch {
  */
 async function prepareOpencode(d: RunDeps, engine: Engine, engineSource: string, typed: string[], builtArgv: string[]): Promise<OpencodeLaunch | undefined> {
   const parsed = parseOpencodeArgv(builtArgv);
-  if (parsed.session !== undefined && !parsed.session.startsWith("ses")) throw new UsageError("-s : un id de session opencode commence par ses.");
+  // Formes de `-s` et du modèle : règles partagées avec `idnma configure`. Une forme invalide est une erreur d'usage
+  // pour un `-m` tapé, de configuration pour le modèle de l'engine.
+  const argvIssue = opencodeArgvIssues(parsed, engine.model, engineSource)[0];
+  if (argvIssue !== undefined) throwIssue(argvIssue);
   // Le modèle de l'engine ne vaut que sans modèle tapé ; seul un modèle tapé change celui d'une session reprise.
-  // Une forme invalide est une erreur d'usage pour un `-m` tapé, de configuration pour le modèle de l'engine.
   const wantedText = parsed.model ?? engine.model;
-  const wanted =
-    wantedText === undefined
-      ? undefined
-      : parsed.model === undefined
-        ? (parseModelRef(wantedText) ?? failEngineModel(engineSource, wantedText))
-        : modelRefOrThrow(wantedText);
+  const wanted = wantedText === undefined ? undefined : modelRefOrThrow(wantedText);
   const typedText = parseOpencodeArgv(typed).model;
   const typedModel = typedText === undefined ? undefined : modelRefOrThrow(typedText);
 
@@ -321,23 +272,20 @@ export async function runAgent(a: RunArgs, deps: Partial<RunDeps> = {}): Promise
   const agentKey = a.agent;
 
   const { engine, engineKey } = loadAgentEngine(agentKey, a.engine);
+  const engineSource = `.idnma.yml (agents.${agentKey}.engines.${engineKey})`;
+  // Le contenu du fichier : règles partagées avec `idnma configure`. Les arguments tapés se contrôlent ici.
   if (engine.harness === "codex") {
-    const fromEngine = codexEmbeddedFlag(engine.options);
-    if (fromEngine !== undefined) throw new ConfigError(`.idnma.yml (agents.${agentKey}.engines.${engineKey}) : ${fromEngine} ${CODEX_EMBEDDED_REASON}`);
+    throwFirstIssue(engine, engineSource, ["codex-embedded-flag"]);
     const typed = codexEmbeddedFlag(a.passthrough);
     if (typed !== undefined) throw new UsageError(`${typed} ${CODEX_EMBEDDED_REASON}`);
   }
   if (engine.harness === "opencode") {
-    const fromEngine = parseOpencodeArgv(engine.options).refused;
-    if (fromEngine !== undefined) throw new ConfigError(`.idnma.yml (agents.${agentKey}.engines.${engineKey}) : ${fromEngine} ${OPENCODE_STANDALONE_REASON}`);
+    throwFirstIssue(engine, engineSource, ["opencode-refused-flag"]);
     const typed = parseOpencodeArgv(a.passthrough).refused;
     if (typed !== undefined) throw new UsageError(`${typed} ${OPENCODE_STANDALONE_REASON}`);
   }
   if (engine.harness === "dst") {
-    const engineSource = `.idnma.yml (agents.${agentKey}.engines.${engineKey})`;
-    if (engine.model !== undefined) throw new ConfigError(`${engineSource} : ${DST_MODEL_REASON}.`);
-    const fromEngine = dstRefusal(engine.options);
-    if (fromEngine !== undefined) throw new ConfigError(`${engineSource} : ${fromEngine}`);
+    throwFirstIssue(engine, engineSource, ["dst-model", "dst-refused-flag"]);
     const typed = dstRefusal(a.passthrough);
     if (typed !== undefined) throw new UsageError(typed);
   }
@@ -384,7 +332,7 @@ export async function runAgent(a: RunArgs, deps: Partial<RunDeps> = {}): Promise
   // Opencode : dossier, modèle et session sont réglés auprès du service avant l'inscription au bus (spec §6).
   let opencodeSessionID: string | undefined;
   if (harness === "opencode") {
-    const launch = await prepareOpencode(d, engine, `.idnma.yml (agents.${agentKey}.engines.${engineKey})`, a.passthrough, childArgv);
+    const launch = await prepareOpencode(d, engine, engineSource, a.passthrough, childArgv);
     if (launch === undefined) {
       // Service injoignable : opencode part tel que tapé, sans modèle (la TUI n'en lit pas), hors du bus.
       process.stderr.write("idnma : service opencode injoignable. opencode démarre hors du bus (il ne recevra ni n'enverra de messages).\n");
