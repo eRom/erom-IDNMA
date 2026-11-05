@@ -14,6 +14,7 @@ import {
   visit,
   type YAMLMap,
 } from "yaml";
+import { applyAgentOp } from "./agent-ops.ts";
 import { NEW_FILE_TEMPLATE } from "./builtins.ts";
 import type { EditOp, ParseErrorView } from "./types.ts";
 
@@ -48,7 +49,7 @@ type PathItem = Document | Node | Pair;
  * La clé de fusion `<<` et l'indice d'une liste de fusion n'y figurent pas : un alias fusionné
  * se lit comme appartenant à l'`env` qui le fusionne.
  */
-function readablePath(ancestors: readonly PathItem[], node: unknown): string {
+export function readablePath(ancestors: readonly PathItem[], node: unknown): string {
   const chain: unknown[] = [...ancestors, node];
   const parts: string[] = [];
   let inMerge = false;
@@ -114,13 +115,17 @@ export class ConfigDocument {
     return this.doc.toString({ flowCollectionPadding: false });
   }
 
-  /** Applique une modification au `Document` ; `modified` ne passe à vrai que si elle a réussi. */
+  /**
+   * Applique une modification au `Document` ; `modified` ne passe à vrai que si elle a réussi. Une
+   * opération qui refuse n'a rien touché : chacune vérifie tout avant sa première écriture.
+   */
   apply(op: EditOp): void {
+    if (this.parseError) throw new EditRefused("Fix the syntax error first.");
     this.applyOp(op);
     this.modified = true;
   }
 
-  // Les opérations arrivent aux tâches 3 à 5 ; d'ici là, aucune n'aboutit et `modified` reste faux.
+  // Les opérations d'engine et de preset arrivent aux tâches 4 et 5 ; d'ici là, elles refusent.
   private applyOp(op: EditOp): void {
     switch (op.op) {
       case "addAgent":
@@ -132,6 +137,8 @@ export class ConfigDocument {
       case "deleteEngine":
       case "renameEngine":
       case "makeDefault":
+        applyAgentOp(this, op);
+        return;
       case "setHarness":
       case "setModel":
       case "setProvider":
