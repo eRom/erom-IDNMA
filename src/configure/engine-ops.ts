@@ -256,7 +256,9 @@ function setEnvVar(config: ConfigDocument, agent: string, engine: string, name: 
   assertNotLinked(current, `Variable ${previousName ?? name} of ${agent}/${engine}`);
   if (!isScalar(current)) throw new EditRefused(`Variable ${previousName ?? name} of ${agent}/${engine} is not a text value.`);
   // Les valeurs d'env sont du texte entre guillemets ; un guillemet simple déjà là reste simple.
-  let changed = writeText(current, value, current.type === Scalar.QUOTE_SINGLE ? Scalar.QUOTE_SINGLE : Scalar.QUOTE_DOUBLE);
+  // Une valeur déjà égale ne se réécrit pas : sans cela, `A: b` deviendrait `A: "b"` sans rien changer.
+  let changed =
+    current.value === value ? false : writeText(current, value, current.type === Scalar.QUOTE_SINGLE ? Scalar.QUOTE_SINGLE : Scalar.QUOTE_DOUBLE);
   if (renaming && isScalar(existing.key)) {
     existing.key.value = name;
     changed = true;

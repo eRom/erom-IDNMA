@@ -159,6 +159,13 @@ function assertAnchorName(config: ConfigDocument, anchor: string): void {
 function addPreset(config: ConfigDocument, name: string, kind: PresetKind): boolean {
   checkKey("Preset name", name);
   if (config.presetsMap()?.has(name)) throw new EditRefused(`Preset "${name}" already exists.`);
+  // Un nom de built-in garde sa forme : `claude-max` est une liste d'options, les trois autres des providers.
+  if (isBuiltinPreset(name)) {
+    const builtinKind: PresetKind = isSeq(freshBuiltin(name).value) ? "options" : "provider";
+    if (builtinKind !== kind) {
+      throw new EditRefused(`"${name}" is a built-in ${builtinKind === "options" ? "option set" : "provider"}; pick another name.`);
+    }
+  }
   assertAnchorName(config, name);
   const node = kind === "provider" ? new YAMLMap() : new YAMLSeq();
   node.anchor = name;
@@ -266,7 +273,9 @@ function setPresetVar(config: ConfigDocument, name: string, varName: string, val
   assertNotLinked(current, `Variable ${previousName ?? varName} of preset "${name}"`);
   if (!isScalar(current)) throw new EditRefused(`Variable ${previousName ?? varName} of preset "${name}" is not a text value.`);
   // Les valeurs sont du texte entre guillemets ; un guillemet simple déjà là reste simple.
-  let changed = writeText(current, value, current.type === Scalar.QUOTE_SINGLE ? Scalar.QUOTE_SINGLE : Scalar.QUOTE_DOUBLE);
+  // Une valeur déjà égale ne se réécrit pas : sans cela, `A: b` deviendrait `A: "b"` sans rien changer.
+  let changed =
+    current.value === value ? false : writeText(current, value, current.type === Scalar.QUOTE_SINGLE ? Scalar.QUOTE_SINGLE : Scalar.QUOTE_DOUBLE);
   if (renaming && isScalar(existing.key)) {
     existing.key.value = varName;
     changed = true;

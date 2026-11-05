@@ -267,6 +267,14 @@ agents:
     expect(changedLines(OPENCODE_MERGE, bare.text)).toEqual({ removed: ["        env:", "          <<: *ollama"], added: [] });
   });
 
+  test("setting an unquoted env variable to its current value keeps it unquoted", () => {
+    const text = "agents:\n  a:\n    label: A\n    engines:\n      default:\n        harness: claude\n        env:\n          A: b\n";
+    const result = edit(text, { op: "setEnvVar", agent: "a", engine: "default", name: "A", value: "b" });
+    expect(result.text).toBe(text);
+    // Le texte rendu est celui reçu même après re-sérialisation : l'arbre n'a pas bougé non plus.
+    expect(result.config.doc.toString({ flowCollectionPadding: false })).toBe(text);
+  });
+
   test("env variables are added, renamed, changed and deleted in place", () => {
     const added = edit(romain, { op: "setEnvVar", agent: "glm", engine: "default", name: "CLAUDE_CODE_EFFORT_LEVEL", value: "max" });
     expect(changedLines(romain, added.text)).toEqual({ removed: [], added: ['          CLAUDE_CODE_EFFORT_LEVEL: "max"'] });

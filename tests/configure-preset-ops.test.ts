@@ -246,6 +246,14 @@ agents:
     expect(config.toText()).toBe(linked);
   });
 
+  test("refuses a built-in name whose built-in kind differs", () => {
+    const text = "agents:\n  a:\n    label: A\n";
+    const config = ConfigDocument.parse(text);
+    expect(refusal(config, { op: "addPreset", name: "claude-max", kind: "provider" })).toMatch(/claude-max.*option set/);
+    expect(refusal(config, { op: "addPreset", name: "ollama", kind: "options" })).toMatch(/ollama.*provider/);
+    expect(config.toText()).toBe(text);
+  });
+
   test("refuses a key already used and names that are not valid", () => {
     const config = ConfigDocument.parse(romain);
     expect(refusal(config, { op: "renamePreset", name: "ollama", newName: "openrouter" })).toMatch(/openrouter/);
@@ -396,6 +404,14 @@ describe("editing preset contents", () => {
   test("setting a variable to its current value changes nothing", () => {
     const result = edit(romain, { op: "setPresetVar", name: "ollama", varName: "ANTHROPIC_API_KEY", value: "" });
     expect(result.text).toBe(romain);
+  });
+
+  test("setting an unquoted variable to its current value keeps it unquoted", () => {
+    const text = "presets:\n  mine: &mine\n    A: b\nagents:\n  a:\n    label: A\n";
+    const result = edit(text, { op: "setPresetVar", name: "mine", varName: "A", value: "b" });
+    expect(result.text).toBe(text);
+    // Le texte rendu est celui reçu même après re-sérialisation : l'arbre n'a pas bougé non plus.
+    expect(result.config.doc.toString({ flowCollectionPadding: false })).toBe(text);
   });
 
   test("refuses bad variable edits and leaves the file as it was", () => {
