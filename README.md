@@ -156,7 +156,16 @@ idnma configure             # opens the editor in your browser
 idnma configure --no-open   # prints the address instead of opening it
 ```
 
-`idnma configure` starts a local page where you create and edit `~/.idnma.yml`: agents, engines and presets. It shows the test command of each engine, checks your changes with idnma's own rules, and writes nothing until you press Save. The file format is documented in [`.idnma.example.yml`](.idnma.example.yml).
+![idnma configure: the agent Kimi K3.1 Pro with its claude and opencode engines, agents grouped by harness](docs/screenshots/configure-ui.png)
+
+`idnma configure` starts a local page, bound to `127.0.0.1` and stopped when you close its tab, where you create and edit `~/.idnma.yml` without writing YAML.
+
+- **Agents.** An agent is a model: a key, a label (required) and an optional avatar. Each engine is titled by its test command (`idnma run kimi --engine opencode`), with its harness, model, provider, options and environment variables. The list is alphabetical; *Group by harness* shows each agent under every harness it can run with.
+- **Providers and Options.** Reusable presets merged into engines. `ollama`, `lmstudio`, `openrouter` (providers) and `claude-max` (options) are built in, and written to the file the first time an engine uses them. Each preset lists the agents that use it.
+- **Checks.** Every change is checked with the same rules as `idnma run`; errors and warnings show next to the field that causes them.
+- **Save.** Nothing is written until you press Save (⌘S), and Revert drops your unsaved changes. Comments, anchors and key order are kept, and Save refuses if the file changed on disk in the meantime. The page launches no agent and reads no environment file: a value such as `$OPENROUTER_API_KEY` is stored as typed.
+
+The file format is described below and in [`.idnma.example.yml`](.idnma.example.yml).
 
 ### The file format
 
