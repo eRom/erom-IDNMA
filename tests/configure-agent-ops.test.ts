@@ -277,4 +277,44 @@ describe("configure agent and engine operations", () => {
     const { text } = edit(crlf, { op: "setAgentField", key: "a", field: "avatar", value: null });
     expect(text).toBe(crlf);
   });
+
+  test("duplicating an agent created in the session copies its engines", () => {
+    const { config } = edit(
+      undefined,
+      { op: "addAgent", key: "x", label: "X" },
+      { op: "addEngine", agent: "x", name: "default", harness: "claude" },
+      { op: "duplicateAgent", key: "x" },
+    );
+    const copy = buildView(config, "/tmp/.idnma.yml", false).agents.find((agent) => agent.key === "x-copy");
+    expect(copy?.engines.map((engine) => engine.name)).toEqual(["default"]);
+  });
+
+  test("fields of a new agent follow the documented order whatever the screen order", () => {
+    const { text } = edit(
+      undefined,
+      { op: "addAgent", key: "y", label: "Y" },
+      { op: "addEngine", agent: "y", name: "default", harness: "claude" },
+      { op: "setAgentField", key: "y", field: "avatar", value: "claude" },
+      { op: "setProvider", agent: "y", engine: "default", provider: { kind: "preset", name: "ollama" } },
+      { op: "setOptions", agent: "y", engine: "default", options: { kind: "preset", name: "claude-max" } },
+      { op: "setModel", agent: "y", engine: "default", value: "m" },
+    );
+    expect(text.slice(text.indexOf("agents:"))).toBe(
+      "agents:\n  y:\n    label: Y\n    avatar: claude\n    engines:\n      default:\n        harness: claude\n        model: m\n        options: *claude-max\n        env:\n          <<: *ollama\n",
+    );
+  });
+
+  test("an engine added to an existing file gets its fields in the documented order", () => {
+    const { text } = edit(
+      romain,
+      { op: "addEngine", agent: "glm", name: "local", harness: "claude" },
+      { op: "setProvider", agent: "glm", engine: "local", provider: { kind: "preset", name: "lmstudio" } },
+      { op: "setOptions", agent: "glm", engine: "local", options: { kind: "preset", name: "claude-max" } },
+      { op: "setModel", agent: "glm", engine: "local", value: "glm-5.3" },
+    );
+    const start = text.indexOf("      local:");
+    expect(text.slice(start, text.indexOf("\n  glm-flash:"))).toBe(
+      "      local:\n        harness: claude\n        model: glm-5.3\n        options: *claude-max\n        env:\n          <<: *lmstudio",
+    );
+  });
 });

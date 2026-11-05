@@ -1,4 +1,4 @@
-import { isAlias, isMap, isNode, isScalar, type Node, type Pair, type Scalar, visit, YAMLMap } from "yaml";
+import { isAlias, isMap, isNode, isScalar, type Node, Pair, Scalar, visit, YAMLMap } from "yaml";
 import type { ConfigDocument } from "./document.ts";
 import { EditRefused, findPair, keyIs, readablePath } from "./nodes.ts";
 import type { EditOp } from "./types.ts";
@@ -288,7 +288,10 @@ export function ensureMapAt(parent: YAMLMap, key: string): YAMLMap {
   }
   if (current === undefined || (isScalar(current) && current.value === null)) {
     const created = new YAMLMap();
-    parent.set(key, created);
+    // Clé en `Scalar` : une clé en chaîne brute échappe à `findPair` et à `keyIs`, qui ne lisent que des scalaires.
+    const pair = findPair(parent, key);
+    if (pair) pair.value = created;
+    else parent.items.push(new Pair(new Scalar(key), created));
     return created;
   }
   throw new EditRefused(`The ${key} section is not a map.`);
