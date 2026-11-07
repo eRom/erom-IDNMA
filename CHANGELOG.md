@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/eRom/erom-IDNMA/compare/v0.6.0...v0.7.0) (2026-11-07)
+
+
+### Features
+
+* **pi:** run Pi under an understudy on the peer bus ([#10](https://github.com/eRom/erom-IDNMA/issues/10)) ([49e3c55](https://github.com/eRom/erom-IDNMA/commit/49e3c55aa8ad9cfb2533177362c11b77739c4f2f))
+
 ## [0.6.0](https://github.com/eRom/erom-IDNMA/compare/v0.5.0...v0.6.0) (2026-11-05)
 
 
