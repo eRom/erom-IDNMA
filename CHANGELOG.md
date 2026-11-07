@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/eRom/erom-IDNMA/compare/v0.7.0...v0.7.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **config:** force subagents onto the engine model off Anthropic ([#12](https://github.com/eRom/erom-IDNMA/issues/12)) ([a93e540](https://github.com/eRom/erom-IDNMA/commit/a93e540f2195ab88b962f7b9957b713d29c3c077))
+
 ## [0.7.0](https://github.com/eRom/erom-IDNMA/compare/v0.6.0...v0.7.0) (2026-11-07)
 
 
