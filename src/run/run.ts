@@ -428,7 +428,14 @@ export async function runAgent(a: RunArgs, deps: Partial<RunDeps> = {}): Promise
       queue,
       socketPath,
       token,
-      isAllowedPeer: (pid) => pid !== undefined && isChildOf(pid, process.pid),
+      isAllowedPeer: (pid) => {
+        if (pid === undefined) return false;
+        try {
+          return isChildOf(pid, process.pid);
+        } catch {
+          return false;
+        }
+      },
     });
   } else if (harness === "pi") {
     const { IDNMA_PI_BRIDGE: _bridge, IDNMA_PI_BRIDGE_TOKEN: _token, ...withoutBridge } = baseEnv;

@@ -362,24 +362,83 @@ describe("pi bridge end to end (real courier, real extension, real socket)", () 
     expect(logEvents().filter((entry) => entry.event === "pi-bridge-up").at(-1)).toMatchObject({ reconnect: true });
   });
 
-  test("a switch cancelled by another extension: the interrupted rest is an Escape after the grace delay", async () => {
+  test("a switch cancelled while idle does not delay a later Escape: the next run proves the runtime lives on", async () => {
+    const r = await startRig();
+    const fake = createFakePi();
+    // Fenêtre par défaut (30 s) : la réponse doit venir bien avant.
+    await r.load(fake);
+    // Annulé par une autre extension : Pi n'avorte rien (`newSession` rend la main avant `teardownCurrent`).
+    fake.emit("session_before_switch", { reason: "new" });
+    r.push("lance sleep 20", 11);
+    await waitFor(() => fake.sent.length === 1, "message delivered");
+    startRun(fake);
+    fake.claim(0);
+    fake.assistant("toolUse");
+    fake.assistant("error", "", "This operation was aborted");
+    fake.settle(true);
+    await waitFor(() => r.sent.length === 1, "Escape answered at once");
+    expect(r.replies()).toEqual([`${NAME} : tour interrompu par l'utilisateur`]);
+  });
+
+  test("a switch cancelled mid-run, then Escape in the same run: answered as an Escape after the last-resort window", async () => {
     const r = await startRig();
     const fake = createFakePi();
     await r.load(fake, { replaceGraceMs: 50 });
-    r.push("lance sleep 20", 11);
+    r.push("lance sleep 20", 12);
     await waitFor(() => fake.sent.length === 1, "first message delivered");
     startRun(fake);
     fake.claim(0);
     fake.assistant("toolUse");
-    r.push("et ensuite", 12, "next");
+    r.push("et ensuite", 13, "next");
     await waitFor(() => fake.sent.length === 2, "second message delivered");
-
     fake.emit("session_before_switch", { reason: "new" });
+    // Le remplacement est annulé ; plus tard dans le même run, l'utilisateur appuie sur Échap.
     fake.assistant("error", "", "This operation was aborted");
     fake.settle(true);
-    // Pas de `session_shutdown` : le remplacement n'a pas eu lieu.
-    await waitFor(() => r.sent.length === 2, "both senders answered after the grace delay");
+    await waitFor(() => r.sent.length === 2, "both senders answered after the window");
     expect(r.replies().sort()).toEqual([`${NAME} : message écarté (l'utilisateur a interrompu pi)`, `${NAME} : tour interrompu par l'utilisateur`].sort());
+  });
+
+  test("an answer that still calls a tool is not complete: a user input then mixes the peer turn", async () => {
+    const r = await startRig();
+    const fake = createFakePi();
+    await r.load(fake);
+    r.push("question", 16);
+    await waitFor(() => fake.sent.length === 1, "message delivered");
+    startRun(fake);
+    fake.claim(0);
+    // `stop` mais avec un appel d'outil : la boucle de Pi continue.
+    const withTool = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "je vérifie" }, { type: "toolCall", id: "c", name: "bash", arguments: {} }] };
+    fake.emit("message_end", { message: withTool });
+    fake.user();
+    fake.assistant("stop", "fini");
+    fake.settle();
+    await waitFor(() => r.sent.length === 1, "reply sent");
+    expect(r.replies()).toEqual([`${NAME} : tour mêlé à une entrée de l'utilisateur, pas de réponse automatique`]);
+  });
+
+  test("a message still unclaimed at a normal rest stays tracked: delivered once, answered once (m4)", async () => {
+    const r = await startRig();
+    const fake = createFakePi();
+    await r.load(fake);
+    startRun(fake);
+    fake.user();
+    fake.assistant("toolUse");
+    r.push("arrive en fin de tour", 17, "later");
+    await waitFor(() => fake.sent.length === 1, "follow-up handed to pi");
+    // Pi se repose sans l'avoir réclamé (il le prend juste après, dans un run différé).
+    fake.assistant("stop", "réponse à l'utilisateur");
+    fake.settle();
+    await Bun.sleep(100);
+    startRun(fake);
+    fake.claim(0);
+    fake.assistant("stop", "réponse au pair");
+    fake.settle();
+    await waitFor(() => r.sent.length === 1, "reply sent");
+    await Bun.sleep(100);
+    expect(fake.sent).toHaveLength(1);
+    expect(r.replies()).toEqual(["réponse au pair"]);
+    expect(logEvents().some((entry) => entry.event === "pi-dropped")).toBe(false);
   });
 
   test("follow-ups delivered together (followUpMode all) share one answer instead of a reply without text", async () => {

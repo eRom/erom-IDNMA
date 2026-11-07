@@ -62,9 +62,11 @@ export function piRefusal(argv: string[]): string | undefined {
     }
     const name = token.startsWith("--") ? token.split("=", 1)[0]! : token;
     if (name === "--mode") {
-      // `--mode text` garde la TUI quand stdin et stdout sont des terminaux (doc cli.md) : seuls json et rpc en sortent.
-      const value = token.includes("=") ? token.slice(token.indexOf("=") + 1) : argv[i + 1];
-      if (!token.includes("=")) i += 1;
+      // `--mode text` garde la TUI quand stdin et stdout sont des terminaux (doc cli.md) : seuls json et rpc en
+      // sortent. Pi 1.5.0 ne lit `--mode` qu'en jeton séparé : `--mode=text` est une option inconnue, il quitte.
+      if (token.includes("=")) return `${token} : pi ne lit --mode qu'en jeton séparé et quitterait aussitôt ; écris --mode text.`;
+      const value = argv[i + 1];
+      i += 1;
       if (value !== "text") return `--mode ${value ?? "sans valeur"} ${NON_INTERACTIVE_REASON}`;
       continue;
     }

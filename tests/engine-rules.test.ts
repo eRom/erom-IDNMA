@@ -130,7 +130,8 @@ describe("piRefusal", () => {
     expect(piRefusal(["--thinking", "high", "-c", "-ne", "-nt", "-xt", "bash", "--no-session", "--offline", "fix the bug"])).toBeUndefined();
     // `--mode text` garde la TUI ; json et rpc en sortent.
     expect(piRefusal(["--mode", "text", "--thinking", "high"])).toBeUndefined();
-    expect(piRefusal(["--mode=text"])).toBeUndefined();
+    // Pi 1.5.0 ne lit pas `--mode=text` : il quitterait sur une option inconnue.
+    expect(piRefusal(["--mode=text"])).toContain("--mode text");
     expect(piRefusal(["--mode", "rpc"])).toContain("--mode rpc");
   });
 });

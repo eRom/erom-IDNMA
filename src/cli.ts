@@ -92,7 +92,7 @@ vient de l'engine, ou du -m/--model tapé, que idnma lit et vérifie auprès du 
 dst refuse ses sous-commandes de lanceur, -p/--print, -v/--version, -h/--help, --profile, --from-default-profile et tout
 --backend autre que dsh. Son modèle ne se donne pas au lancement (ni model: d'engine) : choisis-le avec /model dans dst,
 la TUI le retient.
-pi refuse -p/--print, --mode, --export, --list-models, -h/--help, -v/--version et ses sous-commandes (install, remove,
+pi refuse -p/--print, --mode autre que text, --export, --list-models, -h/--help, -v/--version et ses sous-commandes (install, remove,
 uninstall, update, list, config, auth, mcp) : il doit rester dans sa TUI. Son model: est <fournisseur>/<modèle>, comme
 --model de pi ; idnma lui passe son extension par -e.
 Un agent Claude prend la place de ce process ; Codex, Grok, agy, opencode, dst et pi restent sous la doublure d'idnma.

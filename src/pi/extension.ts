@@ -260,11 +260,13 @@ export function createPiBridge(pi: PiApi, config: PiBridgeConfig = {}): void {
   // tour en cours (`agent_settled` avec `aborted`) AVANT `session_shutdown` (`agent-session-runtime.js` de
   // Pi 1.5.0, `teardownCurrent`). Ce repos interrompu n'est pas un Échap : le segment et les messages non
   // réclamés sont mis de côté pour `session_shutdown`, qui les rend comme `disposed` (relivrés à la nouvelle
-  // session). Si `session_shutdown` ne vient pas (remplacement annulé par une autre extension), c'était un Échap.
+  // session). Un remplacement annulé n'avorte rien et le runtime continue : `replacing` retombe au premier
+  // signe de vie (`agent_start`, `input`, repos sans abandon). Dernier recours, si `session_shutdown` ne vient
+  // jamais : la mise de côté est lue comme un Échap après la même fenêtre que la grâce du livreur (30 s).
 
   let replacing = false;
   let parked: { segment: Segment | undefined; unclaimed: string[]; timer: ReturnType<typeof setTimeout> } | undefined;
-  const replaceGraceMs = config.replaceGraceMs ?? 2000;
+  const replaceGraceMs = config.replaceGraceMs ?? 30_000;
 
   const releaseParked = (ending: "aborted" | "disposed"): void => {
     const aside = parked;
@@ -322,7 +324,7 @@ export function createPiBridge(pi: PiApi, config: PiBridgeConfig = {}): void {
       if (delivery === undefined || typeof id !== "string") return; // message d'une autre instance de l'extension
       delivery.claimed = true;
       if (delivery.mode === "followup") {
-        if (segment !== undefined && segment.last === undefined) {
+        if (segment !== undefined && segment.last === undefined && (segment.trackedIds.length > 0 || segment.owner === "user")) {
           // Pi a livré plusieurs entrées d'un coup (`followUpMode: "all"`) : une même réponse pour toutes.
           segment.trackedIds.push(id);
           if (segment.owner === "user") segment.mixed = true;
@@ -375,6 +377,7 @@ export function createPiBridge(pi: PiApi, config: PiBridgeConfig = {}): void {
       parked = { segment, unclaimed, timer };
       segment = undefined;
     } else {
+      if (!aborted) replacing = false;
       closeSegment(aborted ? "aborted" : "natural");
       if (aborted) dropUnclaimed("discarded");
     }
@@ -447,7 +450,13 @@ export function createPiBridge(pi: PiApi, config: PiBridgeConfig = {}): void {
 
   // Le socket s'ouvre au `session_start`, pas au chargement : l'usine peut tourner sans session (doc extensions.md).
   on("session_start", (_event, context) => connect(context));
-  on("agent_start", (_event, context) => publishState(context));
+  on("agent_start", (_event, context) => {
+    replacing = false;
+    publishState(context);
+  });
+  on("input", () => {
+    replacing = false;
+  });
   on("message_start", (event) => onMessageStart(asRecord(asRecord(event)?.message)));
   on("message_end", (event) => onMessageEnd(asRecord(asRecord(event)?.message)));
   on("agent_settled", (event, context) => onSettled(event, context));
