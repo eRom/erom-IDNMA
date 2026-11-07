@@ -1,7 +1,7 @@
-// Protocole du pont entre la doublure idnma (le courier) et le plugin Cordis qui tourne dans le
-// process Node de dst. Ce module est importé des deux côtés : il ne dépend que de `node:` et reste
-// en TypeScript effaçable (ni enum, ni namespace, ni propriété de paramètre), pour que Node 24 le
-// charge sans transpilation. Spec : §7.1.
+// Protocole du pont entre la doublure idnma (le courier) et le module idnma qui tourne dans le
+// process Node du harnais : plugin Cordis de dst, extension de pi. Ce module est importé des deux
+// côtés : il ne dépend que de `node:` et reste en TypeScript effaçable (ni enum, ni namespace, ni
+// propriété de paramètre), pour que Node 24 le charge sans transpilation. Spec dst : §7.1.
 import type { Buffer } from "node:buffer";
 
 /** Version du protocole que le plugin annonce dans `hello` et que la doublure exige. */

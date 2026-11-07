@@ -408,7 +408,7 @@ describe("idnma CLI", () => {
     const result = await cli(["read"], dstEnv(socketPath));
     expect(result.code).toBe(0);
     expect(result.stdout).toBe(
-      "idnma : chez Codex, opencode et dst, les messages de pairs arrivent d'eux-mêmes, chacun comme un nouveau tour : idnma read n'a rien à rendre.\n",
+      "idnma : chez Codex, opencode, dst et pi, les messages de pairs arrivent d'eux-mêmes, chacun comme un nouveau tour : idnma read n'a rien à rendre.\n",
     );
   });
 
@@ -423,7 +423,7 @@ describe("idnma CLI", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("dst");
     expect(result.stdout).toContain("/model");
-    expect(result.stdout).toMatch(/Claude prend la place de ce process ; Codex, Grok, agy, opencode et dst restent sous la doublure/);
+    expect(result.stdout).toMatch(/Claude prend la place de ce process ; Codex, Grok, agy, opencode, dst et pi restent sous la doublure/);
   });
 
   childTest("an unknown command exits 2 and prints the help", async () => {

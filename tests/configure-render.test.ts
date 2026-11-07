@@ -614,6 +614,17 @@ describe("configure render order", () => {
     expect(selectOptions(addEngine, "add:harness").filter((o) => o.selected).map((o) => o.value)).toEqual(["claude"]);
   });
 
+  test("offers pi as a harness, and a pi engine shows its model field with the provider/model hint (AC-10)", () => {
+    const text = "agents:\n  a:\n    engines:\n      default:\n        harness: pi\n        model: ollama/deepseek-v4.1-flash:cloud\n";
+    const html = renderApp(viewOf(text), agentsTab("a"));
+    const options = selectOptions(html, "agent:a:engine:default:harness");
+    expect(options.filter((o) => o.selected).map((o) => o.value)).toEqual(["pi"]);
+    expect(selectOptions(renderApp(viewOf(romain), { ...agentsTab("deepseek-flash"), adding: { action: "addAgent" } }), "add:harness").map((o) => o.value)).toContain("pi");
+    const model = html.match(/<input[^>]*aria-label="Model of engine default"[^>]*>/)?.[0] ?? "";
+    expect(model).toContain('placeholder="provider/model"');
+    expect(model).toContain('value="ollama/deepseek-v4.1-flash:cloud"');
+  });
+
   test("keeps the unknown harness of an engine as its first option, then the sorted ones", () => {
     const text = "agents:\n  a:\n    engines:\n      default:\n        harness: martian\n";
     const options = selectOptions(renderApp(viewOf(text), agentsTab("a")), "agent:a:engine:default:harness");

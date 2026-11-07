@@ -1,13 +1,15 @@
 import { randomBytes } from "node:crypto";
+import { isChildOf } from "../bus/peer-pid.ts";
 import { ProtocolMismatchError, registerPeer, type Registration } from "../bus/register.ts";
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createCodexCourier, type CodexCourierOptions } from "../codex/courier.ts";
 import { CODEX_EMBEDDED_REASON, codexEmbeddedFlag, engineIssues, flagName, OPENCODE_STANDALONE_REASON, opencodeArgvIssues, type EngineIssue, type EngineIssueCode } from "../config/engine-rules.ts";
 import { ConfigError, loadAgentEngine, type Engine, type ForeignHarness, type Harness } from "../config/network.ts";
-import { createDstCourier, type DstCourierOptions } from "../dst/courier.ts";
+import { createBridgeCourier, type BridgeCourierOptions } from "../bridge/courier.ts";
 import { dstPluginState, type DstPluginState } from "../install/dst.ts";
-import { dshHome, dstBridgeSocketPath, dstPrefsDir } from "../paths.ts";
+import { dshHome, dstBridgeSocketPath, dstPrefsDir, piBridgeSocketPath } from "../paths.ts";
 import { createHookedCourier, type HookedCourierOptions } from "../hooked/courier.ts";
 import { agyAdapter } from "../hooked/agy.ts";
 import { grokAdapter } from "../hooked/grok.ts";
@@ -25,6 +27,7 @@ import { assertNameFree, chooseName, nameFormatProblem, withNameLock } from "../
 import { UsageError, type RunArgs } from "./args.ts";
 import { dstRefusal, dstWorkingDirectory, withDshBackend } from "./dst-argv.ts";
 import { parseOpencodeArgv, stripOpencodeModel } from "./opencode-argv.ts";
+import { piRefusal } from "./pi-argv.ts";
 import { assertOwnPane, PaneError, tagPane, tmuxTarget, type PaneProbe } from "./pane.ts";
 
 export interface RunDeps {
@@ -38,12 +41,16 @@ export interface RunDeps {
   ensureOpencodeService: () => Promise<ServiceInfo | undefined>;
   opencodeClient: (info: ServiceInfo) => OpencodeClient;
   createOpencodeCourier: (o: OpencodeCourierOptions) => Courier;
-  createDstCourier: (o: DstCourierOptions) => Courier;
+  /** Livreur des harnais à pont (dst, pi). */
+  createBridgeCourier: (o: BridgeCourierOptions) => Courier;
   /** État du plugin idnma dans le dossier de dst (`home`) ; lève `ConfigError` si ses marqueurs sont incohérents. */
   dstPluginState: (home: string) => DstPluginState;
   tmuxTarget: (paneId: string) => string;
   tagPane: (paneId: string, agentKey: string, name: string | undefined) => void;
 }
+
+/** L'extension idnma de Pi, dans ce checkout : `idnma run` la passe à Pi par `-e` (spec pi §2, D2). */
+export const PI_EXTENSION_PATH = fileURLToPath(new URL("../pi/extension.ts", import.meta.url));
 
 /** Pose les options de pane d'IdemA ; un échec est journalisé et ne bloque jamais le lancement. */
 function markPane(d: RunDeps, agentKey: string, name: string | undefined): void {
@@ -260,7 +267,7 @@ const defaultDeps: RunDeps = {
   ensureOpencodeService: () => ensureService(),
   opencodeClient: (info) => createOpencodeClient(info),
   createOpencodeCourier,
-  createDstCourier,
+  createBridgeCourier,
   dstPluginState: (home) => dstPluginState(home),
   tmuxTarget,
   tagPane,
@@ -287,6 +294,11 @@ export async function runAgent(a: RunArgs, deps: Partial<RunDeps> = {}): Promise
   if (engine.harness === "dst") {
     throwFirstIssue(engine, engineSource, ["dst-model", "dst-refused-flag"]);
     const typed = dstRefusal(a.passthrough);
+    if (typed !== undefined) throw new UsageError(typed);
+  }
+  if (engine.harness === "pi") {
+    throwFirstIssue(engine, engineSource, ["pi-refused-flag"]);
+    const typed = piRefusal(a.passthrough);
     if (typed !== undefined) throw new UsageError(typed);
   }
   // Un `--name` tapé pour Claude devient le nom de la session sur le bus : même contrôle de forme qu'un nom d'idnma.
@@ -394,10 +406,39 @@ export async function runAgent(a: RunArgs, deps: Partial<RunDeps> = {}): Promise
     const socketPath = dstBridgeSocketPath();
     const token = randomBytes(16).toString("hex");
     childEnv = { ...baseEnv, IDNMA_DST_BRIDGE: socketPath, IDNMA_DST_BRIDGE_TOKEN: token };
-    courier = d.createDstCourier({ name, fromMode, registration: registered, queue, socketPath, token });
+    courier = d.createBridgeCourier({ harness: "dst", name, fromMode, registration: registered, queue, socketPath, token });
   } else if (harness === "dst") {
     // Doublure non inscrite : des variables du pont héritées d'un parent n'ont pas à atteindre le plugin.
     const { IDNMA_DST_BRIDGE: _bridge, IDNMA_DST_BRIDGE_TOKEN: _token, ...withoutBridge } = baseEnv;
+    childEnv = withoutBridge;
+  }
+  // Pi : même pont, rejoint par l'extension passée en `-e`, seulement si la doublure est inscrite au bus.
+  if (harness === "pi" && registered !== null) {
+    const socketPath = piBridgeSocketPath();
+    const token = randomBytes(16).toString("hex");
+    childEnv = { ...baseEnv, IDNMA_PI_BRIDGE: socketPath, IDNMA_PI_BRIDGE_TOKEN: token };
+    childArgv = ["-e", PI_EXTENSION_PATH, ...childArgv];
+    // Seul le process de Pi, enfant direct de la doublure (son lanceur fait `exec`), rejoint le pont : une
+    // commande du bash de Pi hérite du jeton mais descend d'un cran plus bas, elle est refusée.
+    courier = d.createBridgeCourier({
+      harness: "pi",
+      name,
+      fromMode,
+      registration: registered,
+      queue,
+      socketPath,
+      token,
+      isAllowedPeer: (pid) => {
+        if (pid === undefined) return false;
+        try {
+          return isChildOf(pid, process.pid);
+        } catch {
+          return false;
+        }
+      },
+    });
+  } else if (harness === "pi") {
+    const { IDNMA_PI_BRIDGE: _bridge, IDNMA_PI_BRIDGE_TOKEN: _token, ...withoutBridge } = baseEnv;
     childEnv = withoutBridge;
   }
   if (courier === undefined && registered !== null && (harness === "grok" || harness === "agy")) {
@@ -427,6 +468,8 @@ export async function runAgent(a: RunArgs, deps: Partial<RunDeps> = {}): Promise
     ...(harness === "opencode" ? { harnessLabel: "opencode" } : {}),
     // Dst : sans PTY, et ses commandes descendent de la TUI et héritent du canal de contrôle (défaut).
     ...(harness === "dst" ? { harnessLabel: "dst" } : {}),
+    // Pi : sans PTY, et ses commandes héritent de son environnement, canal de contrôle compris (F10).
+    ...(harness === "pi" ? { harnessLabel: "pi" } : {}),
     // Grok et agy tournent derrière un PTY relayé : la sonnette et les frappes de l'utilisateur y passent.
     // Leurs commandes et leurs hooks descendent de la TUI et héritent du canal de contrôle (défaut).
     ...(harness === "grok" || harness === "agy" ? { pty: true, harnessLabel: (harness === "grok" ? grokAdapter : agyAdapter).label } : {}),

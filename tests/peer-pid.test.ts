@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Server } from "node:net";
 import { join } from "node:path";
-import { isDescendantOf, peerPidOf } from "../src/bus/peer-pid.ts";
+import { isChildOf, isDescendantOf, peerPidOf } from "../src/bus/peer-pid.ts";
 import { daemonPid } from "../src/codex/daemon.ts";
 
 const childTest = (title: string, body: () => Promise<void>): void => test(title, body, { timeout: 15_000 });
@@ -49,6 +49,26 @@ childTest("isDescendantOf is true for a child of the process, false the other wa
   expect(isDescendantOf(process.pid, process.pid)).toBe(true);
   expect(isDescendantOf(process.pid, child.pid)).toBe(false);
   expect(isDescendantOf(1, process.pid)).toBe(false);
+});
+
+childTest("isChildOf accepts a direct child only: not a grandchild, not the process itself, never under init", async () => {
+  // Un shell qui lance un petit-enfant et donne son pid : la forme d'une commande lancée par le bash de Pi.
+  const shell = Bun.spawn(["/bin/sh", "-c", "sleep 30 & echo $!; wait"], { stdout: "pipe" });
+  children.push(shell);
+  const reader = shell.stdout.getReader();
+  const { value } = await reader.read();
+  reader.releaseLock();
+  const grandchild = Number(new TextDecoder().decode(value).trim());
+  expect(Number.isInteger(grandchild) && grandchild > 0).toBe(true);
+  try {
+    expect(isChildOf(shell.pid, process.pid)).toBe(true);
+    expect(isChildOf(grandchild, process.pid)).toBe(false);
+    expect(isDescendantOf(grandchild, process.pid)).toBe(true);
+    expect(isChildOf(process.pid, process.pid)).toBe(false);
+    expect(isChildOf(shell.pid, 1)).toBe(false);
+  } finally {
+    process.kill(grandchild);
+  }
 });
 
 childTest("isDescendantOf refuses launchd as an ancestor, whoever asks", async () => {

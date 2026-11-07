@@ -34,7 +34,12 @@ import {
   type StateFrame,
 } from "./protocol.ts";
 
-export interface DstCourierOptions {
+/** Harnais servis par un pont : un module chargé dans le process du harnais (plugin dst, extension pi) rejoint la doublure. */
+export type BridgeHarness = "dst" | "pi";
+
+export interface BridgeCourierOptions {
+  /** Harnais servi : il nomme les textes renvoyés aux expéditeurs et préfixe les événements du journal (`dst-…`, `pi-…`). */
+  harness: BridgeHarness;
   name: string;
   fromMode: FromMode;
   registration: Registration;
@@ -52,7 +57,7 @@ export interface DstCourierOptions {
   helloTimeoutMs?: number;
   /** Fenêtre de grâce après une coupure du pont (défaut 30 000 ms). */
   graceMs?: number;
-  /** Nombre d'essais d'un message que dst ne prend pas (défaut 3). */
+  /** Nombre d'essais d'un message que le harnais ne prend pas (défaut 3). */
   maxAttempts?: number;
 }
 
@@ -61,7 +66,12 @@ const DEFAULT_HELLO_TIMEOUT_MS = 30_000;
 const DEFAULT_GRACE_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const FAREWELL_WAIT_MS = 3_000;
-const STOPPED_MESSAGE = "le livreur dst est arrêté";
+
+/** Ce qui s'est chargé dans le harnais, pour dire qu'il n'est jamais venu. */
+const MISSING_MODULE: Record<BridgeHarness, string> = {
+  dst: "le plugin idnma ne s'est pas chargé dans dst",
+  pi: "l'extension idnma ne s'est pas chargée dans pi",
+};
 
 /** `waiting` avant le premier hello, `up` admis, `down` coupé en grâce, `gone` perdu ou jamais venu, `closed` après les adieux. */
 type Phase = "waiting" | "up" | "down" | "gone" | "closed";
@@ -83,8 +93,8 @@ function tokenMatches(received: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** Texte renvoyé à l'expéditeur pour la fin d'un tour (spec §9.2), et l'issue journalisée. */
-function describeResult(name: string, frame: ResultFrame): { outcome: string; text: string } {
+/** Texte renvoyé à l'expéditeur pour la fin d'un tour (spec dst §9.2), et l'issue journalisée. */
+function describeResult(name: string, harness: BridgeHarness, frame: ResultFrame): { outcome: string; text: string } {
   const text = frame.text !== undefined && frame.text.trim() !== "" ? frame.text : undefined;
   if (frame.mixed) return { outcome: "mixed", text: `${name} : tour mêlé à une entrée de l'utilisateur, pas de réponse automatique` };
   switch (frame.reason) {
@@ -96,10 +106,10 @@ function describeResult(name: string, frame: ResultFrame): { outcome: string; te
     }
     case "aborted":
       if (frame.cause === "user") return { outcome: "interrupted", text: `${name} : tour interrompu par l'utilisateur` };
-      if (frame.cause === "disposed") return { outcome: "lost", text: `${name} : réponse perdue (session fermée dans dst)` };
+      if (frame.cause === "disposed") return { outcome: "lost", text: `${name} : réponse perdue (session fermée dans ${harness})` };
       return { outcome: "interrupted", text: frame.cause === undefined ? `${name} : tour interrompu` : `${name} : tour interrompu (${frame.cause})` };
     case "disposed":
-      return { outcome: "lost", text: `${name} : réponse perdue (session fermée dans dst)` };
+      return { outcome: "lost", text: `${name} : réponse perdue (session fermée dans ${harness})` };
     case "max-tokens":
       return text === undefined
         ? { outcome: "truncated", text: `${name} : tour coupé (limite de tokens atteinte)` }
@@ -110,10 +120,11 @@ function describeResult(name: string, frame: ResultFrame): { outcome: string; te
 }
 
 /**
- * Livreur de l'agent dst : la doublure écoute un socket Unix privé (le pont) que le plugin idnma,
- * chargé dans le process de dst, rejoint. Le plugin porte la sémantique de dst (premier plan,
- * `followup` ou `steer`, tours) ; le livreur porte celle du bus : file, admission, renvois
- * automatiques à l'expéditeur, statut du registre, coupures et adieux (spec §7 et §9).
+ * Livreur d'un harnais à pont (dst, pi) : la doublure écoute un socket Unix privé (le pont) que le
+ * module idnma chargé dans le process du harnais rejoint (plugin Cordis de dst, extension de pi). Le
+ * module porte la sémantique du harnais (premier plan, `followup` ou `steer`, tours) ; le livreur
+ * porte celle du bus : file, admission, renvois automatiques à l'expéditeur, statut du registre,
+ * coupures et adieux (spec dst §7 et §9, spec pi §2).
  *
  * État :
  * - `phase` : `waiting | up | down | gone | closed` ;
@@ -121,7 +132,10 @@ function describeResult(name: string, frame: ResultFrame): { outcome: string; te
  * - `mirror` : le dernier `state` du plugin, remis à `{ session: null, status: idle }` à chaque admission ;
  * - `entries` : les messages envoyés en `deliver`, indexés par l'id du fil.
  */
-export function createDstCourier(o: DstCourierOptions): Courier {
+export function createBridgeCourier(o: BridgeCourierOptions): Courier {
+  const label = o.harness;
+  /** Événement du journal, préfixé du harnais : `dst-bridge-up`, `pi-deliver`… */
+  const ev = (event: string): string => `${label}-${event}`;
   const send = o.send ?? sendPeerMessage;
   const admissionTimeoutMs = o.admissionTimeoutMs ?? DEFAULT_ADMISSION_TIMEOUT_MS;
   const helloTimeoutMs = o.helloTimeoutMs ?? DEFAULT_HELLO_TIMEOUT_MS;
@@ -148,7 +162,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
   // Un `hello` a été refusé : dit pourquoi le plugin n'est jamais venu.
   let helloRefused = false;
   // Texte entre parenthèses du refus d'un message quand la phase est `gone`.
-  let goneReason = "pont dst perdu";
+  let goneReason = `pont ${label} perdu`;
   let mirror: { session: string | null; status: StateFrame["status"] } = { session: null, status: "idle" };
   // Dernier statut publié au registre (l'inscription démarre `idle`).
   let published: "idle" | "busy" = "idle";
@@ -222,7 +236,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
     for (const entry of entries.values()) {
       if (entry.muted) continue;
       const lead = entry.claimed ? "réponse perdue" : "message non livré";
-      void reply(entry.message, `${o.name} : ${lead} (dst arrêté ou relancé)`);
+      void reply(entry.message, `${o.name} : ${lead} (${label} arrêté ou relancé)`);
     }
     entries.clear();
   };
@@ -272,14 +286,14 @@ export function createDstCourier(o: DstCourierOptions): Courier {
 
   /** Fin de suivi d'un envoi : l'issue part au journal, et le texte à l'expéditeur sauf renvoi automatique. */
   const finish = (entry: Entry, outcome: string, text: string, sources: string[]): void => {
-    logEvent("dst-turn-end", { msgId: entry.message.msgId, outcome: entry.muted ? "muted" : outcome, sources });
+    logEvent(ev("turn-end"), { msgId: entry.message.msgId, outcome: entry.muted ? "muted" : outcome, sources });
     if (!entry.muted) void reply(entry.message, text);
   };
 
   // --- Trames du plugin ------------------------------------------------------------------------
 
   const onState = (frame: StateFrame): void => {
-    if (frame.session !== mirror.session) logEvent("dst-foreground", { session: frame.session });
+    if (frame.session !== mirror.session) logEvent(ev("foreground"), { session: frame.session });
     mirror = { session: frame.session, status: frame.status };
     publish(frame.status === "running" ? "busy" : "idle");
     flush();
@@ -289,7 +303,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
     const entry = entries.get(id);
     if (entry === undefined) return;
     entry.mode = mode;
-    logEvent("dst-deliver", { msgId: entry.message.msgId, delivery: mode });
+    logEvent(ev("deliver"), { msgId: entry.message.msgId, delivery: mode });
     // Un steer réclamé est réglé : le rappel dit de répondre par `idnma peer send`, rien ne revient.
     if (mode === "steer" && entry.claimed) entries.delete(id);
   };
@@ -298,7 +312,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
     const entry = entries.get(id);
     if (entry === undefined) return;
     entry.claimed = true;
-    logEvent("dst-claimed", { msgId: entry.message.msgId, turn });
+    logEvent(ev("claimed"), { msgId: entry.message.msgId, turn });
     if (entry.mode === "steer") entries.delete(id);
   };
 
@@ -306,7 +320,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
     const entry = entries.get(frame.id);
     if (entry === undefined) return;
     entries.delete(frame.id);
-    const { outcome, text } = describeResult(o.name, frame);
+    const { outcome, text } = describeResult(o.name, label, frame);
     finish(entry, outcome, text, frame.sources);
   };
 
@@ -315,21 +329,21 @@ export function createDstCourier(o: DstCourierOptions): Courier {
     if (entry === undefined) return;
     entries.delete(frame.id);
     // Jamais le message d'exception de dsh au journal : il peut citer le texte du message.
-    logEvent("dst-dropped", { msgId: entry.message.msgId, why: frame.why });
+    logEvent(ev("dropped"), { msgId: entry.message.msgId, why: frame.why });
     if (frame.why === "discarded") {
-      finish(entry, "discarded", `${o.name} : message écarté (l'utilisateur a interrompu dst)`, []);
+      finish(entry, "discarded", `${o.name} : message écarté (l'utilisateur a interrompu ${label})`, []);
       return;
     }
     if (frame.why === "rejected") {
       const cause = frame.error === undefined || frame.error === "" ? "" : ` : ${frame.error}`;
-      finish(entry, "rejected", `${o.name} : message non livré (dst l'a refusé${cause})`, []);
+      finish(entry, "rejected", `${o.name} : message non livré (${label} l'a refusé${cause})`, []);
       return;
     }
     // `disposed` et `no-agent` : le message repart à la `state` que le plugin envoie juste après.
     const failures = (failedAttempts.get(entry.message) ?? 0) + 1;
     failedAttempts.set(entry.message, failures);
     if (failures >= maxAttempts) {
-      if (!entry.muted) void reply(entry.message, `${o.name} : message non livré (dst ne l'a pas pris)`);
+      if (!entry.muted) void reply(entry.message, `${o.name} : message non livré (${label} ne l'a pas pris)`);
       return;
     }
     requeue(entry.message);
@@ -348,7 +362,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
       case "dropped":
         return onDropped(frame);
       case "error":
-        logEvent("dst-plugin-error", { code: frame.code });
+        logEvent(ev("plugin-error"), { code: frame.code });
         return;
       case "hello":
         // Déjà admis sur cette connexion : un second hello ne change rien.
@@ -366,27 +380,27 @@ export function createDstCourier(o: DstCourierOptions): Courier {
     const previous = conn;
     conn = socket;
     if (previous !== undefined) {
-      // Rechargement du plugin ou relance de dst : l'ancienne connexion est une coupure.
+      // Rechargement du plugin ou relance du harnais : l'ancienne connexion est une coupure.
       previous.destroy();
-      logEvent("dst-bridge-lost", { replaced: true });
+      logEvent(ev("bridge-lost"), { replaced: true });
       answerInFlightAsLost();
     }
     phase = "up";
     resetMirror();
-    logEvent("dst-bridge-up", { pid: hello.pid, versions: hello.versions, reconnect });
+    logEvent(ev("bridge-up"), { pid: hello.pid, versions: hello.versions, reconnect });
   };
 
   /** La connexion admise s'est fermée sans que la doublure l'ait voulu : fenêtre de grâce. */
   const onConnectionLost = (): void => {
     conn = undefined;
     resetMirror();
-    logEvent("dst-bridge-lost");
+    logEvent(ev("bridge-lost"));
     answerInFlightAsLost();
     phase = "down";
     clearGraceTimer();
     graceTimer = setTimeout(() => {
       graceTimer = undefined;
-      goGone("dst-bridge-gone", "pont dst perdu");
+      goGone(ev("bridge-gone"), `pont ${label} perdu`);
     }, graceMs);
   };
 
@@ -394,7 +408,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
     // Un écouteur `error` avant toute autre opération : une erreur de socket sans écouteur ferait tomber la doublure.
     socket.on("error", () => {});
     if (stopped || phase === "closed") {
-      logEvent("dst-bridge-refused", { reason: "closed" });
+      logEvent(ev("bridge-refused"), { reason: "closed" });
       socket.destroy();
       return;
     }
@@ -409,7 +423,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
       refused = true;
       clearTimeout(timer);
       if (wasHello) helloRefused = true;
-      logEvent("dst-bridge-refused", { reason });
+      logEvent(ev("bridge-refused"), { reason });
       socket.destroy();
     };
     const timer = setTimeout(() => refuse("timeout"), admissionTimeoutMs);
@@ -419,7 +433,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
       // Connexion remplacée entre-temps : ses trames ne comptent plus.
       if (admitted && socket !== conn) return;
       const frame = parsePluginFrame(line);
-      if (frame === undefined) logEvent("dst-frame-invalid", { length: Buffer.byteLength(line) });
+      if (frame === undefined) logEvent(ev("frame-invalid"), { length: Buffer.byteLength(line) });
       if (admitted) {
         if (frame !== undefined) onFrame(frame);
         return;
@@ -455,10 +469,10 @@ export function createDstCourier(o: DstCourierOptions): Courier {
     const ready = new Promise<void>((resolveReady, rejectReady) => {
       bridge.on("error", (error: NodeJS.ErrnoException) => {
         if (!listening) {
-          rejectReady(new CourierUnavailableError(`impossible d'ouvrir le pont dst sur ${o.socketPath} (${error.code ?? error.message})`));
+          rejectReady(new CourierUnavailableError(`impossible d'ouvrir le pont ${label} sur ${o.socketPath} (${error.code ?? error.message})`));
           return;
         }
-        logEvent("dst-bridge-error", { message: errorMessage(error) });
+        logEvent(ev("bridge-error"), { message: errorMessage(error) });
       });
       bridge.once("listening", () => {
         listening = true;
@@ -481,7 +495,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
       bridge.close();
       throw new CourierUnavailableError(errorMessage(error));
     }
-    logEvent("dst-bridge-listening");
+    logEvent(ev("bridge-listening"));
   };
 
   const stop = (): void => {
@@ -499,7 +513,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
 
   return {
     async beforeSpawn(): Promise<void> {
-      if (stopped) throw new CourierUnavailableError(STOPPED_MESSAGE);
+      if (stopped) throw new CourierUnavailableError(`le livreur ${label} est arrêté`);
       try {
         ensureControlDir(dirname(o.socketPath));
       } catch (error) {
@@ -518,13 +532,13 @@ export function createDstCourier(o: DstCourierOptions): Courier {
       helloTimer = setTimeout(() => {
         helloTimer = undefined;
         if (phase !== "waiting") return;
-        goGone("dst-bridge-missing", helloRefused ? "pont dst refusé, voir le journal idnma" : "le plugin idnma ne s'est pas chargé dans dst");
+        goGone(ev("bridge-missing"), helloRefused ? `pont ${label} refusé, voir le journal idnma` : MISSING_MODULE[label]);
       }, helloTimeoutMs);
     },
 
     onMessage(): void {
       if (phase === "closed") {
-        void track(rejectQueuedMessages({ queue: o.queue, registration: o.registration, name: o.name, fromMode: o.fromMode, send, label: "dst" }));
+        void track(rejectQueuedMessages({ queue: o.queue, registration: o.registration, name: o.name, fromMode: o.fromMode, send, label }));
         return;
       }
       if (phase === "gone") {
@@ -554,7 +568,7 @@ export function createDstCourier(o: DstCourierOptions): Courier {
       stop();
       phase = "closed";
       answerInFlightAsLost();
-      void track(rejectQueuedMessages({ queue: o.queue, registration: o.registration, name: o.name, fromMode: o.fromMode, send, label: "dst" }));
+      void track(rejectQueuedMessages({ queue: o.queue, registration: o.registration, name: o.name, fromMode: o.fromMode, send, label }));
       // Les renvois de coupure partis plus tôt sont dans `outstanding` : les adieux les attendent aussi.
       await waitBounded(drainOutstanding(), FAREWELL_WAIT_MS);
     },

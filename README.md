@@ -9,7 +9,7 @@
   <a href="LICENSE"><img alt="Licence MIT" src="https://img.shields.io/badge/licence-MIT-2ea44f"></a>
 </p>
 
-**Integrated Development Network Multi Agents.** Local coding agents that talk to each other by name, whatever harness they run in: Claude Code, Codex, Grok, agy (Antigravity), opencode or dst (DeepSeek Harness TUI).
+**Integrated Development Network Multi Agents.** Local coding agents that talk to each other by name, whatever harness they run in: Claude Code, Codex, Grok, agy (Antigravity), opencode, dst (DeepSeek Harness TUI) or Pi.
 
 ```sh
 idnma peer send codex-neptune-c5zl 'Review src/install/skill.ts and tell me what breaks.'
@@ -23,7 +23,7 @@ The message lands in the Codex session, mid-turn or by waking it up if it is idl
 
 IdnmA adds no bus of its own. Claude Code already has one: each session registers itself in `~/.claude/sessions/`, opens a Unix socket, and its peers reach it through `ListAgents` and `SendMessage`. IdnmA brings the other harnesses into that same bus.
 
-For Codex, Grok, agy, opencode and dst, `idnma run` launches the agent under an **understudy**: a small process that registers in the Claude registry under the agent's name, receives its messages, and delivers them through the most native channel the harness offers.
+For Codex, Grok, agy, opencode, dst and Pi, `idnma run` launches the agent under an **understudy**: a small process that registers in the Claude registry under the agent's name, receives its messages, and delivers them through the most native channel the harness offers.
 
 ```
                registry ~/.claude/sessions/ + Unix sockets
@@ -35,7 +35,7 @@ For Codex, Grok, agy, opencode and dst, `idnma run` launches the agent under an 
         (app-server)  (hooks + PTY) (hooks + PTY) (HTTP service)
 ```
 
-dst follows the same pattern, through a plugin loaded into its own process.
+dst and Pi follow the same pattern, through a plugin (dst) or an extension (Pi) loaded into their own process.
 
 | Harness | Joins the bus | Message delivery |
 |---|---|---|
@@ -45,18 +45,20 @@ dst follows the same pattern, through a plugin loaded into its own process.
 | agy | understudy | same as Grok |
 | opencode | understudy | a session turn, through the inbox of the opencode service (HTTP API and SSE stream) |
 | dst | understudy + Cordis plugin | a turn of the `dsh` kernel, through an idnma plugin loaded in the `dst` process; the `✉ <peer> · team message` bubble shows up in the TUI |
+| Pi | understudy + extension | a Pi turn, through an idnma extension that `idnma run` loads with `-e`; the message shows up as an `[idnma]` block in the TUI |
 
 When idle, nothing runs: zero tokens, zero polling, no screen scraping.
 
 ## Requirements
 
 - macOS 26 or later, or Linux for Claude and Codex (see below), [Bun](https://bun.sh) 1.4+, and tmux: each agent lives in a pane.
-- The harnesses you want to connect. Measured versions: Claude Code 2.1.310, Codex 0.164.0, Grok 1.0.70, agy 1.4.7, opencode 2.2.0, dst 0.17.0 (`dsh` kernel 0.2.1-rc.3).
+- The harnesses you want to connect. Measured versions: Claude Code 2.1.310, Codex 0.164.0, Grok 1.0.70, agy 1.4.7, opencode 2.2.0, dst 0.17.0 (`dsh` kernel 0.2.1-rc.3), Pi 1.5.0.
 - For dst: the `dst` command on your `PATH`, and `/setup` completed once inside dst.
+- For Pi: the `pi` command on your `PATH`, and the provider of your models known to Pi. For Ollama, `ollama launch pi --config` writes it into `~/.pi/agent/models.json`.
 
 Claude's peer protocol is versioned (`peerProtocol: 1`); an understudy refuses to register if it sees another version.
 
-Linux is supported for Claude Code and Codex, measured on Ubuntu 24.04 with Claude Code 2.1.317 and Codex 0.166.0 (both agents tested on arm64; the unit tests also run on x86_64 in CI). Grok, agy, opencode and dst have not been probed on Linux yet. The one-line installer below is macOS only: on Linux, use the manual installation.
+Linux is supported for Claude Code and Codex, measured on Ubuntu 24.04 with Claude Code 2.1.317 and Codex 0.166.0 (both agents tested on arm64; the unit tests also run on x86_64 in CI). Grok, agy, opencode, dst and Pi have not been probed on Linux yet. The one-line installer below is macOS only: on Linux, use the manual installation.
 
 ## Installation
 
@@ -101,6 +103,7 @@ idnma install --agent grok
 idnma install --agent agy
 idnma install --agent opencode
 idnma install --agent dst
+idnma install --agent pi
 ```
 
 Each call only touches the named agent, reports a missing harness without creating it, and is safe to re-run: it only rewrites what changed.
@@ -113,8 +116,9 @@ Each call only touches the named agent, reports a missing harness without creati
 | `agy` | an `idnma` plugin (hooks, teammate rule, skill), installed through `agy plugin install` |
 | `opencode` | a "teammate" block at the end of `~/.config/opencode/AGENTS.md`, the skill in `~/.config/opencode/skills/` (honours `IDNMA_OPENCODE_CONFIG_DIR`, then `$XDG_CONFIG_HOME/opencode`) |
 | `dst` | a delimited block in `<DSH_HOME>/cordis.patch.yml` enabling this checkout's idnma plugin (inert for a `dst` started outside `idnma run`), a teammate block in `<DSH_HOME>/AGENTS.md`, the skill in `<DSH_HOME>/skills/` (`IDNMA_DSH_HOME`, then `$DSH_HOME`, then `~/.dsh`) |
+| `pi` | a "teammate" block at the end of `~/.pi/agent/AGENTS.md`, the skill in `~/.pi/agent/skills/` (honours `PI_CODING_AGENT_DIR`). The idnma extension is not installed: `idnma run` passes it to Pi with `-e`, so a Pi started on its own never loads it |
 
-`idnma uninstall --agent <agent>` removes exactly what was installed. The `AGENTS.md` files of Codex, opencode and dst go back to their previous bytes. So does dst's `cordis.patch.yml`, as long as you did not edit around the idnma block; a file created by idnma is deleted. No permission rule is ever added anywhere.
+`idnma uninstall --agent <agent>` removes exactly what was installed. The `AGENTS.md` files of Codex, opencode, dst and Pi go back to their previous bytes. So does dst's `cordis.patch.yml`, as long as you did not edit around the idnma block; a file created by idnma is deleted. No permission rule is ever added anywhere.
 
 Hooks point to the checkout that ran the install (`~/.idnma` by default): never run `idnma install` from a throwaway worktree.
 
@@ -210,12 +214,19 @@ agents:
       full:
         harness: dst
         env: { DSH_PERMISSION_MODE: danger-full-access }
+  pi:
+    engines:
+      default:
+        harness: pi
+        model: ollama/deepseek-v4.1-flash:cloud
+        options: [--thinking, high]
 ```
 
-- `harness`: `claude`, `codex`, `grok`, `agy`, `opencode` or `dst`. A third-party model served through Claude Code (GLM, DeepSeek, Kimi via Ollama or OpenRouter) stays `harness: claude`.
+- `harness`: `claude`, `codex`, `grok`, `agy`, `opencode`, `dst` or `pi`. A third-party model served through Claude Code (GLM, DeepSeek, Kimi via Ollama or OpenRouter) stays `harness: claude`.
 - `model`, `options` and `env` are optional. For opencode, `model` is written `<provider>/<model>` (optional `#<variant>`); without it, the service applies its default.
 - An `env` value of the form `$NAME` is read from your shell environment and nowhere else. Keep API keys in your shell profile (for example `~/.zshenv`), never in this file.
 - dst takes no `model`: `idnma run` refuses it. Pick the model with `/model` inside dst, which remembers it. The permission mode is set per engine: `DSH_PERMISSION_MODE=danger-full-access` (engine `full` above) lifts the macOS sandbox, and idnma then announces `from-mode="bypass"` to peers.
+- For Pi, `model` is `<provider>/<model>`, as Pi's `--model` takes it, with a provider Pi knows (`~/.pi/agent/models.json` for Ollama). Pi never asks before running a tool: idnma always announces `from-mode="bypass"` for it.
 
 Repeated blocks (a proxy `env`, a set of `options`) can be written once with YAML anchors, aliases and `<<` merge keys. idnma only reads `agents:`, so a top-level `presets:` key can hold them; it must come first, since an alias refers to an anchor defined above it.
 
@@ -250,19 +261,21 @@ idnma run codex
 idnma run claude --engine <other-engine>
 idnma run grok --effort low
 idnma run dst --engine full
+idnma run deepseek-flash --engine pi
 ```
 
-The agent gets a name that is unique on the machine, shaped `<agent>-<deity>-<4 chars>` (`codex-neptune-c5zl`). Any token after the agent name goes to the harness and overrides the matching flag of the engine. A Claude agent replaces the `idnma` process; Codex, Grok, agy, opencode and dst stay under their understudy.
+The agent gets a name that is unique on the machine, shaped `<agent>-<deity>-<4 chars>` (`codex-neptune-c5zl`). Any token after the agent name goes to the harness and overrides the matching flag of the engine. A Claude agent replaces the `idnma` process; Codex, Grok, agy, opencode, dst and Pi stay under their understudy.
 
 Flags that would take an agent off the bus are refused:
 
 - Codex: `-c/--config`, `--profile`, `--no-daemon` and others (`idnma run --help` lists them).
 - opencode: `--standalone` and `--server`, which would run it outside the shared service. Its model comes from the engine or from a typed `-m/--model`, checked against the service before the TUI starts.
 - dst: launcher commands (`run`, `doctor`, `update`, `session`…), `-p/--print`, any `--backend` other than `dsh`, `--profile`. `idnma run dst` also refuses to start if the plugin is not installed, or was installed from another checkout.
+- Pi: `-p/--print`, `--mode` other than `text`, `--export`, `--list-models`, `-h/--help`, `-v/--version` and its subcommands (`install`, `update`, `config`…): Pi must stay in its TUI for the extension to open turns.
 
 ## Talking to each other
 
-### From Codex, Grok, agy, opencode or dst
+### From Codex, Grok, agy, opencode, dst or Pi
 
 ```sh
 idnma peer list                       # live peers, yourself excluded
@@ -270,11 +283,11 @@ idnma peer send <name> '<text>'       # write to a peer
 idnma read                            # read a message announced by 📨 idnma read
 ```
 
-On Codex, opencode and dst, peer messages arrive by themselves, each as a new turn: `idnma read` has nothing to return there.
+On Codex, opencode, dst and Pi, peer messages arrive by themselves, each as a new turn: `idnma read` has nothing to return there.
 
 ### From Claude Code
 
-The native tools are enough: `ListAgents`, then `SendMessage`. They also reach Codex, Grok, agy, opencode and dst, registered in the same registry.
+The native tools are enough: `ListAgents`, then `SendMessage`. They also reach Codex, Grok, agy, opencode, dst and Pi, registered in the same registry.
 
 ### Replies
 
@@ -287,7 +300,7 @@ When a message opens an agent's turn, its final answer goes back to the sender o
 | Harness | Skill | Path |
 |---|---|---|
 | Claude Code | `claude-idnma-network` | native bus |
-| Codex, Grok, agy, opencode, dst | `generic-idnma-network` | `idnma` CLI |
+| Codex, Grok, agy, opencode, dst, Pi | `generic-idnma-network` | `idnma` CLI |
 
 Both accept `--list` (peers on the local network) and `--help`, or a plain request: "ask codex to review this file".
 
@@ -315,6 +328,8 @@ Both accept `--list` (peers on the local network) and `--help`, or a plain reque
 - dst, `/kernel` to Claude or Codex: the plugin is no longer loaded, and the understudy tells senders so.
 - dst, sandbox: by default, agent commands run under a macOS sandbox that refuses `/bin/ps`; `idnma peer list` still works there, through the understudy.
 - dst, memory: 250 to 450 MB per pane.
+- Pi, after Escape: Pi drops the peer messages queued behind the interrupted turn; the understudy tells their senders so.
+- Pi: peer messages use Pi's default rendering of extension messages, an `[idnma]` block.
 
 ## Development
 

@@ -108,7 +108,7 @@ export function escapeHtml(s: string): string {
 const esc = escapeHtml;
 
 /** Les harnais proposés ; le type `Record` oblige à les lister tous quand `Harness` s'allonge. */
-const HARNESS_TABLE: Record<Harness, true> = { claude: true, codex: true, grok: true, agy: true, opencode: true, dst: true };
+const HARNESS_TABLE: Record<Harness, true> = { claude: true, codex: true, grok: true, agy: true, opencode: true, dst: true, pi: true };
 
 /**
  * L'unique ordre alphabétique de la page : sans casse ni accent, les nombres par valeur (« agent 2 » avant
@@ -511,7 +511,7 @@ function engineBlock(view: ConfigView, ui: UiState, agent: AgentView, engine: En
   let model = "";
   if (engine.harness !== "dst") {
     const modelIssues = take(issues, (i) => i.field === "model");
-    const place = engine.harness === "opencode" ? "provider/model" : "Default";
+    const place = engine.harness === "opencode" || engine.harness === "pi" ? "provider/model" : "Default";
     const field = inputHtml({
       id: id("model"),
       value: engine.model ?? "",

@@ -14,13 +14,13 @@ import { configureCommand } from "./configure/command-line.ts";
 import { installDst, uninstallDst } from "./install/dst.ts";
 import { installGrok, uninstallGrok } from "./install/grok.ts";
 import { CLAUDE_SKILL, GENERIC_SKILL, installSkill, uninstallSkill } from "./install/skill.ts";
-import { agyPluginsDir, claudeHome, codexHome, dshHome, grokHome, networkPath, opencodeConfigDir } from "./paths.ts";
+import { agyPluginsDir, claudeHome, codexHome, dshHome, grokHome, networkPath, opencodeConfigDir, piAgentDir } from "./paths.ts";
 import { PaneError } from "./run/pane.ts";
 import { runAgent } from "./run/run.ts";
 // Source unique de la version : release-please l'incrémente dans la PR de release, le tag suit à la fusion.
 import pkg from "../package.json" with { type: "json" };
 
-// CLI de l'agent : un agent étranger (Codex, Grok, agy, opencode, dst) l'appelle depuis son shell. L'identité de
+// CLI de l'agent : un agent étranger (Codex, Grok, agy, opencode, dst, pi) l'appelle depuis son shell. L'identité de
 // l'expéditeur vient de la doublure (variables d'environnement), jamais d'une option de ligne de commande.
 
 const MAIN_HELP = `idnma : pont entre agents sur le bus de pairs de Claude Code
@@ -92,7 +92,10 @@ vient de l'engine, ou du -m/--model tapé, que idnma lit et vérifie auprès du 
 dst refuse ses sous-commandes de lanceur, -p/--print, -v/--version, -h/--help, --profile, --from-default-profile et tout
 --backend autre que dsh. Son modèle ne se donne pas au lancement (ni model: d'engine) : choisis-le avec /model dans dst,
 la TUI le retient.
-Un agent Claude prend la place de ce process ; Codex, Grok, agy, opencode et dst restent sous la doublure d'idnma.
+pi refuse -p/--print, --mode autre que text, --export, --list-models, -h/--help, -v/--version et ses sous-commandes (install, remove,
+uninstall, update, list, config, auth, mcp) : il doit rester dans sa TUI. Son model: est <fournisseur>/<modèle>, comme
+--model de pi ; idnma lui passe son extension par -e.
+Un agent Claude prend la place de ce process ; Codex, Grok, agy, opencode, dst et pi restent sous la doublure d'idnma.
 `;
 }
 
@@ -104,6 +107,7 @@ const INSTALLERS: Record<string, { install: () => string; uninstall: () => strin
   dst: { install: installDstLine, uninstall: uninstallDstLine },
   grok: { install: installGrokLine, uninstall: uninstallGrokLine },
   opencode: { install: installOpencode, uninstall: uninstallOpencode },
+  pi: { install: installPi, uninstall: uninstallPi },
 };
 const INSTALLABLE = Object.keys(INSTALLERS).sort().join(", ");
 
@@ -127,8 +131,11 @@ jamais créé. Relancer la commande met à jour ce qui a changé.
            gabarit de dsh s'il y est, commentaires gardés. Ajoute aussi le bloc coéquipier à <DSH_HOME>/AGENTS.md
            et écrit la skill <DSH_HOME>/skills/generic-idnma-network/SKILL.md ; le dossier est
            IDNMA_DSH_HOME, sinon $DSH_HOME, sinon ~/.dsh.
-Aucun fichier de l'utilisateur n'est modifié hors des AGENTS.md de Codex, d'opencode et de dst, et du cordis.patch.yml
-de dst. Aucune règle de permission n'est posée.
+  pi       ajoute à la fin de <dossier d'agent de pi>/AGENTS.md le bloc qui apprend à traiter les messages de pairs,
+           et écrit la skill <dossier d'agent>/skills/generic-idnma-network/SKILL.md ; le dossier est
+           PI_CODING_AGENT_DIR, sinon ~/.pi/agent. L'extension idnma n'est pas installée : idnma run la passe par -e.
+Aucun fichier de l'utilisateur n'est modifié hors des AGENTS.md de Codex, d'opencode, de dst et de pi, et du
+cordis.patch.yml de dst. Aucune règle de permission n'est posée.
 
 Les hooks installés pointent vers le checkout qui lance la commande : lance-la depuis le checkout lié par
 bun link (~/dev/erom-agence-network), jamais depuis un worktree jetable (ses hooks échoueraient une fois
@@ -152,13 +159,16 @@ Retire ce que idnma install a posé pour <agent> (${INSTALLABLE}) :
   dst      le bloc de <DSH_HOME>/cordis.patch.yml et celui de <DSH_HOME>/AGENTS.md (chaque fichier redevient
            octet pour octet celui d'avant l'installation ; un fichier créé par idnma et resté vide est
            supprimé), et la skill generic-idnma-network de <DSH_HOME>/skills.
-Aucun fichier de l'utilisateur n'est modifié hors des AGENTS.md de Codex, d'opencode et de dst, et du cordis.patch.yml
-de dst.
+  pi       le bloc de <dossier d'agent de pi>/AGENTS.md (le fichier redevient octet pour octet celui d'avant
+           l'installation ; un fichier créé par idnma et resté vide est supprimé), et la skill
+           generic-idnma-network de <dossier d'agent>/skills.
+Aucun fichier de l'utilisateur n'est modifié hors des AGENTS.md de Codex, d'opencode, de dst et de pi, et du
+cordis.patch.yml de dst.
 `;
 
 const NO_PENDING_MESSAGE = "idnma : aucun message en attente.\n";
 const NO_PENDING_PUSHED_TURNS =
-  "idnma : chez Codex, opencode et dst, les messages de pairs arrivent d'eux-mêmes, chacun comme un nouveau tour : idnma read n'a rien à rendre.\n";
+  "idnma : chez Codex, opencode, dst et pi, les messages de pairs arrivent d'eux-mêmes, chacun comme un nouveau tour : idnma read n'a rien à rendre.\n";
 /** Délai d'un hook : le harnais attend la réponse, une doublure muette ne doit pas figer son tour. */
 const HOOK_TIMEOUT_MS = 3_000;
 
@@ -371,6 +381,24 @@ function uninstallOpencode(): string {
   const line = uninstallTeammateLine(path) === "removed" ? `ligne coéquipier retirée de ${path}` : `ligne coéquipier absente de ${path}, rien touché`;
   const skills = join(home, "skills");
   return `opencode : ${line} ; skill ${GENERIC_SKILL} ${SKILL_UNINSTALL_LABEL[uninstallSkill(skills, GENERIC_SKILL)]} ${skills}`;
+}
+
+function installPi(): string {
+  const home = piAgentDir();
+  if (!existsSync(home)) return `pi : absent (${home}), rien installé`;
+  const path = join(home, "AGENTS.md");
+  const label = SKILL_INSTALL_LABEL[installTeammateLine(path)];
+  const skills = join(home, "skills");
+  return `pi : ligne coéquipier ${label} ${path} ; skill ${GENERIC_SKILL} ${SKILL_INSTALL_LABEL[installSkill(skills, GENERIC_SKILL)]} ${skills}`;
+}
+
+function uninstallPi(): string {
+  const home = piAgentDir();
+  if (!existsSync(home)) return `pi : absent (${home}), rien retiré`;
+  const path = join(home, "AGENTS.md");
+  const line = uninstallTeammateLine(path) === "removed" ? `ligne coéquipier retirée de ${path}` : `ligne coéquipier absente de ${path}, rien touché`;
+  const skills = join(home, "skills");
+  return `pi : ${line} ; skill ${GENERIC_SKILL} ${SKILL_UNINSTALL_LABEL[uninstallSkill(skills, GENERIC_SKILL)]} ${skills}`;
 }
 
 function installDstLine(): string {

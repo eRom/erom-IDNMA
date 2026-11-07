@@ -251,6 +251,8 @@ function engineMessage(code: EngineIssueCode, token: string | undefined): string
       return "dst takes no model at launch: pick it with /model inside dst.";
     case "dst-refused-flag":
       return "This option has no place in a bus pane for dst.";
+    case "pi-refused-flag":
+      return "This option takes pi out of its terminal UI: idnma could not deliver bus messages.";
   }
 }
 

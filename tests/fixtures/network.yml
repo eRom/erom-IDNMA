@@ -208,3 +208,16 @@ agents:
         harness: dst
         env:
           DSH_HOME: /tmp/idnma-t-dsthome-from-engine
+  pi:
+    label: Pi Agent
+    engines:
+      default:
+        harness: pi
+        model: ollama/deepseek-v4.1-flash:cloud
+        options:
+          - --thinking
+          - high
+      print:
+        harness: pi
+        options:
+          - -p

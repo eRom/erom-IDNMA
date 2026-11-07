@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { buildEnvelope } from "../src/bus/envelope.ts";
 import type { InboundMessage } from "../src/bus/inbox.ts";
 import type { sendPeerMessage } from "../src/bus/send.ts";
-import { createDstCourier } from "../src/dst/courier.ts";
+import { createBridgeCourier } from "../src/bridge/courier.ts";
 import { apply } from "../src/dst/plugin.ts";
 import { AUTO_REPLY_MARKER, type Courier } from "../src/understudy/courier.ts";
 import { MessageQueue } from "../src/understudy/queue.ts";
@@ -76,7 +76,8 @@ async function startRig(agent: FakeAgent): Promise<Rig> {
   const queue = new MessageQueue();
   const registration = fakeRegistration();
   const sent: SentReply[] = [];
-  courier = createDstCourier({
+  courier = createBridgeCourier({
+    harness: "dst",
     name: "dst-e2e",
     fromMode: "bypass",
     registration,
