@@ -160,6 +160,7 @@ describe("engine rules match idnma run", () => {
     { name: "opencode -m form", body: "        harness: opencode\n        options: [-m, bad]\n", code: "opencode-model-form", field: "options" },
     { name: "dst model", body: "        harness: dst\n        model: x\n", code: "dst-model", field: "model" },
     { name: "dst refused flag", body: "        harness: dst\n        options: [--backend, codex]\n", code: "dst-refused-flag", field: "options" },
+    { name: "pi refused flag", body: "        harness: pi\n        model: ollama/m\n        options: [--mode, rpc]\n", code: "pi-refused-flag", field: "options" },
   ];
 
   test.each(rows)("$name is reported where it is fixed and refused by idnma run", ({ body, code, field }) => {
@@ -285,7 +286,7 @@ describe("app rules", () => {
         agent: "x",
         engine: "default",
         field: "harness",
-        message: "Harness must be one of claude, codex, grok, agy, opencode, dst.",
+        message: "Harness must be one of claude, codex, grok, agy, opencode, dst, pi.",
       });
     }
   });

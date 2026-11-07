@@ -1,5 +1,5 @@
 import { createConnection, type Socket } from "node:net";
-import { BRIDGE_PROTOCOL_VERSION, type DeliverFrame } from "../../src/dst/protocol.ts";
+import { BRIDGE_PROTOCOL_VERSION, type DeliverFrame } from "../../src/bridge/protocol.ts";
 
 export interface FakeDstPlugin {
   /** `deliver` reçus, dans l'ordre. */

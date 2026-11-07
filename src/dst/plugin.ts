@@ -1,14 +1,14 @@
 // Plugin Cordis idnma, chargé dans le process Node de dst. Il se connecte au pont de la doublure
 // (socket Unix, une trame JSON par ligne), choisit `followup` ou `steer` sur l'agent du premier plan,
 // et rapporte ce qu'il advient de chaque message de pair. Spec : §8. Ce module ne dépend que de
-// `node:` et de `./protocol.ts`, en TypeScript effaçable, pour que Node 24 le charge tel quel.
+// `node:` et de `../bridge/protocol.ts`, en TypeScript effaçable, pour que Node 24 le charge tel quel.
 import { readFileSync, realpathSync } from "node:fs";
 import { createConnection } from "node:net";
 import type { Socket } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { BRIDGE_PROTOCOL_VERSION, createLineReader, encodeFrame, parseCourierFrame } from "./protocol.ts";
-import type { DeliverFrame, DeliveryMode, DeliveryPriority, PluginFrame, ResultError, ResultFrame } from "./protocol.ts";
+import { BRIDGE_PROTOCOL_VERSION, createLineReader, encodeFrame, parseCourierFrame } from "../bridge/protocol.ts";
+import type { DeliverFrame, DeliveryMode, DeliveryPriority, PluginFrame, ResultError, ResultFrame } from "../bridge/protocol.ts";
 
 export const name = "idnma-bridge";
 export const inject = ["agents", "shellEnv"];

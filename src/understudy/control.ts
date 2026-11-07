@@ -246,7 +246,7 @@ const NO_CONTROL_TOKEN = "idnma : canal de contrôle sans jeton (IDNMA_CONTROL_T
 const NO_UNDERSTUDY_FOR_THREAD = "idnma : aucune doublure pour ce thread Codex. Lance Codex par idnma run.";
 // Sans le nom : `IDNMA_NAME` peut être périmé, une reprise dans la TUI rend son ancien nom à la session.
 const CLAUDE_HAS_NO_UNDERSTUDY =
-  "idnma : cet agent est un Claude, sans doublure : il écrit à ses pairs avec son outil SendMessage et reçoit leurs messages directement. idnma peer send et idnma read servent aux agents Codex, Grok, agy, opencode et dst.";
+  "idnma : cet agent est un Claude, sans doublure : il écrit à ses pairs avec son outil SendMessage et reçoit leurs messages directement. idnma peer send et idnma read servent aux agents Codex, Grok, agy, opencode, dst et pi.";
 
 /** Socket de la doublure qui porte ce thread Codex, lu dans le pointeur ; `undefined` si absent, illisible ou dans un dossier non sûr. */
 function codexSocketOf(threadId: string): string | undefined {

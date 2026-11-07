@@ -33,7 +33,7 @@ import { startFakePeer, type FakePeer } from "./helpers/fake-peer.ts";
 const childTest = (title: string, body: () => Promise<void>): void => test(title, body, { timeout: 15_000 });
 const REPO = join(import.meta.dir, "..");
 const NO_PENDING_PUSHED_TURNS =
-  "idnma : chez Codex, opencode et dst, les messages de pairs arrivent d'eux-mêmes, chacun comme un nouveau tour : idnma read n'a rien à rendre.\n";
+  "idnma : chez Codex, opencode, dst et pi, les messages de pairs arrivent d'eux-mêmes, chacun comme un nouveau tour : idnma read n'a rien à rendre.\n";
 const THREAD = "01a179b5-b063-74a3-8b58-1ef7941809f1";
 
 const ENV_KEYS = ["CODEX_HOME", "IDNMA_CONFIG_DIR", "IDNMA_CLAUDE_DIR", "IDNMA_SOCKETS_DIR", "IDNMA_CONTROL_DIR", "IDNMA_NAME", "IDNMA_CONTROL_SOCKET", "IDNMA_CONTROL_TOKEN", "DSH_IDNMA_CONTROL_TOKEN"] as const;

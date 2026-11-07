@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Engine, Harness } from "../src/config/network.ts";
 import { CODEX_EMBEDDED_REASON, DST_MODEL_REASON, engineIssues, OPENCODE_STANDALONE_REASON, opencodeArgvIssues } from "../src/config/engine-rules.ts";
 import { dstRefusal } from "../src/run/dst-argv.ts";
+import { PI_SUBCOMMANDS, piRefusal } from "../src/run/pi-argv.ts";
 import { parseOpencodeArgv } from "../src/run/opencode-argv.ts";
 
 const source = ".idnma.yml (agents.x.engines.y)";
@@ -69,6 +70,17 @@ describe("engineIssues", () => {
     expect(codes).toEqual(["dst-model", "dst-refused-flag"]);
   });
 
+  test("flags a pi option that takes pi out of its terminal UI", () => {
+    const options = ["--thinking", "high", "-p"];
+    expect(engineIssues(engine("pi", { model: "ollama/deepseek-v4.1-flash:cloud", options }), source)).toEqual([
+      { code: "pi-refused-flag", field: "options", error: "config", message: `${source} : ${piRefusal(options)}` },
+    ]);
+  });
+
+  test("accepts a pi engine with a provider/model and interactive options", () => {
+    expect(engineIssues(engine("pi", { model: "ollama/deepseek-v4.1-flash:cloud", options: ["--thinking", "high", "-ne", "--no-session"] }), source)).toEqual([]);
+  });
+
   test.each(["claude", "grok", "agy"] as const)("accepts any options for %s", (harness) => {
     expect(engineIssues(engine(harness, { model: "x", options: ["--config", "a=b", "--standalone", "-s", "abc", "--backend", "codex"] }), source)).toEqual([]);
   });
@@ -87,5 +99,34 @@ describe("opencodeArgvIssues", () => {
 
   test("accepts a session id and a model with a variant", () => {
     expect(opencodeArgvIssues(parseOpencodeArgv(["-s", "ses_1", "-m", "a/b#fast"]), undefined, source)).toEqual([]);
+  });
+});
+
+describe("piRefusal", () => {
+  test.each(["-p", "--print", "--mode", "--mode=json", "--export", "--list-models", "-h", "--help", "-v", "--version"])("refuses %s, which leaves the terminal UI", (flag) => {
+    const refusal = piRefusal(["--model", "ollama/x", flag]);
+    expect(refusal).toBeDefined();
+    expect(refusal).toContain(flag.split("=", 1)[0]!);
+  });
+
+  test("refuses a pi subcommand typed as the first positional only", () => {
+    for (const command of PI_SUBCOMMANDS) {
+      expect(piRefusal([command])).toContain(command);
+      expect(piRefusal(["--model", "ollama/x", command])).toContain(command);
+      expect(piRefusal(["--", command])).toContain(command);
+    }
+    // Plus loin, c'est un message pour le premier tour, pas une sous-commande.
+    expect(piRefusal(["explique", "install"])).toBeUndefined();
+  });
+
+  test("the value of a value flag is never a positional, attached or not", () => {
+    expect(piRefusal(["--model", "list"])).toBeUndefined();
+    expect(piRefusal(["-n", "update", "--session", "config"])).toBeUndefined();
+    expect(piRefusal(["--append-system-prompt", "auth", "-e", "mcp"])).toBeUndefined();
+    expect(piRefusal(["--model=ollama/x", "list"])).toContain("list");
+  });
+
+  test("accepts the flags that keep pi interactive", () => {
+    expect(piRefusal(["--thinking", "high", "-c", "-ne", "-nt", "-xt", "bash", "--no-session", "--offline", "fix the bug"])).toBeUndefined();
   });
 });

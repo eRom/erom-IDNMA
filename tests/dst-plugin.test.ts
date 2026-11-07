@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import type { Server, Socket } from "node:net";
 import { join } from "node:path";
-import { createLineReader, encodeFrame, parsePluginFrame } from "../src/dst/protocol.ts";
+import { createLineReader, encodeFrame, parsePluginFrame } from "../src/bridge/protocol.ts";
 import { apply } from "../src/dst/plugin.ts";
 import type { BridgePluginConfig } from "../src/dst/plugin.ts";
 import { createFakeAgent, createFakeDsh } from "./helpers/fake-dsh.ts";

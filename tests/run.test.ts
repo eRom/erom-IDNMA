@@ -9,9 +9,9 @@ import { writeFrames } from "../src/bus/send.ts";
 import { main } from "../src/cli.ts";
 import { ConfigError, loadAgentEngine, type Engine } from "../src/config/network.ts";
 import type { CodexCourierOptions } from "../src/codex/courier.ts";
-import type { DstCourierOptions } from "../src/dst/courier.ts";
+import type { BridgeCourierOptions } from "../src/bridge/courier.ts";
 import type { DstPluginState } from "../src/install/dst.ts";
-import { controlDir, dstBridgeSocketPath } from "../src/paths.ts";
+import { controlDir, dstBridgeSocketPath, piBridgeSocketPath } from "../src/paths.ts";
 import type { HookedCourierOptions } from "../src/hooked/courier.ts";
 import type { OpencodeCourierOptions } from "../src/opencode/courier.ts";
 import { createOpencodeClient } from "../src/opencode/service.ts";
@@ -21,7 +21,7 @@ import { parseRunArgs, UsageError } from "../src/run/args.ts";
 import { assertOwnPane, tagPane, type PaneProbe } from "../src/run/pane.ts";
 import { dstRefusal, dstWorkingDirectory, withDshBackend } from "../src/run/dst-argv.ts";
 import { parseOpencodeArgv, stripOpencodeModel } from "../src/run/opencode-argv.ts";
-import { buildHarnessArgv, isResume, runAgent, type RunDeps } from "../src/run/run.ts";
+import { buildHarnessArgv, isResume, PI_EXTENSION_PATH, runAgent, type RunDeps } from "../src/run/run.ts";
 import { inferFromMode } from "../src/understudy/from-mode.ts";
 import { startFakeOpencodeService, type FakeOpencodeService } from "./helpers/fake-opencode-service.ts";
 import { startFakePeer, type FakePeer } from "./helpers/fake-peer.ts";
@@ -43,6 +43,8 @@ const ENV_KEYS = [
   "IDNMA_DST_BRIDGE",
   "IDNMA_DST_BRIDGE_TOKEN",
   "IDNMA_DST_PREFS_DIR",
+  "IDNMA_PI_BRIDGE",
+  "IDNMA_PI_BRIDGE_TOKEN",
 ] as const;
 
 // Variables retirées avant chaque test : celles de la machine de l'utilisateur ne doivent ni fausser ni être lues par un test.
@@ -58,6 +60,8 @@ const CLEARED_ENV_KEYS = [
   "IDNMA_DST_BRIDGE",
   "IDNMA_DST_BRIDGE_TOKEN",
   "IDNMA_DST_PREFS_DIR",
+  "IDNMA_PI_BRIDGE",
+  "IDNMA_PI_BRIDGE_TOKEN",
 ] as const;
 
 let previousEnv: Record<string, string | undefined>;
@@ -134,7 +138,7 @@ function fakeDeps(overrides: Partial<RunDeps> = {}): { deps: Partial<RunDeps>; e
     createOpencodeCourier: () => countingCourier(),
     // Jamais le vrai dossier de dst : un test de refus branche son propre état.
     dstPluginState: () => ({ kind: "installed" }),
-    createDstCourier: () => countingCourier(),
+    createBridgeCourier: () => countingCourier(),
     ...overrides,
   };
   return { deps, execCalls, tags };
@@ -1458,14 +1462,14 @@ describe("runAgent dst", () => {
   /** Dépendances : `runUnderstudy` et le livreur enregistrent leurs options, le plugin a l'état donné. */
   function dstDeps(pluginState: DstPluginState = { kind: "installed" }, overrides: Partial<RunDeps> = {}) {
     const understudy: Array<Parameters<RunDeps["runUnderstudy"]>[0]> = [];
-    const couriers: DstCourierOptions[] = [];
+    const couriers: BridgeCourierOptions[] = [];
     const homes: string[] = [];
     const base = fakeDeps({
       dstPluginState: (home) => {
         homes.push(home);
         return pluginState;
       },
-      createDstCourier: (o) => {
+      createBridgeCourier: (o) => {
         couriers.push(o);
         return countingCourier();
       },
@@ -1709,5 +1713,97 @@ describe("runAgent dst", () => {
     const fake = dstDeps(undefined, { which: () => null });
     await expect(runAgent({ agent: "dst", passthrough: [] }, fake.deps)).rejects.toThrow("Binaire « dst » introuvable");
     expectNoEffect(fake);
+  });
+});
+
+describe("runAgent pi", () => {
+  /** Dépendances : `runUnderstudy` et le livreur enregistrent leurs options. */
+  function piDeps(overrides: Partial<RunDeps> = {}) {
+    const understudy: Array<Parameters<RunDeps["runUnderstudy"]>[0]> = [];
+    const couriers: BridgeCourierOptions[] = [];
+    const base = fakeDeps({
+      createBridgeCourier: (o) => {
+        couriers.push(o);
+        return countingCourier();
+      },
+      runUnderstudy: async (o) => {
+        understudy.push(o);
+        o.registration?.unregister();
+        return 0;
+      },
+      ...overrides,
+    });
+    return { ...base, understudy, couriers };
+  }
+
+  test("default engine: pi runs under the understudy with its model, the extension of this checkout and a pi courier (AC-1)", async () => {
+    const fake = piDeps();
+    expect(await runAgent({ agent: "pi", passthrough: [] }, fake.deps)).toBe(0);
+    expect(fake.understudy).toHaveLength(1);
+    const seen = fake.understudy[0]!;
+    expect(seen.argv).toEqual(["/fake/bin/pi", "-e", PI_EXTENSION_PATH, "--model", "ollama/deepseek-v4.1-flash:cloud", "--thinking", "high"]);
+    expect(existsSync(PI_EXTENSION_PATH)).toBe(true);
+    expect(seen.harnessLabel).toBe("pi");
+    expect(seen.pty).toBeUndefined();
+    expect(seen.exportControlEnv).not.toBe(false);
+    expect(seen.fromMode).toBe("bypass");
+    expect(seen.name).toMatch(/^pi-[a-z]+-[a-z0-9]{4}$/);
+    expect(fake.tags).toEqual([{ paneId: "%7", agentKey: "pi", name: seen.name, execCallsBefore: 0 }]);
+    expect(fake.couriers).toHaveLength(1);
+    expect(fake.couriers[0]).toMatchObject({ harness: "pi", name: seen.name, fromMode: "bypass" });
+    expect(fake.couriers[0]!.registration).toBe(seen.registration!);
+    expect(fake.couriers[0]!.queue).toBe(seen.queue);
+  });
+
+  test("the bridge variables reach pi and match the courier; a typed --model replaces the engine's", async () => {
+    const fake = piDeps();
+    await runAgent({ agent: "pi", passthrough: ["--model", "ollama/glm-5.3:cloud"] }, fake.deps);
+    const seen = fake.understudy[0]!;
+    expect(seen.env.IDNMA_PI_BRIDGE).toBe(piBridgeSocketPath());
+    expect(seen.env.IDNMA_PI_BRIDGE!.startsWith(`${controlDir()}/`)).toBe(true);
+    expect(seen.env.IDNMA_PI_BRIDGE_TOKEN).toMatch(/^[0-9a-f]{32}$/);
+    expect(fake.couriers[0]!.socketPath).toBe(seen.env.IDNMA_PI_BRIDGE!);
+    expect(fake.couriers[0]!.token).toBe(seen.env.IDNMA_PI_BRIDGE_TOKEN!);
+    expect(seen.argv).toEqual(["/fake/bin/pi", "-e", PI_EXTENSION_PATH, "--thinking", "high", "--model", "ollama/glm-5.3:cloud"]);
+  });
+
+  test("every refusal comes before any effect: usage error when typed, configuration error in the engine (AC-9)", async () => {
+    for (const passthrough of [["-p", "hi"], ["--mode", "rpc"], ["--help"], ["install", "npm:x"], ["--list-models"]]) {
+      const fake = piDeps();
+      const error = await runAgent({ agent: "pi", passthrough }, fake.deps).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(UsageError);
+      expect((error as Error).message).toContain(passthrough[0]!);
+      expect(fake.understudy).toHaveLength(0);
+      expect(fake.couriers).toHaveLength(0);
+      expect(fake.tags).toHaveLength(0);
+      expect(listLiveEntries()).toHaveLength(0);
+    }
+    const fromEngine = piDeps();
+    const error = await runAgent({ agent: "pi", engine: "print", passthrough: [] }, fromEngine.deps).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ConfigError);
+    expect((error as Error).message).toContain("agents.pi.engines.print");
+    expect((error as Error).message).toContain("-p fait sortir pi de sa TUI");
+    expect(fromEngine.understudy).toHaveLength(0);
+    expect(fromEngine.tags).toHaveLength(0);
+  });
+
+  test("without a bus registration: no extension, no bridge variables, and pi still starts", async () => {
+    peers.push(await startFakePeer("other", { peerProtocol: 2 }));
+    process.env.IDNMA_PI_BRIDGE = "/tmp/inherited.sock";
+    process.env.IDNMA_PI_BRIDGE_TOKEN = ["inherited", "token"].join("-");
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const fake = piDeps();
+      await runAgent({ agent: "pi", passthrough: [] }, fake.deps);
+      expect(fake.couriers).toHaveLength(0);
+      const seen = fake.understudy[0]!;
+      expect(seen.courier).toBeUndefined();
+      expect(seen.registration).toBeNull();
+      expect(seen.argv).not.toContain(PI_EXTENSION_PATH);
+      expect(seen.env.IDNMA_PI_BRIDGE).toBeUndefined();
+      expect(seen.env.IDNMA_PI_BRIDGE_TOKEN).toBeUndefined();
+    } finally {
+      stderr.mockRestore();
+    }
   });
 });

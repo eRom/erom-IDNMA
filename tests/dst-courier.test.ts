@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { buildEnvelope } from "../src/bus/envelope.ts";
 import type { InboundMessage, Priority } from "../src/bus/inbox.ts";
 import type { sendPeerMessage } from "../src/bus/send.ts";
-import { createDstCourier } from "../src/dst/courier.ts";
+import { createBridgeCourier } from "../src/bridge/courier.ts";
 import { AUTO_REPLY_MARKER, CourierUnavailableError, replyHintFor, senderNameOf, type Courier } from "../src/understudy/courier.ts";
 import { MessageQueue } from "../src/understudy/queue.ts";
 import { connectFakeDstPlugin, TEST_TOKEN, type FakeDstPlugin } from "./helpers/fake-dst-plugin.ts";
@@ -95,7 +95,8 @@ function makeCourier(o: MakeOptions = {}): Harness {
   const sent: SentReply[] = [];
   const completed: SentReply[] = [];
   const socketPath = join(dir, o.socketName ?? "bridge.sock");
-  const courier = createDstCourier({
+  const courier = createBridgeCourier({
+    harness: "dst",
     name: NAME,
     fromMode: o.fromMode ?? "prompting",
     registration,

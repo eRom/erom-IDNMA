@@ -1,5 +1,6 @@
 import { parseModelRef } from "../opencode/model.ts";
 import { dstRefusal } from "../run/dst-argv.ts";
+import { piRefusal } from "../run/pi-argv.ts";
 import { OPENCODE_SHORT_ALIASES, parseOpencodeArgv, type OpencodeArgv } from "../run/opencode-argv.ts";
 import type { Engine, Harness } from "./network.ts";
 
@@ -14,6 +15,8 @@ export const SHORT_ALIASES: Record<Harness, Record<string, string>> = {
   agy: {},
   opencode: OPENCODE_SHORT_ALIASES,
   dst: { "-c": "--continue", "-p": "--print" },
+  // Pi a des flags courts de plusieurs lettres (`-ne`, `-nt`, `-xt`) : aucun alias, sinon `-ne` passerait pour `-n e`.
+  pi: {},
 };
 
 /**
@@ -57,7 +60,7 @@ export const DST_MODEL_REASON = "dst ne prend pas de modèle au lancement ; choi
 
 export const OPENCODE_STANDALONE_REASON = "fait démarrer opencode hors de son service partagé : idnma ne pourrait plus lui livrer les messages du bus.";
 
-export type EngineIssueCode = "codex-embedded-flag" | "opencode-refused-flag" | "opencode-session-form" | "opencode-model-form" | "dst-model" | "dst-refused-flag";
+export type EngineIssueCode = "codex-embedded-flag" | "opencode-refused-flag" | "opencode-session-form" | "opencode-model-form" | "dst-model" | "dst-refused-flag" | "pi-refused-flag";
 
 export interface EngineIssue {
   code: EngineIssueCode;
@@ -132,6 +135,9 @@ export function engineIssues(engine: Engine, source: string): EngineIssue[] {
     }
     const refusal = dstRefusal(engine.options);
     if (refusal !== undefined) issues.push({ code: "dst-refused-flag", field: "options", error: "config", message: `${source} : ${refusal}` });
+  } else if (engine.harness === "pi") {
+    const refusal = piRefusal(engine.options);
+    if (refusal !== undefined) issues.push({ code: "pi-refused-flag", field: "options", error: "config", message: `${source} : ${refusal}` });
   }
   return issues;
 }

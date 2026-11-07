@@ -218,8 +218,8 @@ interface CliResult {
 /** Lance `bun src/cli.ts …` avec un environnement purgé des variables de la doublure. */
 async function cli(args: string[], codexHome: string, extraEnv: Record<string, string> = {}): Promise<CliResult> {
   const { IDNMA_NAME: _a, IDNMA_CONTROL_SOCKET: _b, IDNMA_CONTROL_TOKEN: _c, CODEX_THREAD_ID: _d, ...cleanEnv } = process.env;
-  // Claude, Grok et agy pointent vers des chemins absents du dossier temporaire : jamais le vrai ~/.claude, ~/.grok, ~/.gemini ni agy.
-  const env = { ...cleanEnv, CODEX_HOME: codexHome, CLAUDE_CONFIG_DIR: join(dir, "no-claude"), GROK_HOME: grokPath(), IDNMA_AGY_PLUGINS_DIR: join(dir, "no-agy", "plugins"), IDNMA_AGY_BIN: join(dir, "no-agy", "bin"), ...extraEnv };
+  // Claude, Grok, agy et pi pointent vers des chemins absents du dossier temporaire : jamais le vrai ~/.claude, ~/.grok, ~/.gemini, agy ni ~/.pi.
+  const env = { ...cleanEnv, CODEX_HOME: codexHome, CLAUDE_CONFIG_DIR: join(dir, "no-claude"), GROK_HOME: grokPath(), IDNMA_AGY_PLUGINS_DIR: join(dir, "no-agy", "plugins"), IDNMA_AGY_BIN: join(dir, "no-agy", "bin"), PI_CODING_AGENT_DIR: join(dir, "no-pi"), ...extraEnv };
   const child = Bun.spawn(["bun", CLI, ...args], { env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { code, stdout, stderr };
@@ -328,6 +328,40 @@ describe("idnma install / uninstall --agent", () => {
     expect((await agy("uninstall")).stdout).toBe("agy : plugin idnma absent, rien touché\n");
   });
 
+  childTest("install then uninstall --agent pi lay and remove the block and the skill in the pi agent dir (AC-8)", async () => {
+    const piDir = join(dir, "pi-agent");
+    mkdirSync(piDir);
+    const piAgents = join(piDir, "AGENTS.md");
+    const original = "# Règles de pi\nsans saut final";
+    writeFileSync(piAgents, original);
+    const pi = (command: "install" | "uninstall") => cli([command, "--agent", "pi"], dir, { PI_CODING_AGENT_DIR: piDir });
+    const piSkill = (label: string): string => ` ; skill ${GENERIC_SKILL} ${label} ${join(piDir, "skills")}`;
+
+    const installed = await pi("install");
+    expect(installed.code).toBe(0);
+    expect(installed.stdout).toBe(`pi : ligne coéquipier installée dans ${piAgents}${piSkill("installée dans")}\n`);
+    expect(readFileSync(piAgents, "utf8")).toBe(`${original}\n\n${block(TEAMMATE_START_EOL)}`);
+    expect(readFileSync(join(piDir, "skills", GENERIC_SKILL, "SKILL.md"), "utf8")).toBe(skillText(GENERIC_SKILL));
+    // Seul pi est touché : ni l'AGENTS.md de Codex.
+    expect(existsSync(agentsPath)).toBe(false);
+    expect((await pi("install")).stdout).toBe(`pi : ligne coéquipier déjà à jour dans ${piAgents}${piSkill("déjà à jour dans")}\n`);
+
+    const removed = await pi("uninstall");
+    expect(removed.code).toBe(0);
+    expect(removed.stdout).toBe(`pi : ligne coéquipier retirée de ${piAgents}${piSkill("retirée de")}\n`);
+    expect(readFileSync(piAgents, "utf8")).toBe(original);
+    expect(existsSync(join(piDir, "skills", GENERIC_SKILL))).toBe(false);
+  });
+
+  childTest("install and uninstall --agent pi without a pi agent dir report it absent and create nothing", async () => {
+    const missing = join(dir, "no-pi");
+    const installed = await cli(["install", "--agent", "pi"], dir);
+    expect(installed.code).toBe(0);
+    expect(installed.stdout).toBe(`pi : absent (${missing}), rien installé\n`);
+    expect(existsSync(missing)).toBe(false);
+    expect((await cli(["uninstall", "--agent", "pi"], dir)).stdout).toBe(`pi : absent (${missing}), rien retiré\n`);
+  });
+
   childTest("install --agent agy without agy reports it absent", async () => {
     const result = await cli(["install", "--agent", "agy"], dir);
     expect(result.code).toBe(0);
@@ -347,7 +381,7 @@ describe("idnma install / uninstall --agent", () => {
       for (const args of [[], ["--agent"], ["--agent", "gemini"], ["--agent", "codex", "extra"], ["codex"]]) {
         const result = await cli([command, ...args], dir);
         expect({ command, args, code: result.code }).toEqual({ command, args, code: 2 });
-        expect(result.stderr).toContain("agy, claude, codex, dst, grok, opencode");
+        expect(result.stderr).toContain("agy, claude, codex, dst, grok, opencode, pi");
       }
     }
     expect(existsSync(agentsPath)).toBe(false);
@@ -361,7 +395,7 @@ describe("idnma install / uninstall --agent", () => {
       const help = await cli([command, "--help"], dir);
       expect(help.code).toBe(0);
       expect(help.stdout).toContain(`idnma ${command} --agent <agent>`);
-      expect(help.stdout).toContain("agy, claude, codex, dst, grok, opencode");
+      expect(help.stdout).toContain("agy, claude, codex, dst, grok, opencode, pi");
     }
   });
 });

@@ -26,7 +26,7 @@ export interface Courier {
   /**
    * Adieux, optionnels : appelés par la doublure après la fin de l'enfant ou un signal, attente
    * bornée. Le livreur répond aux envois encore en vol et refuse sa file, puis refuse tout message
-   * qui arrive ensuite. Seul le livreur dst l'implémente ; les autres n'ont rien à dire de plus que `stop`.
+   * qui arrive ensuite. Seuls les livreurs à pont (dst, pi) l'implémentent ; les autres n'ont rien à dire de plus que `stop`.
    */
   farewell?(): Promise<void>;
 }

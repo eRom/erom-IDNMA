@@ -67,6 +67,16 @@ export function dstBridgeSocketPath(pid: number = process.pid): string {
   return join(controlDir(), `${pid}.dst.sock`);
 }
 
+/** Pont entre la doublure et l'extension idnma chargée dans Pi, à côté des sockets de contrôle. */
+export function piBridgeSocketPath(pid: number = process.pid): string {
+  return join(controlDir(), `${pid}.pi.sock`);
+}
+
+/** Dossier d'agent de Pi (`PI_CODING_AGENT_DIR`, défaut `~/.pi/agent`), où vivent son `AGENTS.md` et ses skills. */
+export function piAgentDir(): string {
+  return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+}
+
 /** Dossier de Claude Code lui-même (`CLAUDE_CONFIG_DIR`, défaut `~/.claude`), où vivent ses skills. */
 export function claudeHome(): string {
   return process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");

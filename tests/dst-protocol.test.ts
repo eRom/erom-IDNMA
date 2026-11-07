@@ -6,7 +6,7 @@ import {
   encodeFrame,
   parseCourierFrame,
   parsePluginFrame,
-} from "../src/dst/protocol.ts";
+} from "../src/bridge/protocol.ts";
 
 function collect(): { lines: string[]; overflows: number; read: (chunk: Buffer) => void } {
   const state = { lines: [] as string[], overflows: 0, read: (_chunk: Buffer) => {} };

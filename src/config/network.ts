@@ -10,7 +10,7 @@ export class ConfigError extends Error {
   }
 }
 
-export type Harness = "claude" | "codex" | "grok" | "agy" | "opencode" | "dst";
+export type Harness = "claude" | "codex" | "grok" | "agy" | "opencode" | "dst" | "pi";
 export type ForeignHarness = Exclude<Harness, "claude">;
 
 export interface Engine {
@@ -20,7 +20,7 @@ export interface Engine {
   env: Record<string, string>;
 }
 
-const HARNESSES = ["claude", "codex", "grok", "agy", "opencode", "dst"] as const satisfies readonly Harness[];
+const HARNESSES = ["claude", "codex", "grok", "agy", "opencode", "dst", "pi"] as const satisfies readonly Harness[];
 
 // Strict : une clé mal tapée (`option:` pour `options:`) serait sinon retirée en silence, et
 // l'agent démarrerait sans ses options (codex en mode prompting, sans un mot).
