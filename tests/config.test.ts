@@ -88,6 +88,8 @@ test("presets: a `<<` merge key fills an engine env, an alias reuses options, ex
       ANTHROPIC_DEFAULT_OPUS_MODEL: "kimi-k3:cloud[1m]",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "kimi-k3:cloud[1m]",
       ANTHROPIC_DEFAULT_HAIKU_MODEL: "kimi-k3:cloud[1m]",
+      CLAUDE_CODE_SUBAGENT_MODEL: "kimi-k3:cloud[1m]",
+      CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1",
     },
   });
 });
@@ -111,6 +113,7 @@ test("a claude engine routed off Anthropic fills only its missing model tiers wi
       '          ANTHROPIC_BASE_URL: "http://localhost:11434"',
       "          ANTHROPIC_DEFAULT_OPUS_MODEL: glm-pro",
       '          ANTHROPIC_DEFAULT_HAIKU_MODEL: ""',
+      '          CLAUDE_CODE_SUBAGENT_MODEL_FORCE: ""',
       "  claude:",
       "    engines:",
       "      default:",
@@ -134,8 +137,10 @@ test("a claude engine routed off Anthropic fills only its missing model tiers wi
     ANTHROPIC_DEFAULT_OPUS_MODEL: m,
     ANTHROPIC_DEFAULT_SONNET_MODEL: m,
     ANTHROPIC_DEFAULT_HAIKU_MODEL: m,
+    CLAUDE_CODE_SUBAGENT_MODEL: m,
+    CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "1",
   });
-  // Une variable posée, même vide, l'emporte sur model:.
+  // Une variable posée, même vide, l'emporte sur model:, y compris le forçage des sous-agents.
   expect(loadAgentEngine("mistral", "tiered").engine.env).toEqual({
     ANTHROPIC_BASE_URL: "http://localhost:11434",
     ANTHROPIC_MODEL: "glm-flash",
@@ -143,6 +148,8 @@ test("a claude engine routed off Anthropic fills only its missing model tiers wi
     ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-pro",
     ANTHROPIC_DEFAULT_SONNET_MODEL: "glm-flash",
     ANTHROPIC_DEFAULT_HAIKU_MODEL: "",
+    CLAUDE_CODE_SUBAGENT_MODEL: "glm-flash",
+    CLAUDE_CODE_SUBAGENT_MODEL_FORCE: "",
   });
   // Sans ANTHROPIC_BASE_URL (Claude chez Anthropic) ou hors harnais claude : rien n'est ajouté.
   expect(loadAgentEngine("claude").engine.env).toEqual({});

@@ -117,19 +117,31 @@ export function loadAgentEngine(agentKey: string, engineKey?: string): { engine:
   return { engine: withModelTierDefaults(engine), engineKey: key };
 }
 
-/** Variables par lesquelles Claude Code choisit son modèle, palier par palier. */
+/**
+ * Variables par lesquelles Claude Code choisit un modèle : la session, chaque alias de palier
+ * (`/model`, `model: sonnet` d'un agent) et les sous-agents.
+ */
 export const MODEL_TIER_VARS = [
   "ANTHROPIC_MODEL",
   "ANTHROPIC_DEFAULT_FABLE_MODEL",
   "ANTHROPIC_DEFAULT_OPUS_MODEL",
   "ANTHROPIC_DEFAULT_SONNET_MODEL",
   "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+  "CLAUDE_CODE_SUBAGENT_MODEL",
 ] as const;
 
 /**
+ * Posée, elle fait primer `CLAUDE_CODE_SUBAGENT_MODEL` sur le modèle que réclame un agent
+ * (frontmatter) ou l'outil Agent : sans elle, un identifiant complet (`claude-sonnet-5-5`) part
+ * tel quel au proxy. Absente de la doc publique, lue dans le binaire Claude Code 2.1.319.
+ */
+export const SUBAGENT_MODEL_FORCE_VAR = "CLAUDE_CODE_SUBAGENT_MODEL_FORCE";
+
+/**
  * Engine Claude routé hors d'Anthropic (son `env:` fixe `ANTHROPIC_BASE_URL`) : chaque variable de
- * palier absente de son `env:` reçoit `model:`, pour qu'aucun palier (sous-agent, `/model`) ne
- * réclame un modèle Anthropic au proxy. Une variable présente, même vide, est gardée telle quelle.
+ * modèle absente de son `env:` reçoit `model:`, et les sous-agents sont forcés sur ce modèle, pour
+ * que rien (sous-agent, `/model`, agent de plugin) ne réclame un modèle Anthropic au proxy : un
+ * agent idnma, c'est un modèle. Une variable présente, même vide, est gardée telle quelle.
  * Seul l'`env:` de l'engine compte : une variable exportée dans le shell ne bloque pas le remplissage.
  */
 export function withModelTierDefaults(engine: Engine): Engine {
@@ -137,5 +149,6 @@ export function withModelTierDefaults(engine: Engine): Engine {
   if (engine.harness !== "claude" || model === undefined || !Object.hasOwn(engine.env, "ANTHROPIC_BASE_URL")) return engine;
   const env = { ...engine.env };
   for (const name of MODEL_TIER_VARS) if (!Object.hasOwn(env, name)) env[name] = model;
+  if (!Object.hasOwn(env, SUBAGENT_MODEL_FORCE_VAR)) env[SUBAGENT_MODEL_FORCE_VAR] = "1";
   return { ...engine, env };
 }
