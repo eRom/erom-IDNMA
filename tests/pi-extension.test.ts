@@ -66,7 +66,7 @@ interface SentCall {
 /** Faux Pi : gestionnaires enregistrés, `ctx` réglable, appels de `sendMessage` relevés. */
 interface FakePi {
   api: PiApi;
-  ctx: PiContext & { idle: boolean; pending: boolean; sessionId: string };
+  ctx: PiContext & { idle: boolean; sessionId: string };
   sent: SentCall[];
   handlers: Map<string, Array<(event: unknown, ctx: PiContext) => unknown>>;
   /** Appelé dans `sendMessage`, de façon synchrone (Pi émet `before_agent_start` pendant l'appel, F5). */
@@ -86,10 +86,8 @@ function createFakePi(sessionId = "session-1"): FakePi {
     sent: [],
     ctx: {
       idle: true,
-      pending: false,
       sessionId,
       isIdle: () => fake.ctx.idle,
-      hasPendingMessages: () => fake.ctx.pending,
       sessionManager: { getSessionId: () => fake.ctx.sessionId },
     },
     api: {
@@ -111,7 +109,9 @@ function createFakePi(sessionId = "session-1"): FakePi {
       fake.emit("message_end", { message: { role: "custom", ...call.message } });
     },
     assistant(stopReason, text = "", errorMessage) {
-      const message = { role: "assistant", stopReason, content: text === "" ? [] : [{ type: "thinking", thinking: "…" }, { type: "text", text }], ...(errorMessage === undefined ? {} : { errorMessage }) };
+      const content: unknown[] = text === "" ? [] : [{ type: "thinking", thinking: "…" }, { type: "text", text }];
+      if (stopReason === "toolUse") content.push({ type: "toolCall", id: "call-1", name: "bash", arguments: { command: "sleep 20" } });
+      const message = { role: "assistant", stopReason, content, ...(errorMessage === undefined ? {} : { errorMessage }) };
       fake.emit("message_start", { message: { ...message, stopReason: "pending" } });
       fake.emit("message_end", { message });
     },
@@ -145,7 +145,7 @@ interface Rig {
   /** Texte des renvois, marque de renvoi automatique retirée. */
   replies(): string[];
   /** Charge l'extension dans `fake` et ouvre sa session, comme Pi au `session_start`. */
-  load(fake: FakePi): Promise<void>;
+  load(fake: FakePi, config?: { replaceGraceMs?: number }): Promise<void>;
 }
 
 async function startRig(): Promise<Rig> {
@@ -191,9 +191,9 @@ async function startRig(): Promise<Rig> {
       courier!.onMessage();
     },
     replies: () => sent.map((s) => s.body.slice(AUTO_REPLY_MARKER.length + 1)),
-    async load(fake) {
+    async load(fake, config = {}) {
       const before = bridgeUps();
-      createPiBridge(fake.api, { env: { IDNMA_PI_BRIDGE: socketPath, IDNMA_PI_BRIDGE_TOKEN: TOKEN }, pid: process.pid, version: "1.5.0" });
+      createPiBridge(fake.api, { env: { IDNMA_PI_BRIDGE: socketPath, IDNMA_PI_BRIDGE_TOKEN: TOKEN }, pid: process.pid, version: "1.5.0", ...config });
       fake.emit("session_start", { reason: "startup" });
       shutdowns.push(() => fake.emit("session_shutdown", { reason: "quit" }));
       await waitFor(() => bridgeUps() === before + 1, "bridge admitted");
@@ -276,10 +276,8 @@ describe("pi bridge end to end (real courier, real extension, real socket)", () 
     r.push("réponds FOLLOW-PONG", 3, "later");
     await waitFor(() => fake.sent.length === 1, "follow-up queued in pi");
     expect(fake.sent[0]!.options.deliverAs).toBe("followUp");
-    fake.ctx.pending = true;
     // L'utilisateur reçoit sa réponse, puis Pi livre le followUp dans le même run, sans agent_end entre les deux.
     fake.assistant("stop", "OK pour l'utilisateur");
-    fake.ctx.pending = false;
     fake.claim(0);
     fake.assistant("stop", "FOLLOW-PONG");
     fake.settle();
@@ -301,10 +299,8 @@ describe("pi bridge end to end (real courier, real extension, real socket)", () 
     await waitFor(() => fake.sent.length === 2, "second message delivered");
     // Pendant un tour de pair, `next` attend son tour : pas de steer.
     expect(fake.sent[1]!.options.deliverAs).toBe("followUp");
-    fake.ctx.pending = true;
 
     // Échap : l'outil est coupé, le dernier message assistant porte une erreur (F7), le followUp est jeté (F8).
-    fake.ctx.pending = false;
     fake.assistant("error", "", "This operation was aborted");
     fake.settle(true);
     await waitFor(() => r.sent.length === 2, "both senders answered");
@@ -341,12 +337,17 @@ describe("pi bridge end to end (real courier, real extension, real socket)", () 
     first.assistant("toolUse");
     r.push("deuxième question", 8, "later");
     await waitFor(() => first.sent.length === 2, "second message queued");
-    first.ctx.pending = true;
 
-    // `/new` : Pi arrête le runtime de l'extension, puis en charge un neuf sur la nouvelle session (F2).
+    // `/new`, dans l'ordre réel de Pi 1.5.0 (`teardownCurrent`) : `session_before_switch`, puis le tour est
+    // avorté (repos interrompu), puis `session_shutdown`, puis un runtime neuf sur la nouvelle session (F2).
+    first.emit("session_before_switch", { reason: "new" });
+    first.assistant("error", "", "This operation was aborted");
+    first.settle(true);
     first.emit("session_shutdown", { reason: "new" });
     await waitFor(() => r.sent.length === 1, "first sender answered");
     expect(r.replies()).toEqual([`${NAME} : réponse perdue (session fermée dans pi)`]);
+    // Aucun « écarté » ni « interrompu » : le message en file attend la nouvelle session.
+    expect(logEvents().some((entry) => entry.event === "pi-dropped" && entry.why === "discarded")).toBe(false);
 
     const second = createFakePi("session-2");
     await r.load(second);
@@ -359,6 +360,64 @@ describe("pi bridge end to end (real courier, real extension, real socket)", () 
     await waitFor(() => r.sent.length === 2, "second sender answered");
     expect(r.replies()[1]).toBe("Réponse 2");
     expect(logEvents().filter((entry) => entry.event === "pi-bridge-up").at(-1)).toMatchObject({ reconnect: true });
+  });
+
+  test("a switch cancelled by another extension: the interrupted rest is an Escape after the grace delay", async () => {
+    const r = await startRig();
+    const fake = createFakePi();
+    await r.load(fake, { replaceGraceMs: 50 });
+    r.push("lance sleep 20", 11);
+    await waitFor(() => fake.sent.length === 1, "first message delivered");
+    startRun(fake);
+    fake.claim(0);
+    fake.assistant("toolUse");
+    r.push("et ensuite", 12, "next");
+    await waitFor(() => fake.sent.length === 2, "second message delivered");
+
+    fake.emit("session_before_switch", { reason: "new" });
+    fake.assistant("error", "", "This operation was aborted");
+    fake.settle(true);
+    // Pas de `session_shutdown` : le remplacement n'a pas eu lieu.
+    await waitFor(() => r.sent.length === 2, "both senders answered after the grace delay");
+    expect(r.replies().sort()).toEqual([`${NAME} : message écarté (l'utilisateur a interrompu pi)`, `${NAME} : tour interrompu par l'utilisateur`].sort());
+  });
+
+  test("follow-ups delivered together (followUpMode all) share one answer instead of a reply without text", async () => {
+    const r = await startRig();
+    const fake = createFakePi();
+    await r.load(fake);
+    startRun(fake);
+    fake.user();
+    fake.assistant("toolUse");
+    await waitFor(() => logEvents().some((entry) => entry.event === "pi-foreground"), "state seen by the courier");
+    r.push("question deux", 13, "later");
+    r.push("question trois", 14, "later");
+    await waitFor(() => fake.sent.length === 2, "both follow-ups queued");
+    fake.assistant("stop", "réponse à l'utilisateur");
+    // Pi vide toute sa file d'un coup : deux réclamations de suite, une seule réponse.
+    fake.claim(0);
+    fake.claim(1);
+    fake.assistant("stop", "réponse à deux et trois");
+    fake.settle();
+    await waitFor(() => r.sent.length === 2, "both senders answered");
+    expect(r.replies()).toEqual(["réponse à deux et trois", "réponse à deux et trois"]);
+  });
+
+  test("a retryable error is not the end of a peer turn: a user input during the retry mixes it (m3)", async () => {
+    const r = await startRig();
+    const fake = createFakePi();
+    await r.load(fake);
+    r.push("question fragile", 15);
+    await waitFor(() => fake.sent.length === 1, "message delivered");
+    startRun(fake);
+    fake.claim(0);
+    fake.assistant("error", "", "overloaded");
+    // L'utilisateur tape pendant l'attente du nouvel essai ; Pi réessaie et répond.
+    fake.user();
+    fake.assistant("stop", "réponse après nouvel essai");
+    fake.settle();
+    await waitFor(() => r.sent.length === 1, "reply sent");
+    expect(r.replies()).toEqual([`${NAME} : tour mêlé à une entrée de l'utilisateur, pas de réponse automatique`]);
   });
 
   test("a message pi refuses goes back to its sender with pi's reason", async () => {

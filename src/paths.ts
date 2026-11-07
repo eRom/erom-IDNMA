@@ -72,9 +72,15 @@ export function piBridgeSocketPath(pid: number = process.pid): string {
   return join(controlDir(), `${pid}.pi.sock`);
 }
 
-/** Dossier d'agent de Pi (`PI_CODING_AGENT_DIR`, défaut `~/.pi/agent`), où vivent son `AGENTS.md` et ses skills. */
+/**
+ * Dossier d'agent de Pi, où vivent son `AGENTS.md` et ses skills, résolu comme Pi 1.5.0 (`getAgentDir`) :
+ * `PI_CODING_AGENT_DIR` s'il est non vide, `~` initial développé ; sinon `~/.pi/agent`.
+ */
 export function piAgentDir(): string {
-  return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+  const fromEnv = process.env.PI_CODING_AGENT_DIR;
+  if (!fromEnv) return join(homedir(), ".pi", "agent");
+  if (fromEnv === "~") return homedir();
+  return fromEnv.startsWith("~/") ? join(homedir(), fromEnv.slice(2)) : fromEnv;
 }
 
 /** Dossier de Claude Code lui-même (`CLAUDE_CONFIG_DIR`, défaut `~/.claude`), où vivent ses skills. */

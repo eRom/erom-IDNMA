@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { isChildOf } from "../bus/peer-pid.ts";
 import { ProtocolMismatchError, registerPeer, type Registration } from "../bus/register.ts";
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -417,7 +418,18 @@ export async function runAgent(a: RunArgs, deps: Partial<RunDeps> = {}): Promise
     const token = randomBytes(16).toString("hex");
     childEnv = { ...baseEnv, IDNMA_PI_BRIDGE: socketPath, IDNMA_PI_BRIDGE_TOKEN: token };
     childArgv = ["-e", PI_EXTENSION_PATH, ...childArgv];
-    courier = d.createBridgeCourier({ harness: "pi", name, fromMode, registration: registered, queue, socketPath, token });
+    // Seul le process de Pi, enfant direct de la doublure (son lanceur fait `exec`), rejoint le pont : une
+    // commande du bash de Pi hérite du jeton mais descend d'un cran plus bas, elle est refusée.
+    courier = d.createBridgeCourier({
+      harness: "pi",
+      name,
+      fromMode,
+      registration: registered,
+      queue,
+      socketPath,
+      token,
+      isAllowedPeer: (pid) => pid !== undefined && isChildOf(pid, process.pid),
+    });
   } else if (harness === "pi") {
     const { IDNMA_PI_BRIDGE: _bridge, IDNMA_PI_BRIDGE_TOKEN: _token, ...withoutBridge } = baseEnv;
     childEnv = withoutBridge;

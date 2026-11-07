@@ -128,5 +128,9 @@ describe("piRefusal", () => {
 
   test("accepts the flags that keep pi interactive", () => {
     expect(piRefusal(["--thinking", "high", "-c", "-ne", "-nt", "-xt", "bash", "--no-session", "--offline", "fix the bug"])).toBeUndefined();
+    // `--mode text` garde la TUI ; json et rpc en sortent.
+    expect(piRefusal(["--mode", "text", "--thinking", "high"])).toBeUndefined();
+    expect(piRefusal(["--mode=text"])).toBeUndefined();
+    expect(piRefusal(["--mode", "rpc"])).toContain("--mode rpc");
   });
 });

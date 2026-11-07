@@ -24,9 +24,10 @@ interface PiMessage {
   errorMessage?: unknown;
 }
 
+// `hasPendingMessages()` n'est pas lu : il ne compte que les entrées en file de l'utilisateur, jamais les
+// messages d'extension (`agent-session.js` de Pi 1.5.0, `pendingMessageCount`).
 export interface PiContext {
   isIdle(): boolean;
-  hasPendingMessages(): boolean;
   sessionManager: { getSessionId(): string };
 }
 
@@ -49,9 +50,14 @@ export interface PiBridgeConfig {
   pid?: number;
   /** Version de Pi annoncée dans `hello` (défaut : lue au mieux dans le paquet de Pi). */
   version?: string;
+  /**
+   * Délai laissé à `session_shutdown` après un repos interrompu qui suit `session_before_switch` ou
+   * `session_before_fork` (défaut 2 000 ms). Passé ce délai, le remplacement a été annulé : c'est un Échap.
+   */
+  replaceGraceMs?: number;
 }
 
-type Owner = "peer" | "user" | "unknown";
+type Owner = "peer" | "user";
 
 /** Un message livré par nous, suivi jusqu'à sa réclamation ou sa perte. */
 interface Delivery {
@@ -67,18 +73,22 @@ interface Delivery {
 interface Segment {
   turn: number;
   owner: Owner;
-  /** Id du followUp des nôtres dont la réponse revient à l'expéditeur. */
-  trackedId?: string;
+  /**
+   * Ids des followUp des nôtres dont la réponse revient à leur expéditeur. Plusieurs quand Pi en livre
+   * plusieurs d'un coup (réglage `followUpMode: "all"`) : une même réponse leur revient à tous.
+   */
+  trackedIds: string[];
   mixed: boolean;
   /** Rôles des entrées étrangères réclamées pendant le segment. */
   sources: Set<string>;
-  /** Dernier message assistant du segment. */
-  last?: { stopReason: string; text: string; error?: string };
+  /** Dernier message assistant du segment ; `tools` : il appelle des outils, la boucle continue. */
+  last?: { stopReason: string; text: string; tools: boolean; error?: string };
 }
 
-// Entrées de l'utilisateur : liste fermée (F9). Les messages custom d'autres extensions et les résumés
-// (compaction, branche) n'en sont pas : ils ne mêlent pas le tour.
-const USER_ROLES: ReadonlySet<string> = new Set(["user", "bashExecution"]);
+// Entrées de l'utilisateur : liste fermée (F9), seul `user` passe par `message_start` (un `!cmd` entre dans
+// la session sans cet événement). Les messages custom d'autres extensions et les résumés (compaction,
+// branche) n'en sont pas : ils ne mêlent pas le tour.
+const USER_ROLES: ReadonlySet<string> = new Set(["user"]);
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
@@ -105,8 +115,15 @@ const textOf = (message: PiMessage): string => {
     .join("");
 };
 
-/** Un message assistant qui n'appelle plus d'outil : la réponse du segment est complète (F6). */
-const isFinal = (segment: Segment): boolean => segment.last !== undefined && segment.last.stopReason !== "toolUse" && segment.last.stopReason !== "pending";
+/**
+ * La réponse du segment est complète (F6) : un message assistant sans appel d'outil, terminé normalement
+ * ou coupé par la limite de tokens. Une erreur peut être réessayée et un abandon se lit au repos de Pi :
+ * ni l'un ni l'autre ne clôt le segment avant `agent_settled`.
+ */
+const isFinal = (segment: Segment): boolean =>
+  segment.last !== undefined && !segment.last.tools && (segment.last.stopReason === "stop" || segment.last.stopReason === "length");
+
+const hasToolCall = (message: PiMessage): boolean => Array.isArray(message.content) && message.content.some((block) => asRecord(block)?.type === "toolCall");
 
 /** Version de Pi, au mieux : remonte depuis `process.argv[1]` jusqu'au `package.json` du paquet de Pi. */
 function readPiVersion(): string | undefined {
@@ -183,59 +200,79 @@ export function createPiBridge(pi: PiApi, config: PiBridgeConfig = {}): void {
 
   const openSegment = (owner: Owner, trackedId?: string): Segment => {
     turns += 1;
-    segment = { turn: turns, owner, mixed: false, sources: new Set(), ...(trackedId === undefined ? {} : { trackedId }) };
+    segment = { turn: turns, owner, trackedIds: trackedId === undefined ? [] : [trackedId], mixed: false, sources: new Set() };
     return segment;
   };
 
-  /** Si le segment suivait un followUp des nôtres, envoie son `result` (spec §2, D5) et clôt son suivi. */
-  const reportSegment = (closing: Segment, aborted: boolean): void => {
-    if (closing.trackedId === undefined) return;
-    const last = closing.last;
-    let reason: string;
-    let cause: string | undefined;
-    if (aborted) {
-      reason = "aborted";
-      cause = "user";
-    } else {
-      switch (last?.stopReason) {
-        case "stop":
-          reason = "completed";
-          break;
-        case "length":
-          reason = "max-tokens";
-          break;
-        case "error":
-          reason = "error";
-          break;
-        case "aborted":
-          reason = "aborted";
-          cause = "user";
-          break;
-        default:
-          reason = "interrupted";
-      }
+  /** Comment un segment se termine : naturellement (au segment suivant ou au repos), par un abandon, ou avec son runtime. */
+  type Ending = "natural" | "aborted" | "disposed";
+
+  /** Raison de fin (spec §2, D5) : l'abandon se lit au repos de Pi (F7), le reste sur le dernier message assistant. */
+  const reasonOf = (closing: Segment, ending: Ending): { reason: string; cause?: string } => {
+    if (ending === "disposed") return { reason: "disposed" };
+    if (ending === "aborted") return { reason: "aborted", cause: "user" };
+    switch (closing.last?.stopReason) {
+      case "stop":
+        return { reason: "completed" };
+      case "length":
+        return { reason: "max-tokens" };
+      case "error":
+        return { reason: "error" };
+      case "aborted":
+        return { reason: "aborted", cause: "user" };
+      default:
+        return { reason: "interrupted" };
     }
-    const frame: ResultFrame = { type: "result", id: closing.trackedId, turn: closing.turn, reason, mixed: closing.mixed, sources: [...closing.sources] };
-    if (cause !== undefined) frame.cause = cause;
-    if (last !== undefined && last.text.trim() !== "") frame.text = last.text;
-    if (reason === "error" && last?.error !== undefined) frame.error = { message: last.error };
-    deliveries.delete(closing.trackedId);
-    send(frame);
   };
 
-  const closeSegment = (aborted: boolean): void => {
+  /** Envoie le `result` de chaque followUp des nôtres que le segment suivait, et clôt leur suivi. */
+  const reportSegment = (closing: Segment, ending: Ending): void => {
+    const { reason, cause } = reasonOf(closing, ending);
+    const last = closing.last;
+    for (const id of closing.trackedIds) {
+      const frame: ResultFrame = { type: "result", id, turn: closing.turn, reason, mixed: closing.mixed, sources: [...closing.sources] };
+      if (cause !== undefined) frame.cause = cause;
+      if (ending !== "disposed" && last !== undefined && last.text.trim() !== "") frame.text = last.text;
+      if (reason === "error" && last?.error !== undefined) frame.error = { message: last.error };
+      deliveries.delete(id);
+      send(frame);
+    }
+  };
+
+  const closeSegment = (ending: Ending): void => {
     const closing = segment;
     segment = undefined;
-    if (closing !== undefined) reportSegment(closing, aborted);
+    if (closing !== undefined) reportSegment(closing, ending);
   };
 
-  /** Chaque message des nôtres jamais réclamé est rendu à la doublure avec `why`. */
-  const dropUnclaimed = (why: DroppedReason): void => {
-    for (const [id, delivery] of deliveries) {
-      if (delivery.claimed) continue;
+  /** Rend à la doublure, avec `why`, chaque message des nôtres de `ids` (tous par défaut) encore jamais réclamé. */
+  const dropUnclaimed = (why: DroppedReason, ids: Iterable<string> = [...deliveries.keys()]): void => {
+    for (const id of ids) {
+      const delivery = deliveries.get(id);
+      if (delivery === undefined || delivery.claimed) continue;
       deliveries.delete(id);
       send({ type: "dropped", id, why });
     }
+  };
+
+  // --- Remplacement de session ------------------------------------------------------------------
+  // `/new`, `/resume` et `/fork` émettent `session_before_switch` ou `session_before_fork`, puis Pi avorte le
+  // tour en cours (`agent_settled` avec `aborted`) AVANT `session_shutdown` (`agent-session-runtime.js` de
+  // Pi 1.5.0, `teardownCurrent`). Ce repos interrompu n'est pas un Échap : le segment et les messages non
+  // réclamés sont mis de côté pour `session_shutdown`, qui les rend comme `disposed` (relivrés à la nouvelle
+  // session). Si `session_shutdown` ne vient pas (remplacement annulé par une autre extension), c'était un Échap.
+
+  let replacing = false;
+  let parked: { segment: Segment | undefined; unclaimed: string[]; timer: ReturnType<typeof setTimeout> } | undefined;
+  const replaceGraceMs = config.replaceGraceMs ?? 2000;
+
+  const releaseParked = (ending: "aborted" | "disposed"): void => {
+    const aside = parked;
+    if (aside === undefined) return;
+    parked = undefined;
+    clearTimeout(aside.timer);
+    if (aside.segment !== undefined) reportSegment(aside.segment, ending);
+    dropUnclaimed(ending === "aborted" ? "discarded" : "disposed", aside.unclaimed);
   };
 
   /** Mode de livraison (spec §2, D4) : au repos ou après une réponse complète, un tour à la suite. */
@@ -284,9 +321,18 @@ export function createPiBridge(pi: PiApi, config: PiBridgeConfig = {}): void {
       const delivery = typeof id === "string" ? deliveries.get(id) : undefined;
       if (delivery === undefined || typeof id !== "string") return; // message d'une autre instance de l'extension
       delivery.claimed = true;
-      if (delivery.mode === "followup" || segment === undefined || isFinal(segment)) {
-        closeSegment(false);
-        openSegment("peer", delivery.mode === "followup" ? id : undefined);
+      if (delivery.mode === "followup") {
+        if (segment !== undefined && segment.last === undefined) {
+          // Pi a livré plusieurs entrées d'un coup (`followUpMode: "all"`) : une même réponse pour toutes.
+          segment.trackedIds.push(id);
+          if (segment.owner === "user") segment.mixed = true;
+        } else {
+          closeSegment("natural");
+          openSegment("peer", id);
+        }
+      } else if (segment === undefined || isFinal(segment)) {
+        closeSegment("natural");
+        openSegment("peer");
       }
       send({ type: "claimed", id, turn: segment!.turn });
       if (delivery.mode === "steer") deliveries.delete(id); // réglé : le rappel de réponse passe par `idnma peer send`
@@ -294,7 +340,7 @@ export function createPiBridge(pi: PiApi, config: PiBridgeConfig = {}): void {
     }
     if (!USER_ROLES.has(role)) return;
     if (segment === undefined || isFinal(segment)) {
-      closeSegment(false);
+      closeSegment("natural");
       openSegment("user");
       return;
     }
@@ -305,25 +351,40 @@ export function createPiBridge(pi: PiApi, config: PiBridgeConfig = {}): void {
   const onMessageEnd = (message: PiMessage | undefined): void => {
     if (message?.role !== "assistant" || segment === undefined) return;
     const stopReason = typeof message.stopReason === "string" ? message.stopReason : "";
-    segment.last = { stopReason, text: textOf(message), ...(typeof message.errorMessage === "string" ? { error: message.errorMessage } : {}) };
+    segment.last = { stopReason, text: textOf(message), tools: hasToolCall(message), ...(typeof message.errorMessage === "string" ? { error: message.errorMessage } : {}) };
   };
 
-  /** Pi au repos (F7) : fin du segment, puis ce qu'Échap a jeté sans le dire (F8). */
+  /**
+   * Pi au repos (F7) : fin du segment. Après Échap, Pi jette nos messages en file sans le dire (F8) : ils
+   * sont rendus `discarded`. Sans abandon, un message non réclamé reste suivi : Pi vide sa file avant de
+   * se reposer (F6), et un message arrivé pendant le repos ouvre son tour juste après.
+   */
   const onSettled = (event: { aborted?: unknown }, context: PiContext): void => {
     const aborted = event.aborted === true;
-    closeSegment(aborted);
-    if (!context.hasPendingMessages()) dropUnclaimed(aborted ? "discarded" : "no-agent");
+    if (aborted && replacing && parked === undefined) {
+      const unclaimed = [...deliveries].filter(([, delivery]) => !delivery.claimed).map(([id]) => id);
+      const timer = setTimeout(() => {
+        try {
+          replacing = false;
+          releaseParked("aborted");
+        } catch {
+          sendError("listener-failed");
+        }
+      }, replaceGraceMs);
+      timer.unref();
+      parked = { segment, unclaimed, timer };
+      segment = undefined;
+    } else {
+      closeSegment(aborted ? "aborted" : "natural");
+      if (aborted) dropUnclaimed("discarded");
+    }
     publishState(context, true);
   };
 
   /** Fin du runtime (`/new`, `/resume`, `/fork`, `/reload`, sortie) : tout ce qui est suivi est rendu (D6). */
   const onShutdown = (): void => {
-    const closing = segment;
-    segment = undefined;
-    if (closing?.trackedId !== undefined) {
-      deliveries.delete(closing.trackedId);
-      send({ type: "result", id: closing.trackedId, turn: closing.turn, reason: "disposed", mixed: closing.mixed, sources: [...closing.sources] });
-    }
+    releaseParked("disposed");
+    closeSegment("disposed");
     dropUnclaimed("disposed");
     closed = true;
     socket?.end();
@@ -390,6 +451,12 @@ export function createPiBridge(pi: PiApi, config: PiBridgeConfig = {}): void {
   on("message_start", (event) => onMessageStart(asRecord(asRecord(event)?.message)));
   on("message_end", (event) => onMessageEnd(asRecord(asRecord(event)?.message)));
   on("agent_settled", (event, context) => onSettled(event, context));
+  on("session_before_switch", () => {
+    replacing = true;
+  });
+  on("session_before_fork", () => {
+    replacing = true;
+  });
   on("session_shutdown", () => onShutdown());
 }
 

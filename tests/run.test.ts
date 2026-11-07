@@ -1753,6 +1753,16 @@ describe("runAgent pi", () => {
     expect(fake.couriers[0]).toMatchObject({ harness: "pi", name: seen.name, fromMode: "bypass" });
     expect(fake.couriers[0]!.registration).toBe(seen.registration!);
     expect(fake.couriers[0]!.queue).toBe(seen.queue);
+    // Le pont n'admet que l'enfant direct de la doublure (le process de Pi).
+    const admit = fake.couriers[0]!.isAllowedPeer!;
+    const child = Bun.spawn(["sleep", "30"]);
+    try {
+      expect(admit(child.pid)).toBe(true);
+      expect(admit(process.pid)).toBe(false);
+      expect(admit(undefined)).toBe(false);
+    } finally {
+      child.kill();
+    }
   });
 
   test("the bridge variables reach pi and match the courier; a typed --model replaces the engine's", async () => {

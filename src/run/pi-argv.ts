@@ -7,7 +7,7 @@
 export const PI_SUBCOMMANDS: readonly string[] = ["install", "remove", "uninstall", "update", "list", "config", "auth", "mcp"];
 
 // Flags qui font sortir Pi de sa TUI ou le font quitter tout de suite.
-const NON_INTERACTIVE = new Set(["-p", "--print", "--mode", "--export", "--list-models", "-h", "--help", "-v", "--version"]);
+const NON_INTERACTIVE = new Set(["-p", "--print", "--export", "--list-models", "-h", "--help", "-v", "--version"]);
 
 // Flags à valeur (jeton suivant, ou `--x=v`). `--list-models` et `--export` sont refusés avant d'en lire une.
 const VALUE_FLAGS = new Set([
@@ -40,7 +40,7 @@ const VALUE_FLAGS = new Set([
 const NON_INTERACTIVE_REASON = "fait sortir pi de sa TUI : l'extension idnma n'aurait plus de tour à ouvrir dans ce pane.";
 
 /**
- * Pourquoi cet argv n'a pas sa place dans un pane du bus, ou `undefined` : `-p`/`--print`, `--mode`,
+ * Pourquoi cet argv n'a pas sa place dans un pane du bus, ou `undefined` : `-p`/`--print`, `--mode` autre que `text`,
  * `--export`, `--list-models`, `-h`/`--help`, `-v`/`--version`, ou une sous-commande de `pi` en premier
  * positionnel. La valeur d'un flag à valeur n'est pas un positionnel ; après `--`, tout en est un.
  */
@@ -61,6 +61,13 @@ export function piRefusal(argv: string[]): string | undefined {
       continue;
     }
     const name = token.startsWith("--") ? token.split("=", 1)[0]! : token;
+    if (name === "--mode") {
+      // `--mode text` garde la TUI quand stdin et stdout sont des terminaux (doc cli.md) : seuls json et rpc en sortent.
+      const value = token.includes("=") ? token.slice(token.indexOf("=") + 1) : argv[i + 1];
+      if (!token.includes("=")) i += 1;
+      if (value !== "text") return `--mode ${value ?? "sans valeur"} ${NON_INTERACTIVE_REASON}`;
+      continue;
+    }
     if (NON_INTERACTIVE.has(name)) return `${name} ${NON_INTERACTIVE_REASON}`;
     if (VALUE_FLAGS.has(name) && !token.includes("=")) i += 1;
   }

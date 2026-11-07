@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { peerSocketPath, socketsDir } from "../src/paths.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { peerSocketPath, piAgentDir, socketsDir } from "../src/paths.ts";
 
 // Règle du dossier des sockets, relevée dans le binaire de Claude Code 2.1.317 (macOS et Linux).
-const ENV_KEYS = ["IDNMA_SOCKETS_DIR", "XDG_RUNTIME_DIR", "CLAUDE_CODE_TMPDIR", "TMPDIR"] as const;
+const ENV_KEYS = ["IDNMA_SOCKETS_DIR", "XDG_RUNTIME_DIR", "CLAUDE_CODE_TMPDIR", "TMPDIR", "PI_CODING_AGENT_DIR"] as const;
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -51,4 +53,14 @@ test("peerSocketPath keeps a 103-byte path and falls back to /tmp/cc-socks-<uid>
   // Un octet de plus : repli.
   process.env.XDG_RUNTIME_DIR = `/${"x".repeat(103 - suffix.length)}`;
   expect(peerSocketPath(pid)).toBe(`/tmp/cc-socks-${uid}/${pid}.sock`);
+});
+
+test("piAgentDir resolves like Pi: PI_CODING_AGENT_DIR when not empty, a leading ~ expanded, else ~/.pi/agent", () => {
+  expect(piAgentDir()).toBe(join(homedir(), ".pi", "agent"));
+  process.env.PI_CODING_AGENT_DIR = "";
+  expect(piAgentDir()).toBe(join(homedir(), ".pi", "agent"));
+  process.env.PI_CODING_AGENT_DIR = "~/pi-elsewhere";
+  expect(piAgentDir()).toBe(join(homedir(), "pi-elsewhere"));
+  process.env.PI_CODING_AGENT_DIR = "/tmp/pi-agent";
+  expect(piAgentDir()).toBe("/tmp/pi-agent");
 });
