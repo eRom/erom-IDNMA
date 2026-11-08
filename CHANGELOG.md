@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/eRom/erom-IDNMA/compare/v0.7.2...v0.7.3) (2026-11-08)
+
+
+### Bug Fixes
+
+* **installer:** report an unreachable repository instead of exiting silently ([#16](https://github.com/eRom/erom-IDNMA/issues/16)) ([7d37975](https://github.com/eRom/erom-IDNMA/commit/7d37975860bc99820feae27b0013cb4dd97ef19f))
+
 ## [0.7.2](https://github.com/eRom/erom-IDNMA/compare/v0.7.1...v0.7.2) (2026-11-08)
 
 
