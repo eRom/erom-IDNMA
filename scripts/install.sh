@@ -82,10 +82,6 @@ check_platform() {
       ;;
     Linux)
       PLATFORM=linux
-      # Le verrou du bus charge libc.so.6 : une libc musl (Alpine) ne l'a pas.
-      if compgen -G '/lib/ld-musl-*' >/dev/null; then
-        die "IdnmA needs a glibc-based Linux; musl distributions such as Alpine are not supported yet."
-      fi
       ;;
     *) die "IdnmA supports macOS and Linux only (found $(uname -s))." ;;
   esac
@@ -99,6 +95,14 @@ check_requirements() {
   local bun_version
   bun_version=$(bun --version)
   version_at_least "$bun_version" "$MIN_BUN" || die "Bun $MIN_BUN or later is required (found $bun_version)." "Upgrade it with: bun upgrade"
+}
+
+# Le verrou du bus (src/naming/lock.ts) charge flock dans libc.so.6 sous Linux. On teste ce
+# chargement lui-même plutôt que la présence de musl : une Ubuntu avec musl-tools reste glibc.
+check_libc() {
+  [ "$PLATFORM" = "linux" ] || return 0
+  bun -e 'require("bun:ffi").dlopen("libc.so.6", { flock: { args: ["i32", "i32"], returns: "i32" } })' >/dev/null 2>&1 ||
+    die "IdnmA needs glibc (libc.so.6) on Linux; musl distributions such as Alpine are not supported yet."
 }
 
 # Dernier tag de release du dépôt, sans passer par l'API GitHub (pas de limite de débit).
@@ -154,6 +158,7 @@ main() {
   local home=${IDNMA_HOME:-$HOME/.idnma}
   check_platform
   check_requirements
+  check_libc
 
   # Dossier où `bun link` pose la commande. `bun pm bin -g` échoue sur un Bun neuf, sans
   # package.json global : on retombe alors sur les variables de Bun, puis sur son défaut.
@@ -186,7 +191,7 @@ main() {
   esac
   printf '\nNext steps:\n'
   printf '  1. Describe your agents:  idnma configure\n'
-  printf '  2. Connect each harness:  idnma install --agent <claude|codex|grok|agy|opencode|dst>\n'
+  printf '  2. Connect each harness:  idnma install --agent <claude|codex|grok|agy|opencode|dst|pi>\n'
   printf '  3. Inside a tmux pane:    idnma run <agent>\n'
   if [ "$PLATFORM" = "linux" ]; then
     printf '\nOn Linux, only the claude and codex harnesses are supported for now.\n'
