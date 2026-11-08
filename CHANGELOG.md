@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/eRom/erom-IDNMA/compare/v0.7.1...v0.7.2) (2026-11-08)
+
+
+### Bug Fixes
+
+* **installer:** support glibc-based Linux in the one-line installer ([#14](https://github.com/eRom/erom-IDNMA/issues/14)) ([a4ee486](https://github.com/eRom/erom-IDNMA/commit/a4ee4869eab7342b6bee9eddcfef508cdbadfd50))
+
 ## [0.7.1](https://github.com/eRom/erom-IDNMA/compare/v0.7.0...v0.7.1) (2026-11-07)
 
 
