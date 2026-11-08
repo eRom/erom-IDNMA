@@ -107,7 +107,9 @@ check_libc() {
 
 # Dernier tag de release du dépôt, sans passer par l'API GitHub (pas de limite de débit).
 latest_tag() {
-  git ls-remote --tags --refs --sort=-v:refname "$1" 'v*' 2>/dev/null | head -n 1 | sed 's#.*refs/tags/##'
+  # sed lit toute la sortie : un `head -n 1` fermerait le tube et, sous pipefail, le SIGPIPE de git
+  # ferait passer une liste de tags trouvée pour un échec.
+  git ls-remote --tags --refs --sort=-v:refname "$1" 'v*' 2>/dev/null | sed -n '1s#.*refs/tags/##p'
 }
 
 # Refuse de reprendre une commande `idnma` liée à un autre checkout : les hooks déjà posés
@@ -167,7 +169,8 @@ main() {
 
   local ref=${IDNMA_VERSION:-}
   if [ -z "$ref" ]; then
-    ref=$(latest_tag "$repo")
+    # Sans le `|| ref=""`, l'échec de git ls-remote (réseau coupé) tuerait le script en silence sous set -e.
+    ref=$(latest_tag "$repo") || ref=""
     [ -n "$ref" ] || die "Could not find a release of $repo." "Check your network, or set IDNMA_VERSION."
   fi
 
