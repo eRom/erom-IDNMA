@@ -330,7 +330,7 @@ bun test            # full suite
 bun run typecheck
 ```
 
-Understudy log: `~/.config/idema/logs/idnma.log`, one JSON line per event. Design notes (in French): [`docs/superpowers/specs/2026-10-26-idnma-design.md`](docs/superpowers/specs/2026-10-26-idnma-design.md).
+Understudy log: `~/.config/idema/logs/idnma.log`, one JSON line per event.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:` and `fix:` drive the next version and the changelog.
 
