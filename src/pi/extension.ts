@@ -2,7 +2,6 @@
 // Elle rejoint le pont de la doublure (socket Unix, une trame JSON par ligne, protocole de
 // `../bridge/protocol.ts`), remet chaque message de pair à Pi (`pi.sendMessage`, en `followUp` ou en
 // `steer`) et rapporte ce qu'il en advient. Sans `IDNMA_PI_BRIDGE` et son jeton, elle ne fait rien.
-// Spec : docs/superpowers/specs/2026-11-07-idnma-pi-design.md (§1 faits sondés, §2 décisions).
 // Pi la charge par jiti : elle n'importe que `node:` et le protocole, et ne lève jamais vers Pi.
 import { readFileSync, realpathSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
