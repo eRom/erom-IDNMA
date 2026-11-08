@@ -33,9 +33,17 @@ jobs:
 
   # Le vrai installeur, joué sur le commit testé : clone, dépendances figées, bun link, config.
   installer:
-    name: Installer (macOS 26)
-    runs-on: macos-26
+    name: Installer (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            label: macOS 26
+          - os: ubuntu-latest
+            label: Linux
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,10 +51,14 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
-      - name: Install tmux
-        run: brew install tmux
+      - name: Install tmux and shellcheck (macOS)
+        if: runner.os == 'macOS'
+        run: brew install tmux shellcheck
+      - name: Install tmux and shellcheck (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux shellcheck
       - name: Lint the installer
-        run: brew install shellcheck && shellcheck scripts/install.sh
+        run: shellcheck scripts/install.sh
       # Un tag local rend le commit testé clonable par son nom, même quand c'est le commit de fusion d'une PR.
       - name: Tag the commit under test
         run: git tag ci-under-test
