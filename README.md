@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/eRom/erom-IDNMA/releases/latest"><img alt="Dernière version" src="https://img.shields.io/github/v/release/eRom/erom-IDNMA?include_prereleases&label=version&color=4c8bf5"></a>
   <img alt="macOS 26 et plus, Apple Silicon" src="https://img.shields.io/badge/macOS-Silicon-111111?logo=apple">
-  <img alt="Linux arm64" src="https://img.shields.io/badge/Linux-arm64-E95420?logo=linux&logoColor=yellow">
+  <img alt="Linux glibc, arm64 et x86_64" src="https://img.shields.io/badge/Linux-glibc-E95420?logo=linux&logoColor=yellow">
   <a href="LICENSE"><img alt="Licence MIT" src="https://img.shields.io/badge/licence-MIT-2ea44f"></a>
 </p>
 
@@ -51,14 +51,14 @@ When idle, nothing runs: zero tokens, zero polling, no screen scraping.
 
 ## Requirements
 
-- macOS 26 or later, or Linux for Claude and Codex (see below), [Bun](https://bun.sh) 1.4+, and tmux: each agent lives in a pane.
+- macOS 26 or later, or a glibc-based Linux for Claude and Codex (see below), [Bun](https://bun.sh) 1.4+, and tmux: each agent lives in a pane.
 - The harnesses you want to connect. Measured versions: Claude Code 2.1.310, Codex 0.164.0, Grok 1.0.70, agy 1.4.7, opencode 2.2.0, dst 0.17.0 (`dsh` kernel 0.2.1-rc.3), Pi 1.5.0.
 - For dst: the `dst` command on your `PATH`, and `/setup` completed once inside dst.
 - For Pi: the `pi` command on your `PATH`, and the provider of your models known to Pi. For Ollama, `ollama launch pi --config` writes it into `~/.pi/agent/models.json`.
 
 Claude's peer protocol is versioned (`peerProtocol: 1`); an understudy refuses to register if it sees another version.
 
-Linux is supported for Claude Code and Codex, measured on Ubuntu 24.04 with Claude Code 2.1.317 and Codex 0.166.0 (both agents tested on arm64; the unit tests also run on x86_64 in CI). Grok, agy, opencode, dst and Pi have not been probed on Linux yet. The one-line installer below is macOS only: on Linux, use the manual installation.
+Linux is supported for Claude Code and Codex, measured on Ubuntu 24.04 with Claude Code 2.1.317 and Codex 0.166.0 (both agents tested on arm64, Claude also on x86_64 with Claude Code 2.1.319; the unit tests and the installer also run on x86_64 in CI). Grok, agy, opencode, dst and Pi have not been probed on Linux yet.
 
 ## Installation
 
@@ -66,7 +66,7 @@ Linux is supported for Claude Code and Codex, measured on Ubuntu 24.04 with Clau
 curl -fsSL https://erom.cloud/install_idnma.sh | bash
 ```
 
-The installer checks macOS, Bun, tmux and git, clones the latest release into `~/.idnma`, installs the locked dependencies and links the `idnma` command. It never creates or touches `~/.idnma.yml`: you write it with `idnma configure` (see [Configure your agents](#configure-your-agents)). It installs no prerequisite itself: when one is missing, it says which and how to get it. Optional variables:
+The installer runs on macOS and on glibc-based Linux (musl distributions such as Alpine are not supported). It checks the platform, Bun, tmux and git, clones the latest release into `~/.idnma`, installs the locked dependencies and links the `idnma` command. It never creates or touches `~/.idnma.yml`: you write it with `idnma configure` (see [Configure your agents](#configure-your-agents)). It installs no prerequisite itself: when one is missing, it says which and how to get it. Optional variables:
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -129,15 +129,6 @@ Run the installer again: it moves the same checkout to the latest release, and r
 ```sh
 curl -fsSL https://erom.cloud/install_idnma.sh | bash
 idnma --version   # matches the release tag, without the leading v
-```
-
-On Linux, update the checkout by hand:
-
-```sh
-cd ~/.idnma
-git fetch --tags
-git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"
-bun install --frozen-lockfile --production
 ```
 
 ### Uninstalling

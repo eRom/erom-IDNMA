@@ -50,22 +50,59 @@ version_at_least() {
   return 0
 }
 
+# Plateforme détectée par check_platform : "macos" ou "linux".
+PLATFORM=""
+
+# Commande d'installation d'un prérequis, dans la langue du gestionnaire de paquets de la machine.
+install_hint() {
+  local pkg=$1
+  if [ "$PLATFORM" = "macos" ]; then
+    case "$pkg" in
+      git) printf 'xcode-select --install' ;;
+      *) printf 'brew install %s' "$pkg" ;;
+    esac
+  elif command -v apt-get >/dev/null 2>&1; then
+    printf 'sudo apt-get install -y %s' "$pkg"
+  elif command -v dnf >/dev/null 2>&1; then
+    printf 'sudo dnf install -y %s' "$pkg"
+  elif command -v pacman >/dev/null 2>&1; then
+    printf 'sudo pacman -S %s' "$pkg"
+  else
+    printf "your distribution's package manager (package: %s)" "$pkg"
+  fi
+}
+
 check_platform() {
-  [ "$(uname -s)" = "Darwin" ] || die "This installer supports macOS only." \
-    "On Linux, follow the manual installation: https://github.com/eRom/erom-IDNMA#installation"
-  local macos
-  macos=$(sw_vers -productVersion)
-  version_at_least "$macos" "$MIN_MACOS_MAJOR.0" || die "IdnmA needs macOS $MIN_MACOS_MAJOR or later (found $macos)."
+  case "$(uname -s)" in
+    Darwin)
+      PLATFORM=macos
+      local macos
+      macos=$(sw_vers -productVersion)
+      version_at_least "$macos" "$MIN_MACOS_MAJOR.0" || die "IdnmA needs macOS $MIN_MACOS_MAJOR or later (found $macos)."
+      ;;
+    Linux)
+      PLATFORM=linux
+      ;;
+    *) die "IdnmA supports macOS and Linux only (found $(uname -s))." ;;
+  esac
 }
 
 check_requirements() {
-  command -v git >/dev/null 2>&1 || die "git is required." "Install it with: xcode-select --install"
-  command -v tmux >/dev/null 2>&1 || die "tmux is required: each agent runs in a tmux pane." "Install it with: brew install tmux"
+  command -v git >/dev/null 2>&1 || die "git is required." "Install it with: $(install_hint git)"
+  command -v tmux >/dev/null 2>&1 || die "tmux is required: each agent runs in a tmux pane." "Install it with: $(install_hint tmux)"
   command -v bun >/dev/null 2>&1 || die "Bun $MIN_BUN or later is required." "Install it with: curl -fsSL https://bun.sh/install | bash" \
     "then open a new terminal and run this installer again."
   local bun_version
   bun_version=$(bun --version)
   version_at_least "$bun_version" "$MIN_BUN" || die "Bun $MIN_BUN or later is required (found $bun_version)." "Upgrade it with: bun upgrade"
+}
+
+# Le verrou du bus (src/naming/lock.ts) charge flock dans libc.so.6 sous Linux. On teste ce
+# chargement lui-même plutôt que la présence de musl : une Ubuntu avec musl-tools reste glibc.
+check_libc() {
+  [ "$PLATFORM" = "linux" ] || return 0
+  bun -e 'require("bun:ffi").dlopen("libc.so.6", { flock: { args: ["i32", "i32"], returns: "i32" } })' >/dev/null 2>&1 ||
+    die "IdnmA needs glibc (libc.so.6) on Linux; musl distributions such as Alpine are not supported yet."
 }
 
 # Dernier tag de release du dépôt, sans passer par l'API GitHub (pas de limite de débit).
@@ -121,6 +158,7 @@ main() {
   local home=${IDNMA_HOME:-$HOME/.idnma}
   check_platform
   check_requirements
+  check_libc
 
   # Dossier où `bun link` pose la commande. `bun pm bin -g` échoue sur un Bun neuf, sans
   # package.json global : on retombe alors sur les variables de Bun, puis sur son défaut.
@@ -153,8 +191,12 @@ main() {
   esac
   printf '\nNext steps:\n'
   printf '  1. Describe your agents:  idnma configure\n'
-  printf '  2. Connect each harness:  idnma install --agent <claude|codex|grok|agy|opencode|dst>\n'
+  printf '  2. Connect each harness:  idnma install --agent <claude|codex|grok|agy|opencode|dst|pi>\n'
   printf '  3. Inside a tmux pane:    idnma run <agent>\n'
+  if [ "$PLATFORM" = "linux" ]; then
+    printf '\nOn Linux, only the claude and codex harnesses are supported for now.\n'
+    printf 'Codex installed with bun or npm needs Node; see Known limitations in the docs.\n'
+  fi
   printf '\nDocs: https://github.com/eRom/erom-IDNMA\n'
 }
 
