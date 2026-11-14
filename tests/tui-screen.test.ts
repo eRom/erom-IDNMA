@@ -1,5 +1,7 @@
-import { homedir } from "node:os";
-import { describe, expect, test } from "bun:test";
+import { mkdtempSync, existsSync, readFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import type { ConfigOption, PermissionRequest } from "../src/acp/events.ts";
 import { type Action, initialState, reduce, type SessionState } from "../src/tui/state.ts";
@@ -70,7 +72,7 @@ const PERMISSION: PermissionRequest = {
 
 // ---- montage ----
 
-async function mount(options: { width?: number; height?: number; cwd?: string; branch?: string; now?: () => number } = {}) {
+async function mount(options: { width?: number; height?: number; cwd?: string; branch?: string; now?: () => number; platform?: NodeJS.Platform; pbcopy?: (text: string) => boolean } = {}) {
   // Comme `openScreen` : ⌃C n'arrête pas le moteur, c'est une intention de l'écran.
   const setup = await createTestRenderer({ width: options.width ?? 104, height: options.height ?? 31, kittyKeyboard: true, exitOnCtrlC: false });
   const intents: Array<{ intent: Intent; input: string }> = [];
@@ -80,6 +82,8 @@ async function mount(options: { width?: number; height?: number; cwd?: string; b
     ...(options.branch === undefined ? {} : { branch: options.branch }),
     handlers: { onIntent: (intent, input) => intents.push({ intent, input }) },
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.platform === undefined ? {} : { platform: options.platform }),
+    ...(options.pbcopy === undefined ? {} : { pbcopy: options.pbcopy }),
   });
   return { ...setup, screen, intents };
 }
@@ -966,6 +970,113 @@ describe("input history", () => {
       mounted.mockInput.pressEnter();
       await mounted.renderOnce();
       expect(mounted.intents).toEqual([{ intent: "submit", input: "third prompt" }]);
+    });
+  });
+});
+
+describe("copy on mouse release", () => {
+  let configDir: string;
+  let previousConfigDir: string | undefined;
+
+  beforeEach(() => {
+    previousConfigDir = process.env.IDNMA_CONFIG_DIR;
+    configDir = mkdtempSync(join(tmpdir(), "idnma-copy-"));
+    process.env.IDNMA_CONFIG_DIR = configDir;
+  });
+
+  afterEach(() => {
+    if (previousConfigDir === undefined) delete process.env.IDNMA_CONFIG_DIR;
+    else process.env.IDNMA_CONFIG_DIR = previousConfigDir;
+  });
+
+  function copyLogs(): Array<Record<string, unknown>> {
+    const path = join(configDir, "logs", "idnma.log");
+    if (!existsSync(path)) return [];
+    return readFileSync(path, "utf8")
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((line) => line.event === "unified-copy");
+  }
+
+  /** L'événement que le moteur émet au relâchement de la souris. */
+  function release(mounted: Mounted, text: string): void {
+    mounted.renderer.emit("selection", { getSelectedText: () => text });
+  }
+
+  function countingOsc52(mounted: Mounted, result = true): string[] {
+    const sent: string[] = [];
+    mounted.renderer.copyToClipboardOSC52 = (text: string) => {
+      sent.push(text);
+      return result;
+    };
+    return sent;
+  }
+
+  test("on macOS the selection goes to pbcopy, never to OSC 52, and one line is logged without the text", async () => {
+    const copied: string[] = [];
+    await withScreen({ platform: "darwin", pbcopy: (text) => (copied.push(text), true) }, async (mounted) => {
+      const osc52 = countingOsc52(mounted);
+      release(mounted, "secret words");
+      expect(copied).toEqual(["secret words"]);
+      expect(osc52).toEqual([]);
+      expect(copyLogs()).toHaveLength(1);
+      expect(copyLogs()[0]).toMatchObject({ event: "unified-copy", length: 12, via: "pbcopy", ok: true });
+      expect(readFileSync(join(configDir, "logs", "idnma.log"), "utf8")).not.toContain("secret words");
+    });
+  });
+
+  test("elsewhere the selection goes through OSC 52 and the log carries its result", async () => {
+    const copied: string[] = [];
+    await withScreen({ platform: "linux", pbcopy: (text) => (copied.push(text), true) }, async (mounted) => {
+      const osc52 = countingOsc52(mounted, false);
+      release(mounted, "hello");
+      expect(osc52).toEqual(["hello"]);
+      expect(copied).toEqual([]);
+      expect(copyLogs()[0]).toMatchObject({ length: 5, via: "osc52", ok: false });
+    });
+  });
+
+  test("an empty selection copies nothing and logs nothing", async () => {
+    const copied: string[] = [];
+    await withScreen({ platform: "darwin", pbcopy: (text) => (copied.push(text), true) }, async (mounted) => {
+      release(mounted, "");
+      expect(copied).toEqual([]);
+      expect(copyLogs()).toEqual([]);
+    });
+  });
+
+  test("a failing or throwing copier is logged as not ok and never thrown", async () => {
+    await withScreen({ platform: "darwin", pbcopy: () => false }, async (mounted) => {
+      release(mounted, "abc");
+      expect(copyLogs()[0]).toMatchObject({ via: "pbcopy", ok: false, length: 3 });
+    });
+    await withScreen(
+      {
+        platform: "darwin",
+        pbcopy: () => {
+          throw new Error("spawn failed");
+        },
+      },
+      async (mounted) => {
+        expect(() => release(mounted, "abcd")).not.toThrow();
+        expect(copyLogs()[1]).toMatchObject({ via: "pbcopy", ok: false, length: 4 });
+      },
+    );
+  });
+
+  test("dragging over thread text and releasing hands that text to the copier", async () => {
+    const copied: string[] = [];
+    await withScreen({ platform: "darwin", pbcopy: (text) => (copied.push(text), true) }, async (mounted) => {
+      const frame = await show(mounted, withAgentText(withUser(base(), "pick this sentence please"), "agent answer"), "agent answer");
+      const row = rowsOf(frame).findIndex((line) => line.includes("pick this sentence please"));
+      expect(row).toBeGreaterThan(0);
+      const column = rowsOf(frame)[row]!.indexOf("pick");
+      await mounted.mockMouse.drag(column, row, column + 9, row);
+      await mounted.renderOnce();
+      expect(copied).toHaveLength(1);
+      expect(copied[0]).toContain("pick this");
+      expect(copyLogs()[0]).toMatchObject({ via: "pbcopy", ok: true });
     });
   });
 });

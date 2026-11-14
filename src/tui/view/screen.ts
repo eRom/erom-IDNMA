@@ -1,6 +1,7 @@
 // Écran unifié plein écran : en-tête, fil défilant, saisie multiligne, ligne d'état.
 // Seul `src/tui/view/` importe OpenTUI ; aucun type d'OpenTUI ne sort d'ici, hors l'option `renderer` de `createScreen`.
 import { homedir } from "node:os";
+import { logEvent } from "../../log.ts";
 import { BoxRenderable, type CliRenderer, createCliRenderer, SyntaxStyle, TextareaRenderable, TextRenderable, bold, fg, t } from "@opentui/core";
 import { fitStatusLeft, headerParts, statusHints } from "../format.ts";
 import { type Context, type Intent, intentOf } from "../keys.ts";
@@ -45,6 +46,10 @@ export interface ScreenOptions {
   handlers: ScreenHandlers;
   /** Horloge des durées d'outil ; injectable pour des tests déterministes. */
   now?: () => number;
+  /** Système de l'hôte, `process.platform` par défaut ; injectable pour tester les deux chemins de copie. */
+  platform?: NodeJS.Platform;
+  /** Copie vers `pbcopy` ; injectable pour que les tests ne touchent jamais le vrai presse-papiers. Rend vrai si la copie a réussi. */
+  pbcopy?: (text: string) => boolean;
 }
 
 const SCROLL_INTENTS: ReadonlySet<Intent> = new Set(["scrollPageUp", "scrollPageDown", "scrollTop", "scrollBottom"]);
@@ -100,6 +105,12 @@ function statusDot(status: Status) {
     case "exited":
       return fg(ACCENT.red)("●");
   }
+}
+
+/** Copie dans le presse-papiers de macOS : `pbcopy` sans shell, le texte sur son entrée standard, jamais sur la ligne de commande. */
+function pbcopyText(text: string): boolean {
+  const result = Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(text), stdout: "ignore", stderr: "ignore" });
+  return result.exitCode === 0;
 }
 
 /** Le dossier de départ s'écrit `~`. */
@@ -356,9 +367,20 @@ export function createScreen(options: ScreenOptions): Screen {
   };
   renderer.keyInput.on("keypress", onKeypress);
 
+  // Sélection relâchée : sur macOS `pbcopy` (OSC 52 est souvent muet sous tmux et `copyToClipboardOSC52` ne dit rien
+  // quand le moteur le croit non pris en charge), ailleurs OSC 52. Un échec est journalisé, jamais levé.
+  const viaPbcopy = (options.platform ?? process.platform) === "darwin";
+  const pbcopy = options.pbcopy ?? pbcopyText;
   const onSelection = (selection: { getSelectedText(): string }): void => {
     const selected = selection.getSelectedText();
-    if (selected !== "") renderer.copyToClipboardOSC52(selected);
+    if (selected === "") return;
+    let ok = false;
+    try {
+      ok = viaPbcopy ? pbcopy(selected) : renderer.copyToClipboardOSC52(selected);
+    } catch {
+      ok = false;
+    }
+    logEvent("unified-copy", { length: selected.length, via: viaPbcopy ? "pbcopy" : "osc52", ok });
   };
   renderer.on("selection", onSelection);
   const onResize = (): void => layoutStatusLeft();
