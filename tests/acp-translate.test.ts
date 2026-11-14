@@ -199,7 +199,7 @@ describe("translateUpdate", () => {
     const text = (value: string) => [{ type: "content", content: { type: "text", text: value } }];
     const outputOf = (rawOutput: unknown, content?: unknown) => toolOf({ rawOutput, ...(content ? { content } : {}) }).rawOutput;
     expect(outputOf({ metadata: { status: "completed", truncated: false, exit: 0 } }, text("-rw-r--r--@ 1 u  wheel  0 probe.txt\n"))).toBe("-rw-r--r--@ 1 u  wheel  0 probe.txt\n");
-    expect(outputOf({ type: "Bash", output: [111, 107, 10], output_for_prompt: "ok\n" }, text("ok\n"))).toBe("ok\n");
+    expect(outputOf({ type: "Bash", output: [111, 107, 10], output_for_prompt: "exit: 0\nok\n" }, text("shown\n"))).toBe("shown\n");
     expect(outputOf({ metadata: {} })).toBe('{"metadata":{}}');
     expect(outputOf({ metadata: {} }, [])).toBe('{"metadata":{}}');
     expect(outputOf({ metadata: {} }, text(""))).toBe("");
@@ -215,7 +215,18 @@ describe("translateUpdate", () => {
 
   test("a grok output_for_prompt is taken when there is no content", () => {
     expect(toolOf({ rawOutput: { type: "Bash", output: [111, 107, 10], output_for_prompt: "ok\n" } }).rawOutput).toBe("ok\n");
-    expect(toolOf({ rawOutput: { type: "Bash", output: [], output_for_prompt: "ok\n" }, content: [{ type: "content", content: { type: "text", text: "other" } }] }).rawOutput).toBe("ok\n");
+  });
+
+  test("a grok final frame shows its text content, not the exit line of output_for_prompt", () => {
+    const rawOutput = { type: "Bash", output: [111, 107, 10], output_for_prompt: "exit: 0\nok\n", exit_code: 0 };
+    const event = toolOf({ status: "completed", rawOutput, content: [{ type: "content", content: { type: "text", text: "ok\n" } }] });
+    expect(event.rawOutput).toBe("ok\n");
+  });
+
+  test("an output_for_prompt gives way to a non-empty content but beats an empty one", () => {
+    const emptyText = [{ type: "content", content: { type: "text", text: "" } }];
+    expect(toolOf({ rawOutput: { output_for_prompt: "from prompt\n" }, content: emptyText }).rawOutput).toBe("from prompt\n");
+    expect(toolOf({ rawOutput: { output_for_prompt: "from prompt\n" }, content: [{ type: "content", content: { type: "text", text: "from content\n" } }] }).rawOutput).toBe("from content\n");
   });
 
   test("a plan keeps its entries and skips an unknown status", () => {

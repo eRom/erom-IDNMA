@@ -36,7 +36,9 @@ export function textOfContent(block: ContentBlock): string {
 /**
  * Sortie brute d'un outil : chaîne telle quelle, champ `output` d'un objet (forme agy).
  * Un autre objet (métadonnées d'opencode, sortie en octets de Grok) se résout dans l'ordre :
- * son `output_for_prompt` (Grok), puis le contenu texte de la même mise à jour même vide (jamais de JSON dans ce cas), puis JSON.
+ * son `output`, puis le contenu texte de la même mise à jour s'il n'est pas vide (le `output_for_prompt` de Grok
+ * y ajoute une ligne `exit: 0`), puis son `output_for_prompt`, puis le contenu texte même vide (jamais de JSON
+ * dans ce cas), puis JSON.
  */
 function rawOutputText(raw: unknown, content: { text: string } | undefined): string | undefined {
   if (raw === undefined || raw === null) return undefined;
@@ -44,6 +46,7 @@ function rawOutputText(raw: unknown, content: { text: string } | undefined): str
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const output = (raw as { output?: unknown }).output;
     if (typeof output === "string") return output;
+    if (content && content.text !== "") return content.text;
     const forPrompt = (raw as { output_for_prompt?: unknown }).output_for_prompt;
     if (typeof forPrompt === "string") return forPrompt;
     if (content) return content.text;
