@@ -50,7 +50,7 @@ export interface LaunchPlan {
   harness: UnifiedHarness;
   label: string;
   delivery: DeliveryRule;
-  /** L'agent approuve lui-même ses permissions (`--auto` d'opencode, `--always-approve` de Grok). */
+  /** Vrai pour `--auto` d'opencode : idnma répond lui-même « allow once » à chaque demande de permission. */
   autoApprove: boolean;
   peerMode: PeerModeRule;
   argv: string[];
@@ -137,7 +137,7 @@ type FlagAction =
   | { kind: "step"; category: ConfigStep["category"] }
   /** Flag sans valeur qui pose un réglage de mode. */
   | { kind: "mode"; value: string }
-  /** Flag sans valeur : l'agent approuve ses permissions lui-même. */
+  /** Flag sans valeur qui dispense de demander les permissions (`--auto` d'opencode, `--always-approve` de Grok). */
   | { kind: "approve" }
   | { kind: "continue" }
   /** `--x <id>` reprend cette session ; sans valeur, reprend la dernière. */
@@ -289,6 +289,12 @@ function translateProfileTokens(harness: ProfileHarness, tokens: string[], engin
   return { steps, ignored, resume, approve };
 }
 
+/** Désigne à l'adaptateur le binaire de l'agent du PATH, sauf si l'env le fixe déjà. */
+function setAgentExecutable(env: Record<string, string>, profile: HarnessProfile, executable: string | undefined): void {
+  const name = profile.agentBinary?.env;
+  if (name !== undefined && env[name] === undefined && executable !== undefined) env[name] = executable;
+}
+
 /**
  * Traduit un engine et les flags tapés en plan de lancement. Un flag tapé remplace celui de l'engine
  * exactement comme en mode natif (`buildHarnessArgv`). Lève `UsageError` pour `-r`/`--resume` sans identifiant
@@ -313,14 +319,14 @@ export function buildLaunchPlan(o: {
   if (harness !== "claude" && harness !== "agy") {
     const { steps, ignored, resume, approve } = translateProfileTokens(harness, tokens, o.engine.model);
     const env = { ...o.env };
-    const agentEnv = profile.agentBinary?.env;
-    if (agentEnv !== undefined && env[agentEnv] === undefined && o.agentExecutable !== undefined) env[agentEnv] = o.agentExecutable;
+    setAgentExecutable(env, profile, o.agentExecutable);
     const { argv, peerMode } = profileLaunch(harness, o.binary, approve, env);
     return {
       harness,
       label: profile.label,
       delivery: profile.delivery,
-      autoApprove: approve,
+      // Grok honore `--always-approve` lui-même (argv) : idnma ne répond à rien pour lui, seul opencode le demande.
+      autoApprove: harness === "opencode" && approve,
       peerMode,
       argv,
       env,
@@ -329,7 +335,6 @@ export function buildLaunchPlan(o: {
       resume,
     };
   }
-
 
   const steps = new Map<ConfigStep["category"], ConfigStep>();
   const ignored: string[] = [];
@@ -433,8 +438,7 @@ export function buildLaunchPlan(o: {
     };
   }
 
-  const agentEnv = profile.agentBinary?.env;
-  if (agentEnv !== undefined && env[agentEnv] === undefined && o.agentExecutable !== undefined) env[agentEnv] = o.agentExecutable;
+  setAgentExecutable(env, profile, o.agentExecutable);
   const meta = (extraArgs: Record<string, string | null>): Record<string, unknown> => ({
     systemPrompt: { append: PEER_INSTRUCTION },
     claudeCode: { options: { extraArgs: { ...extraArgs, settings: JSON.stringify(CLAUDE_SESSION_SETTINGS) } } },

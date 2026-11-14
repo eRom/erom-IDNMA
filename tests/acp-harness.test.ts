@@ -308,7 +308,7 @@ describe("grok launch plan", () => {
       ["thought_level", "high"],
     ]);
     expect(p.peerMode).toEqual({ kind: "fixed", mode: "bypass" });
-    expect(p.autoApprove).toBe(true);
+    expect(p.autoApprove).toBe(false);
   });
 
   test("grok without --always-approve prompts", () => {
