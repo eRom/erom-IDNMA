@@ -26,7 +26,7 @@ import type { Screen, ScreenHandlers } from "../tui/view/screen.ts";
 import { controlSocketPath, idnmaNesting, startControlServer, type ControlCall, type ControlResponse } from "../understudy/control.ts";
 import { MessageQueue } from "../understudy/queue.ts";
 import { createPeerDelivery, type PeerDelivery } from "./peer-delivery.ts";
-import { missingAdapterMessage, notConnectedMessage } from "./preflight.ts";
+import { missingAdapterMessage, missingAgentMessage, notConnectedMessage } from "./preflight.ts";
 
 export interface UnifiedDeps {
   probe?: PaneProbe;
@@ -59,7 +59,6 @@ const defaultDeps: UnifiedDeps = {
 };
 
 const EXIT_SIGNALS = ["SIGHUP", "SIGTERM", "SIGINT", "SIGQUIT"] as const;
-const BYPASS_MODE = "bypassPermissions";
 const CANCELLED: PermissionAnswer = { outcome: "cancelled" };
 const LOG_HINT = "détail dans ~/.config/idema/logs/idnma.log";
 
@@ -105,16 +104,21 @@ interface PermissionSlot {
 export async function runUnified(o: { agentKey: string; engine: Engine; passthrough: string[]; deps?: Partial<UnifiedDeps> }): Promise<number> {
   const d: UnifiedDeps = { ...defaultDeps, ...o.deps };
   const { agentKey, engine } = o;
-  const harness = engine.harness;
-  if (harness !== "claude" && harness !== "agy") throw new ConfigError(`Le mode unifié ne vaut que pour ${UNIFIED_HARNESSES.join(", ")} (harnais ${harness}).`);
+  if (!(UNIFIED_HARNESSES as readonly string[]).includes(engine.harness)) {
+    throw new ConfigError(`Le mode unifié ne vaut que pour ${UNIFIED_HARNESSES.join(", ")} (harnais ${engine.harness}).`);
+  }
+  const harness: UnifiedHarness = engine.harness;
+  const profile = HARNESS_PROFILES[harness];
 
   // Toute erreur de résolution de l'env, de pane ou de binaire part avant le moindre effet.
   const resolvedEnv = resolveEnv(engine.env, process.env);
   assertOwnPane(d.probe);
-  const binary = d.which(HARNESS_PROFILES[harness].launchBinary);
+  const binary = d.which(profile.launchBinary);
   if (binary === null) throw new ConfigError(missingAdapterMessage(harness));
+  // Le binaire de l'agent que l'adaptateur pilote : obligatoire pour codex et pi, au mieux pour claude.
+  const agentExecutable = profile.agentBinary === undefined ? null : d.which(profile.agentBinary.name);
+  if (profile.agentBinary?.required === true && agentExecutable === null) throw new ConfigError(missingAgentMessage(harness));
   // Les contrôles ci-dessus ne se propagent pas aux fonctions déclarées plus bas : valeurs figées ici.
-  const unifiedHarness: UnifiedHarness = harness;
   const adapterPath: string = binary;
   const paneId = (d.probe?.env ?? process.env).TMUX_PANE;
 
@@ -287,6 +291,13 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
         resolve(CANCELLED);
         return;
       }
+      // `--auto` d'opencode : idnma répond lui-même « allow once », sans carte. Sans ce choix, la carte s'affiche.
+      const autoChoice = plan?.autoApprove === true ? request.choices.find((choice) => choice.kind === "allow_once") : undefined;
+      if (autoChoice !== undefined) {
+        logEvent("unified-auto-approve", { kind: "allow_once" });
+        resolve({ outcome: "selected", optionId: autoChoice.optionId });
+        return;
+      }
       const slot: PermissionSlot = { request, resolve, done: false };
       // ⌃C annule toutes les demandes dans la même boucle : la suivante n'est présentée qu'après, et seulement si l'une
       // d'elles a été retirée seule par l'agent (sinon elle est déjà close et plus rien n'attend).
@@ -373,8 +384,9 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
   function nextMode(): Promise<void> | undefined {
     const option = state.options.find((candidate) => candidate.category === "mode");
     if (option === undefined) return undefined;
-    // Le cycle saute `bypassPermissions` : il ne s'atteint que par le panneau des réglages ou l'engine.
-    const values = option.values.map((value) => value.value).filter((value) => value !== BYPASS_MODE);
+    // Le cycle saute la valeur « tout autorisé » du harnais : elle ne s'atteint que par le panneau des réglages ou l'engine.
+    const bypassValue = plan?.peerMode.kind === "option" ? plan.peerMode.bypassValue : undefined;
+    const values = option.values.map((value) => value.value).filter((value) => value !== bypassValue);
     const next = values[(values.indexOf(option.currentValue) + 1) % Math.max(values.length, 1)];
     return next === undefined || next === option.currentValue ? undefined : changeOption("mode", next);
   }
@@ -510,8 +522,10 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
   }
 
   function fromMode(): FromMode {
-    if (plan?.harness === "agy") return plan.argv.includes("--dangerously-skip-permissions") ? "bypass" : "prompting";
-    return state.options.find((option) => option.category === "mode")?.currentValue === BYPASS_MODE ? "bypass" : "prompting";
+    const rule = plan?.peerMode;
+    if (rule === undefined) return "prompting";
+    if (rule.kind === "fixed") return rule.mode;
+    return state.options.find((option) => option.category === "mode")?.currentValue === rule.bypassValue ? "bypass" : "prompting";
   }
 
   // ---- démarrage ----
@@ -577,9 +591,8 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
       });
       assertNotExiting();
 
-      const agentExecutable = unifiedHarness === "claude" ? d.which("claude") : null;
       const launchPlan = buildLaunchPlan({
-        harness: unifiedHarness,
+        harness,
         binary: adapterPath,
         engine,
         passthrough: o.passthrough,
@@ -647,12 +660,19 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
       const ignoredTokens = [...launchPlan.ignored, ...opened.ignored];
       for (const token of ignoredTokens) {
         // Seul claude-agent-acp traite `/remote-control` : sur agy, le drapeau ignoré n'a pas de remplaçant.
-        const instead = unifiedHarness === "claude" && token === "--remote-control" ? " (type /remote-control instead)" : "";
+        const instead = harness === "claude" && token === "--remote-control" ? " (type /remote-control instead)" : "";
         state = reduce(state, { type: "notice", text: `Ignored in unified mode: ${token}${instead}`, tone: "info" });
       }
       if (ignoredTokens.length > 0) logEvent("unified-ignored", { flags: flagNamesOf(ignoredTokens) });
       if (opened.noPreviousSession) state = reduce(state, { type: "notice", text: "No previous session in this folder: new session.", tone: "info" });
-      if (opened.resumed && opened.replayed === 0) state = reduce(state, { type: "notice", text: "The agent replayed nothing from this session.", tone: "info" });
+      if (opened.listUnavailable) state = reduce(state, { type: "notice", text: `No session list from ${launchPlan.label}: new session.`, tone: "info" });
+      if (opened.resumeUnavailable) state = reduce(state, { type: "notice", text: `${launchPlan.label} cannot resume a session: new session.`, tone: "info" });
+      if (opened.resumed && opened.resumeMethod === "resume") {
+        // `session/resume` ne rejoue rien par construction : l'agent garde le contexte, le fil reste vide.
+        state = reduce(state, { type: "notice", text: `${launchPlan.label} does not replay past exchanges: the agent keeps the context, the screen starts empty.`, tone: "info" });
+      } else if (opened.resumed && opened.replayed === 0) {
+        state = reduce(state, { type: "notice", text: "The agent replayed nothing from this session.", tone: "info" });
+      }
 
       // Le pane reste marqué pour IdemA ; un échec n'empêche rien.
       if (paneId !== undefined) {
