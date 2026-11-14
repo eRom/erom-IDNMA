@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ConfigOption } from "../src/acp/events.ts";
-import { fitStatusLeft, formatTokens, headerParts, statusHints, truncateLines } from "../src/tui/format.ts";
+import { fitOneRow, fitStatusLeft, formatTokens, headerParts, statusHints, truncateLines } from "../src/tui/format.ts";
 import { type Action, initialState, reduce, type SessionState } from "../src/tui/state.ts";
 
 function run(actions: Action[], from: SessionState = initialState("alice")): SessionState {
@@ -117,6 +117,19 @@ test("while a held card is open the suffix counts the other held messages only, 
   // Une permission en attente ne rouvre aucune carte : le compteur reste entier.
   const permission = run([{ type: "turnStarted" }, { type: "permission", request: { toolCallId: "t", title: "x", choices: [{ optionId: "a", name: "Allow", kind: "allow_once" }] } }, { type: "heldCount", queued: 3 }]);
   expect(statusHints(permission)).toBe("↑↓ Select  ·  ⏎ Confirm  ·  esc Reject  ·  3 held  ·  ⌃R Open");
+});
+
+test("fitOneRow keeps what fits, cuts the rest with an ellipsis inside the room and measures screen columns", () => {
+  expect(fitOneRow("short", 20)).toBe("short");
+  expect(fitOneRow("exactly ten", 11)).toBe("exactly ten");
+  expect(fitOneRow("one two three four", 10)).toBe("one two t…");
+  expect(Bun.stringWidth(fitOneRow("x".repeat(300), 40))).toBe(40);
+  // Deux colonnes par caractère large : jamais de dépassement, jamais de moitié de caractère.
+  const wide = fitOneRow("日本語のコマンド", 7);
+  expect(wide).toBe("日本語…");
+  expect(Bun.stringWidth(wide)).toBeLessThanOrEqual(7);
+  expect(fitOneRow("abc", 0)).toBe("");
+  expect(fitOneRow("abc", 1)).toBe("…");
 });
 
 test("the status line's left part keeps the branch whole and cuts the path from its start", () => {

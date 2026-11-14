@@ -3,12 +3,16 @@
 // garde les références des items inchangés). Seul `src/tui/view/` importe OpenTUI.
 import { BoxRenderable, type CliRenderer, MarkdownRenderable, type Renderable, ScrollBoxRenderable, type StyledText, type SyntaxStyle, TextRenderable, bold, fg, t } from "@opentui/core";
 import type { SessionState, ThreadItem } from "../state.ts";
-import { truncateLines } from "../format.ts";
+import { fitOneRow, truncateLines } from "../format.ts";
 import { ACCENT, LABEL, SURFACE } from "../theme.ts";
 
 const DIFF_LINES = 12;
 const OUTPUT_LINES = 5;
 const THOUGHT_LINES = 3;
+/** Marge gauche et droite du contenu du fil. */
+const THREAD_MARGINS = 2;
+/** `Message  from ` : ce que la rangée d'un pair écrit avant l'expéditeur. */
+const PEER_LABEL_COLUMNS = 14;
 
 type ToolItem = Extract<ThreadItem, { kind: "tool" }>;
 
@@ -97,9 +101,23 @@ function buildUser(renderer: CliRenderer, id: string, marginTop: number, item: E
 
 function buildPeer(renderer: CliRenderer, id: string, marginTop: number, item: Extract<ThreadItem, { kind: "peer" }>): ItemView {
   const root = column(renderer, id, marginTop);
-  root.add(text(renderer, t`${bold(fg(LABEL.strong)("Message"))}  from ${plain(item.from)}`, LABEL.primary));
+  const from = plain(item.from);
+  const headContent = (shownFrom: string) => t`${bold(fg(LABEL.strong)("Message"))}  from ${shownFrom}`;
+  // Une seule rangée : l'expéditeur cède sa fin à `…` (marges du fil, puis « Message  from »).
+  const head = text(renderer, headContent(""), LABEL.primary, { flexShrink: 1, wrapMode: "none" });
+  root.add(head);
   root.add(text(renderer, plain(item.text), LABEL.secondary, { marginLeft: 2 }));
-  return { source: item, root };
+  let shownFrom: string | undefined;
+  return {
+    source: item,
+    root,
+    refresh() {
+      const fitted = fitOneRow(from, renderer.width - THREAD_MARGINS - PEER_LABEL_COLUMNS);
+      if (fitted === shownFrom) return;
+      shownFrom = fitted;
+      head.content = headContent(fitted);
+    },
+  };
 }
 
 function buildAgent(renderer: CliRenderer, syntaxStyle: SyntaxStyle, id: string, marginTop: number, item: Extract<ThreadItem, { kind: "agent" }>): ItemView {
@@ -148,8 +166,10 @@ function buildTool(renderer: CliRenderer, id: string, marginTop: number, item: T
   const root = column(renderer, id, marginTop);
   const head = new BoxRenderable(renderer, { flexDirection: "row", justifyContent: "space-between", flexShrink: 0, ...CLEAR });
   const title = plain(item.title.split("\n")[0] ?? "");
-  const headContent = (color: string) => t`${fg(color)("●")} ${bold(fg(LABEL.strong)(plain(item.name)))}  ${title}`;
-  const left = text(renderer, headContent(LABEL.disabled), LABEL.primary, { flexShrink: 1 });
+  const name = plain(item.name);
+  const headContent = (color: string, shownTitle: string) => t`${fg(color)("●")} ${bold(fg(LABEL.strong)(name))}  ${shownTitle}`;
+  // Une seule rangée : le titre se coupe par `…` (le calcul est dans `refresh`, qui connaît la méta et la largeur).
+  const left = text(renderer, headContent(LABEL.disabled, ""), LABEL.primary, { flexShrink: 1, wrapMode: "none" });
   const right = text(renderer, "", LABEL.tertiary, { marginLeft: 2, wrapMode: "none" });
   head.add(left);
   head.add(right);
@@ -166,22 +186,26 @@ function buildTool(renderer: CliRenderer, id: string, marginTop: number, item: T
   }
 
   let shownColor: string | undefined;
+  let shownTitle: string | undefined;
   let shownMeta: string | undefined;
   return {
     source: item,
     root,
     refresh(env) {
-      const color = dotColor(item, env.pendingToolId);
-      if (color !== shownColor) {
-        left.content = headContent(color);
-        shownColor = color;
-      }
       const started = seenAt(item.id);
       // Un outil annulé le dit à la place de sa méta : rien ne le distingue autrement d'un outil terminé.
       const meta = item.status === "cancelled" ? "cancelled" : item.meta !== "" ? item.meta : isRunning(item) && item.id !== env.pendingToolId && started !== undefined ? `${Math.max(0, Math.floor((env.now - started) / 1000))}s` : "";
       if (meta !== shownMeta) {
         right.content = meta;
         shownMeta = meta;
+      }
+      // Largeur de la rangée moins le point et son espace, le nom et ses deux espaces, l'écart de la méta et la méta.
+      const fitted = fitOneRow(title, renderer.width - THREAD_MARGINS - (2 + Bun.stringWidth(name) + 2) - (2 + Bun.stringWidth(meta)));
+      const color = dotColor(item, env.pendingToolId);
+      if (color !== shownColor || fitted !== shownTitle) {
+        left.content = headContent(color, fitted);
+        shownColor = color;
+        shownTitle = fitted;
       }
     },
   };

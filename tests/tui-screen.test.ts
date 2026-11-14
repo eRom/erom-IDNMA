@@ -135,6 +135,11 @@ function spanOf(mounted: Mounted, text: string): { fg: number[]; bg: number[] } 
 }
 
 /** Lignes d'une image, sans la ligne vide que laisse le saut de ligne final. */
+async function frameOf(mounted: Mounted): Promise<string> {
+  await mounted.renderOnce();
+  return mounted.captureCharFrame();
+}
+
 function rowsOf(frame: string): string[] {
   return frame.replace(/\n$/, "").split("\n");
 }
@@ -855,6 +860,133 @@ describe("status line fit", () => {
       expect(line).toContain("project");
       expect(line).toContain("⏎ Send");
       expect(line).toContain("…");
+    });
+  });
+});
+
+describe("input padding", () => {
+  const isBlank = (line: string | undefined): boolean => line !== undefined && line.trim() === "";
+
+  test("at rest the input has one padded row above and below the prompt row, on the input surface", async () => {
+    await withScreen({}, async (mounted) => {
+      const rows = rowsOf(await show(mounted, base()));
+      expect(rows).toHaveLength(31);
+      expect(rows.at(-1)).toContain("⏎ Send");
+      expect(rows.at(-3)).toContain("❯ Message");
+      expect(isBlank(rows.at(-2))).toBe(true);
+      expect(isBlank(rows.at(-4))).toBe(true);
+      const spans = mounted.captureSpans().lines;
+      for (const index of [27, 28, 29]) expect(spans[index]?.spans.every((span) => span.bg.toInts().join() === hexInts(SURFACE.input).join())).toBe(true);
+      expect(spans[26]?.spans.every((span) => span.bg.toInts().join() === hexInts(SURFACE.input).join())).toBe(false);
+    });
+  });
+
+  test("header and status line stay on one row at 104 x 31 and the thread gives the room", async () => {
+    await withScreen({}, async (mounted) => {
+      const rows = rowsOf(await show(mounted, base()));
+      expect(rows[0]).toContain("claude-mars-x7k2");
+      expect(rows[0]).toContain("1M");
+      expect(rows[1]).not.toContain("claude-mars-x7k2");
+      expect(rows.at(-1)).toContain("⏎ Send");
+      expect(rows.at(-2)).not.toContain("⏎ Send");
+    });
+  });
+
+  test("a multiline input grows between its two padded rows, the prompt on the first text row", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base());
+      mounted.screen.setInput("one\ntwo\nthree");
+      const rows = rowsOf(await frameOf(mounted));
+      const first = rows.findIndex((line) => line.includes("❯ one"));
+      // Ligne d'état, rangée de marge basse, puis trois rangées de texte.
+      expect(first).toBe(rows.length - 1 - 1 - 3);
+      expect(isBlank(rows[first - 1])).toBe(true);
+      expect(rows[first + 1]).toContain("two");
+      expect(rows[first + 2]).toContain("three");
+      expect(isBlank(rows[first + 3])).toBe(true);
+      expect(rows.at(-1)).toContain("⏎ Send");
+    });
+  });
+
+  test("six text rows at most, still padded", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base());
+      mounted.screen.setInput(numberedLines(10, "row"));
+      const rows = rowsOf(await frameOf(mounted));
+      const first = rows.findIndex((line) => line.includes("❯ "));
+      expect(isBlank(rows[first - 1])).toBe(true);
+      expect(isBlank(rows[first + 6])).toBe(true);
+      expect(rows[first + 7]).toContain("⏎ Send");
+    });
+  });
+
+  test("the palette input row has the same padding", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base());
+      mounted.screen.openOverlay("palette");
+      const rows = rowsOf(await frameOf(mounted));
+      const prompt = rows.findIndex((line) => line.includes("❯ /"));
+      expect(prompt).toBe(rows.length - 3);
+      expect(isBlank(rows[prompt - 1])).toBe(true);
+      expect(isBlank(rows[prompt + 1])).toBe(true);
+    });
+  });
+});
+
+describe("one-row titles", () => {
+  const LONG = `git log --oneline --decorate ${"x".repeat(300)}`;
+
+  test("a long Bash title is cut with an ellipsis on one row and the meta stays at the right edge", async () => {
+    await withScreen({}, async (mounted) => {
+      const state = withTool(withUser(base(), "go"), { id: "t1", name: "Bash", title: LONG, status: "completed", output: "a\nb\nc" });
+      const rows = rowsOf(await show(mounted, state, "3 lines"));
+      const head = rows.slice(1).find((line) => line.includes("Bash"))!;
+      expect(head).toContain("● Bash  git log --oneline");
+      expect(head).toContain("…");
+      expect(head.trimEnd().endsWith("3 lines")).toBe(true);
+      // Marge droite d'une colonne : la méta finit à la colonne 103 sur 104.
+      expect(head.trimEnd()).toHaveLength(103);
+      expect(rows.filter((line) => line.includes("xxxx"))).toHaveLength(1);
+    });
+  });
+
+  test("the cut follows the width and a growing meta", async () => {
+    let clock = 1_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      const state = withTool(withUser(base(), "go"), { id: "t1", name: "Bash", title: LONG, status: "in_progress" });
+      await show(mounted, state);
+      clock += 125_000;
+      await show(mounted, state);
+      const rows = rowsOf(mounted.captureCharFrame());
+      const head = rows.slice(1).find((line) => line.includes("Bash"))!;
+      expect(head.trimEnd()).toMatch(/…\s+\d+s$/);
+      expect(head.trimEnd()).toHaveLength(103);
+      mounted.resize(60, 31);
+      await mounted.renderOnce();
+      const narrow = rowsOf(mounted.captureCharFrame()).slice(1).find((line) => line.includes("Bash"))!;
+      expect(narrow.trimEnd()).toMatch(/…\s+\d+s$/);
+      expect(narrow.trimEnd()).toHaveLength(59);
+      expect(rowsOf(mounted.captureCharFrame()).filter((line) => line.includes("xxxx"))).toHaveLength(1);
+    });
+  });
+
+  test("a short title is left whole", async () => {
+    await withScreen({}, async (mounted) => {
+      const state = withTool(withUser(base(), "go"), { id: "t1", name: "Read", title: "src/tui/keys.ts", status: "completed", output: "x" });
+      const frame = await show(mounted, state, "1 line");
+      expect(frame).toContain("Read  src/tui/keys.ts");
+      expect(frame).not.toContain("…");
+    });
+  });
+
+  test("a long peer sender is cut on one row", async () => {
+    await withScreen({}, async (mounted) => {
+      const state = apply(base(), { type: "peerTurn", from: `peer-${"y".repeat(300)}`, text: "hello" });
+      const rows = rowsOf(await show(mounted, state, "hello"));
+      const head = rows.slice(1).find((line) => line.includes("Message"))!;
+      expect(head).toContain("Message  from peer-");
+      expect(head.trimEnd().endsWith("…")).toBe(true);
+      expect(rows.filter((line) => line.includes("yyyy"))).toHaveLength(1);
     });
   });
 });

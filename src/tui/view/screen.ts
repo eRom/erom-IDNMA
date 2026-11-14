@@ -135,7 +135,8 @@ export function createScreen(options: ScreenOptions): Screen {
 
   const thread = createThread(renderer, syntaxStyle, now);
 
-  const inputBox = new BoxRenderable(renderer, { flexDirection: "row", flexShrink: 0, backgroundColor: SURFACE.input, paddingLeft: 1, paddingRight: 1 });
+  // Une rangée de marge au-dessus et au-dessous du texte ; la palette y prend la place du textarea, avec les mêmes marges.
+  const inputBox = new BoxRenderable(renderer, { flexDirection: "row", flexShrink: 0, backgroundColor: SURFACE.input, paddingLeft: 1, paddingRight: 1, paddingTop: 1, paddingBottom: 1 });
   inputBox.add(new TextRenderable(renderer, { content: t`${fg(ACCENT.blueText)("❯")} `, flexShrink: 0, ...keep }));
   // Aucune liaison `submit` : l'envoi passe par l'intention, jamais par la saisie.
   const textarea = new TextareaRenderable(renderer, {
@@ -383,7 +384,11 @@ export function createScreen(options: ScreenOptions): Screen {
     logEvent("unified-copy", { length: selected.length, via: viaPbcopy ? "pbcopy" : "osc52", ok });
   };
   renderer.on("selection", onSelection);
-  const onResize = (): void => layoutStatusLeft();
+  // La largeur change la coupe des titres du fil autant que celle de la ligne d'état.
+  const onResize = (): void => {
+    layoutStatusLeft();
+    thread.tick();
+  };
   renderer.on("resize", onResize);
 
   renderer.once("destroy", () => {

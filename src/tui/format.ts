@@ -72,6 +72,21 @@ export function fitStatusLeft(path: string, branch: string | undefined, room: nu
   return `…${boundary >= 0 ? path.slice(boundary) : path.slice(path.length - keep)}${suffix}`;
 }
 
+/**
+ * `value` tient dans `room` colonnes d'écran : au-delà, la fin est remplacée par `…` (une colonne comprise). Les
+ * caractères larges comptent pour leur largeur réelle ; sans place même pour `…`, rien.
+ */
+export function fitOneRow(value: string, room: number): string {
+  if (room < 1) return "";
+  if (Bun.stringWidth(value) <= room) return value;
+  let kept = "";
+  for (const char of value) {
+    if (Bun.stringWidth(kept + char) > room - 1) break;
+    kept += char;
+  }
+  return `${kept}…`;
+}
+
 /** Garde les `max` premières lignes ; la troncature est l'affaire de la vue (diff : 12, sortie : 5, réflexion finie : 3). */
 export function truncateLines(lines: string[], max: number): { shown: string[]; hidden: number } {
   const shown = lines.slice(0, max);
