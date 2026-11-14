@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { logEvent } from "./log.ts";
 import { listAgentKeys } from "./config/network.ts";
+import { UNIFIED_HARNESSES } from "./config/engine-rules.ts";
 import { reachablePeers, summarizePeer, type PeerSummary } from "./bus/peers.ts";
 import { PeerError } from "./bus/send.ts";
 import { isDescendantOf } from "./bus/peer-pid.ts";
@@ -81,7 +82,7 @@ chiffres, - et _, 64 caractères au plus).
 ${agentsLine}
 
   --engine <e>   engine de l'agent dans .idnma.yml (défaut : default)
-  --unified / --native   écran unifié (claude, agy, opencode, codex, grok, pi, dst) ou TUI native ; l'emportent sur ui: de l'engine
+  --unified / --native   écran unifié (${UNIFIED_HARNESSES.join(", ")}) ou TUI native ; l'emportent sur ui: de l'engine
 
 Tout autre jeton, et tout ce qui suit --, va au harnais. Un flag tapé remplace le même flag de
 l'engine (--model, --effort...) ; les autres options de l'engine restent.
