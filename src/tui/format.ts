@@ -41,7 +41,9 @@ const RUNNING_HINTS = "esc Interrupt  ·  ⏎ Queue message  ·  ⌃P Plan";
 export function statusHints(state: SessionState, overlay?: "palette" | "plan" | "settings"): string {
   if (state.exit) return "Press any key to leave";
   const base = hintsFor(state, overlay);
-  return state.heldCount > 0 ? `${base}  ·  ${state.heldCount} held  ·  ⌃R Open` : base;
+  // Une carte retenue ouverte compte déjà pour un message : ⌃R rouvrirait celle qui est à l'écran.
+  const others = state.pending?.kind === "held" ? state.heldCount - 1 : state.heldCount;
+  return others > 0 ? `${base}  ·  ${others} held  ·  ⌃R Open` : base;
 }
 
 function hintsFor(state: SessionState, overlay?: "palette" | "plan" | "settings"): string {

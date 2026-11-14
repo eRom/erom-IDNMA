@@ -110,6 +110,15 @@ test("the held counter follows the queue during a turn", () => {
   expect(statusHints(run([{ type: "heldCount", queued: 1 }]), "palette")).toBe("↑↓ Select  ·  ⏎ Run  ·  esc Close  ·  1 held  ·  ⌃R Open");
 });
 
+test("while a held card is open the suffix counts the other held messages only, and is omitted at zero", () => {
+  const held = (queued: number) => run([{ type: "held", from: "bob", text: "x", queued }]);
+  expect(statusHints(held(1))).toBe("↑↓ Select  ·  ⏎ Confirm  ·  esc Dismiss");
+  expect(statusHints(held(3))).toBe("↑↓ Select  ·  ⏎ Confirm  ·  esc Dismiss  ·  2 held  ·  ⌃R Open");
+  // Une permission en attente ne rouvre aucune carte : le compteur reste entier.
+  const permission = run([{ type: "turnStarted" }, { type: "permission", request: { toolCallId: "t", title: "x", choices: [{ optionId: "a", name: "Allow", kind: "allow_once" }] } }, { type: "heldCount", queued: 3 }]);
+  expect(statusHints(permission)).toBe("↑↓ Select  ·  ⏎ Confirm  ·  esc Reject  ·  3 held  ·  ⌃R Open");
+});
+
 test("an exited agent shows only the leave hint, without the held suffix", () => {
   const state = run([{ type: "heldCount", queued: 4 }, { type: "agentExited", code: 1, signal: null }]);
   expect(statusHints(state)).toBe("Press any key to leave");

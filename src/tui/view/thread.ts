@@ -177,7 +177,7 @@ function buildTool(renderer: CliRenderer, id: string, marginTop: number, item: T
         shownColor = color;
       }
       const started = seenAt(item.id);
-      const meta = item.meta !== "" ? item.meta : isRunning(item) && started !== undefined ? `${Math.max(0, Math.floor((env.now - started) / 1000))}s` : "";
+      const meta = item.meta !== "" ? item.meta : isRunning(item) && item.id !== env.pendingToolId && started !== undefined ? `${Math.max(0, Math.floor((env.now - started) / 1000))}s` : "";
       if (meta !== shownMeta) {
         right.content = meta;
         shownMeta = meta;

@@ -355,3 +355,14 @@ test("the agent exit is sticky, clears the pending and adds no thread item", () 
   expect(state.thread).toEqual([]);
   expect(state.status).toBe("exited");
 });
+
+test("the agent exit cancels the tool rows still pending or in progress and leaves finished ones alone", () => {
+  const tool = (id: string, status: "pending" | "in_progress" | "completed" | "failed"): Action => ev({ type: "tool", id, created: true, name: "Bash", title: id, kind: "execute", status });
+  const state = run([{ type: "turnStarted" }, tool("a", "pending"), tool("b", "in_progress"), tool("c", "completed"), tool("d", "failed"), { type: "agentExited", code: 1, signal: null }]);
+  expect(tools(state).map((item) => [item.id, item.status])).toEqual([
+    ["a", "cancelled"],
+    ["b", "cancelled"],
+    ["c", "completed"],
+    ["d", "failed"],
+  ]);
+});

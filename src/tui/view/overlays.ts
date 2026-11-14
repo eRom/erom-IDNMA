@@ -336,7 +336,8 @@ export function createOverlays(o: OverlayOptions): Overlays {
     planBox = new BoxRenderable(renderer, {
       id: "plan-panel",
       position: "absolute",
-      top: 2,
+      // Comme la maquette, où `top: 2` se compte depuis le haut du fil (rangée 1 de l'écran) : rangée 3.
+      top: 3,
       right: 0,
       width: 42,
       flexDirection: "column",

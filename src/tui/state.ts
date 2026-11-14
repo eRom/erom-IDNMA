@@ -204,6 +204,11 @@ function selectChoice(state: SessionState, delta: 1 | -1): SessionState {
   return selected === pending.selected ? state : { ...state, pending: { ...pending, selected } };
 }
 
+/** Les outils encore en cours passent à `cancelled` : ni point vert ni durée qui court. */
+function cancelOpenTools(thread: ThreadItem[]): ThreadItem[] {
+  return thread.map((item) => (item.kind === "tool" && (item.status === "pending" || item.status === "in_progress") ? { ...item, status: "cancelled" as const } : item));
+}
+
 function reduceRaw(state: SessionState, action: Action): SessionState {
   switch (action.type) {
     case "event":
@@ -240,7 +245,7 @@ function reduceRaw(state: SessionState, action: Action): SessionState {
       return appendItem(state, { kind: "notice", text: action.text, tone: action.tone });
     case "agentExited": {
       const { pending: _dropped, ...rest } = state;
-      return { ...rest, thread: closeOpen(state.thread), turnActive: false, exit: { code: action.code, signal: action.signal } };
+      return { ...rest, thread: cancelOpenTools(closeOpen(state.thread)), turnActive: false, exit: { code: action.code, signal: action.signal } };
     }
   }
 }

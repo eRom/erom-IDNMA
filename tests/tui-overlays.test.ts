@@ -92,13 +92,14 @@ function waitingOnBash(request: PermissionRequest = permission(), options?: Conf
 
 // ---- montage ----
 
-async function mount(options: { width?: number; height?: number } = {}) {
+async function mount(options: { width?: number; height?: number; now?: () => number } = {}) {
   const setup = await createTestRenderer({ width: options.width ?? 104, height: options.height ?? 31, kittyKeyboard: true, exitOnCtrlC: false });
   const intents: Array<{ intent: Intent; input: string }> = [];
   const screen = createScreen({
     renderer: setup.renderer,
     cwd: "/work/idnma",
     handlers: { onIntent: (intent, input) => intents.push({ intent, input }) },
+    ...(options.now === undefined ? {} : { now: options.now }),
   });
   return { ...setup, screen, intents };
 }
@@ -264,6 +265,18 @@ describe("permission request", () => {
       expect(frame).toContain("Run it?");
       expect(frame).toContain("Yes please");
       expect(frame).not.toContain("\x1b");
+    });
+  });
+
+  test("the tool awaiting the permission shows no running time, another running tool still does", async () => {
+    let clock = 1_000_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      const state = withTool(waitingOnBash(), { id: "tool-2", name: "Read", title: "src/other.ts" });
+      await show(mounted, state);
+      clock += 4_000;
+      const frame = await show(mounted, state);
+      expect(lineOf(frame, "git push origin")).not.toMatch(/\ds\s*$/);
+      expect(lineOf(frame, "src/other.ts")).toMatch(/4s\s*$/);
     });
   });
 
@@ -593,7 +606,8 @@ describe("plan panel", () => {
       mounted.screen.openOverlay("plan");
       const rows = rowsOf(await frameOf(mounted));
       const titleRow = rows.findIndex((line) => line.includes("Plan"));
-      expect(titleRow).toBe(3);
+      // Comme la maquette : `top: 2` se compte depuis le haut du fil (rangée 1), le titre tombe sur la rangée 4.
+      expect(titleRow).toBe(4);
       expect(rows[titleRow]?.indexOf("Plan")).toBe(104 - 42 + 2);
       expect(spanOf(mounted, "Plan")?.bg).toEqual(hexInts(SURFACE.popover));
     });
@@ -887,6 +901,20 @@ describe("agent exited line", () => {
       expect(rows[exitedRow - 1]?.trim()).toBe("");
       expect(rows.findLastIndex((line) => line.includes("❯"))).toBeGreaterThan(exitedRow);
       expect(rows.at(-1)).toContain("Press any key to leave");
+    });
+  });
+
+  test("a tool that was running shows no running time and a grey dot once the agent has exited", async () => {
+    let clock = 1_000_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      const running = waitingOnBash();
+      await show(mounted, running);
+      clock += 5_000;
+      const frame = await show(mounted, apply(running, { type: "agentExited", code: 1, signal: null }));
+      expect(lineOf(frame, "git push origin")).not.toMatch(/\ds\s*$/);
+      expect(spanOf(mounted, "●")?.fg).toEqual(hexInts(LABEL.disabled));
+      clock += 5_000;
+      expect(lineOf(await show(mounted, apply(running, { type: "agentExited", code: 1, signal: null })), "git push origin")).not.toMatch(/\ds\s*$/);
     });
   });
 
