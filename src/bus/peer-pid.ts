@@ -50,8 +50,8 @@ function linuxParentOf(pid: number): number | undefined {
   return Number.isInteger(ppid) ? ppid : undefined;
 }
 
-/** Fonction enfant → parent pour la plateforme, `undefined` si la table des process est illisible. */
-function parentResolver(): ((pid: number) => number | undefined) | undefined {
+/** Table enfant → parent des process (lue une fois), `undefined` si elle est illisible (`ps` en échec). */
+export function parentTable(): ((pid: number) => number | undefined) | undefined {
   if (process.platform !== "darwin") return linuxParentOf;
   // Chemin absolu : le `ps` du PATH n'est pas de confiance pour une décision d'admission.
   const listing = Bun.spawnSync(["/bin/ps", "-A", "-o", "pid=,ppid="], { stdout: "pipe", stderr: "ignore" });
@@ -67,14 +67,14 @@ function parentResolver(): ((pid: number) => number | undefined) | undefined {
 /** Vrai si `pid` est un enfant direct de `parent` ; faux si `parent` vaut 1 ou moins, ou `pid` 0 ou moins. */
 export function isChildOf(pid: number, parent: number): boolean {
   if (parent <= 1 || pid <= 0) return false;
-  return parentResolver()?.(pid) === parent;
+  return parentTable()?.(pid) === parent;
 }
 
 /** Vrai si `pid` est `ancestor` ou en descend (remontée des parents, 64 pas au plus) ; faux si `ancestor` vaut 1 ou moins, ou `pid` 0 ou moins. */
 export function isDescendantOf(pid: number, ancestor: number): boolean {
   // launchd ou init (pid 1) est l'ancêtre de tout process : un daemon qui le déclarerait admettrait n'importe qui.
   if (ancestor <= 1 || pid <= 0) return false;
-  const parentOf = parentResolver();
+  const parentOf = parentTable();
   if (parentOf === undefined) return false;
   let current = pid;
   for (let step = 0; step <= MAX_ANCESTOR_STEPS; step++) {

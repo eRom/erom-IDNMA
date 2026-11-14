@@ -15,13 +15,44 @@ export interface FakePeer {
   stop(): void;
 }
 
+interface Sleeper {
+  pid: number;
+  kill(): void;
+}
+
+function spawnNestedSleeper(): Sleeper {
+  const child = Bun.spawn(["sleep", "600"]);
+  return { pid: child.pid, kill: () => child.kill() };
+}
+
+/** Un `sleep 600` lancé en arrière-plan par un shell qui sort aussitôt : il passe sous launchd. */
+async function spawnOrphanSleeper(): Promise<Sleeper> {
+  const launcher = Bun.spawn(["sh", "-c", "sleep 600 </dev/null >/dev/null 2>&1 & echo $!"], { stdout: "pipe" });
+  const pid = Number((await new Response(launcher.stdout).text()).trim());
+  await launcher.exited;
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error("could not start an orphan sleeper");
+  return {
+    pid,
+    kill: () => {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        // déjà mort
+      }
+    },
+  };
+}
+
 /**
  * Faux pair du bus : le serveur tourne dans le process de test, mais l'entrée du registre porte
- * le pid d'un enfant `sleep 600` (son `procStart` est donc réel et son `<pid>.json` ne heurte rien).
+ * le pid d'un `sleep 600` (son `procStart` est donc réel et son `<pid>.json` ne heurte rien).
+ * Par défaut le sleeper est orphelin (parent launchd), comme une session indépendante : un test dont le
+ * process joue une doublure idnma ne le voit pas comme une session imbriquée. `nested: true` en fait un
+ * vrai enfant du process de test, pour les tests de filiation.
  * Le jeton n'est jamais journalisé, seulement sa correspondance.
  */
-export async function startFakePeer(name: string, overrides: Partial<SessionEntry> = {}): Promise<FakePeer> {
-  const sleeper = Bun.spawn(["sleep", "600"]);
+export async function startFakePeer(name: string, overrides: Partial<SessionEntry> = {}, options: { nested?: boolean } = {}): Promise<FakePeer> {
+  const sleeper = options.nested === true ? spawnNestedSleeper() : await spawnOrphanSleeper();
   const start = procStart(sleeper.pid);
   if (start === undefined) {
     sleeper.kill();
