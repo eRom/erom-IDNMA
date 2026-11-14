@@ -120,6 +120,8 @@ export interface Overlays {
   /** Déplace la sélection de la palette ou des réglages ; sans effet ailleurs. */
   move(delta: 1 | -1): void;
   paletteChoice(): CommandInfo | undefined;
+  /** Texte de la saisie de la palette (barre oblique comprise), `undefined` quand elle est fermée. */
+  paletteText(): string | undefined;
   settingsChoice(): { category: string; value: string } | undefined;
   /** Aligne l'overlay ouvert sur l'état (commandes, options, plan). */
   sync(state: SessionState): void;
@@ -207,11 +209,14 @@ export function createOverlays(o: OverlayOptions): Overlays {
     }
   }
 
-  /** Garde la rangée `focus` dans la fenêtre de `max` rangées et rend l'indice de la première visible. */
-  function windowStart(total: number, focus: number, max: number): number {
+  /**
+   * Garde les rangées `first` (borne haute : un titre de section) et `last` (la rangée sélectionnée) dans la fenêtre
+   * de `max` rangées, `max` valant au moins 2 ; rend l'indice de la première rangée visible.
+   */
+  function windowStart(total: number, first: number, last: number, max: number): number {
     let start = Math.min(offset, Math.max(total - max, 0));
-    if (focus < start) start = focus;
-    else if (focus >= start + max) start = focus - max + 1;
+    if (first < start) start = first;
+    if (last >= start + max) start = last - max + 1;
     offset = start;
     return start;
   }
@@ -228,7 +233,7 @@ export function createOverlays(o: OverlayOptions): Overlays {
     emptyList(listBox);
     const found = matches();
     selected = Math.min(selected, Math.max(found.length - 1, 0));
-    const start = windowStart(found.length, selected, PALETTE_ROWS);
+    const start = windowStart(found.length, selected, selected, PALETTE_ROWS);
     found.slice(start, start + PALETTE_ROWS).forEach((command, index) => listBox?.add(paletteRow(command, start + index === selected)));
   }
 
@@ -266,7 +271,7 @@ export function createOverlays(o: OverlayOptions): Overlays {
     const focus = entries[selectedRow - 1]?.kind === "title" ? selectedRow - 1 : selectedRow;
     // Tout tient d'ordinaire ; sur un terminal bas, la fenêtre laisse de la place au fil et à la saisie.
     const settingsRows = Math.max(4, Math.min(SETTINGS_MAX_ROWS, renderer.height - 8));
-    const start = windowStart(entries.length, focus, settingsRows);
+    const start = windowStart(entries.length, focus, selectedRow, settingsRows);
     entries.slice(start, start + settingsRows).forEach((entry, index) => listBox?.add(settingsRow(entry, start + index === selectedRow)));
   }
 
@@ -396,6 +401,7 @@ export function createOverlays(o: OverlayOptions): Overlays {
       }
     },
     paletteChoice: () => (current === "palette" ? matches()[selected] : undefined),
+    paletteText: () => (current === "palette" ? paletteInput.value : undefined),
     settingsChoice: () => {
       if (current !== "settings") return undefined;
       const choice = values()[selected];

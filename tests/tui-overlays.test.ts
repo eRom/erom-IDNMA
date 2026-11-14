@@ -504,6 +504,50 @@ describe("command palette", () => {
     });
   });
 
+  test("ctrl+d with text in the palette is not a quit", async () => {
+    await withScreen({}, async (mounted) => {
+      await openPalette(mounted);
+      await mounted.mockInput.typeText("rev");
+      mounted.mockInput.pressKey("d", { ctrl: true });
+      await mounted.renderOnce();
+      expect(intentsOf(mounted)).toEqual([]);
+      expect(mounted.screen.overlay()).toBe("palette");
+    });
+  });
+
+  test("home and end move the palette cursor instead of scrolling the thread", async () => {
+    await withScreen({}, async (mounted) => {
+      await openPalette(mounted);
+      await mounted.mockInput.typeText("rev");
+      mounted.mockInput.pressKey("HOME");
+      mounted.mockInput.pressArrow("right");
+      await mounted.mockInput.typeText("X");
+      mounted.mockInput.pressKey("END");
+      await mounted.mockInput.typeText("Y");
+      const frame = await frameOf(mounted);
+      expect(rowsOf(frame).find((line) => line.includes("❯"))).toContain("❯ /XrevY");
+      expect(mounted.screen.overlay()).toBe("palette");
+      expect(intentsOf(mounted)).toEqual([]);
+    });
+  });
+
+  test("ctrl+c closes the palette, drops what was typed in it and brings the draft back", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base());
+      mounted.screen.setInput("draft");
+      mounted.screen.openOverlay("palette");
+      await mounted.mockInput.typeText("rev");
+      mounted.mockInput.pressCtrlC();
+      await mounted.renderOnce();
+      expect(mounted.screen.overlay()).toBeUndefined();
+      expect(intentsOf(mounted)).toEqual([]);
+      expect(mounted.screen.inputText()).toBe("draft");
+      mounted.screen.openOverlay("palette");
+      expect((await frameOf(mounted)).split("\n").find((line) => line.includes("❯"))).toContain("❯ /");
+      expect((await frameOf(mounted)).split("\n").find((line) => line.includes("❯"))).not.toContain("rev");
+    });
+  });
+
   test("escape closes it without a forwarded intent and the textarea keeps its text", async () => {
     await withScreen({}, async (mounted) => {
       await show(mounted, base());
@@ -600,7 +644,7 @@ describe("plan panel", () => {
     });
   });
 
-  test("the panel is 42 columns wide, at the right edge, two rows below the top, on the popover surface", async () => {
+  test("the panel is 42 columns wide, at the right edge, on screen row 4, on the popover surface", async () => {
     await withScreen({}, async (mounted) => {
       await show(mounted, withPlan(base()));
       mounted.screen.openOverlay("plan");
@@ -780,6 +824,33 @@ describe("settings panel", () => {
     });
   });
 
+  test("at every step of the walk the selected value is inside the window and on the blue row", async () => {
+    await withScreen({ height: 16 }, async (mounted) => {
+      await show(mounted, base());
+      mounted.screen.openOverlay("settings");
+      const names: Record<string, string> = { opus: "Opus 5.5", sonnet: "Sonnet 5", low: "Low", high: "High", xhigh: "Extra high", default: "Manual", acceptEdits: "Auto", bypassPermissions: "Bypass" };
+      const walked: string[] = [];
+      for (let step = 0; step < 12; step++) {
+        const frame = await frameOf(mounted);
+        const choice = mounted.screen.settingsChoice();
+        const name = names[choice?.value ?? ""] ?? "";
+        walked.push(name);
+        expect(lineOf(frame, name)).toBeDefined();
+        expect(spanOf(mounted, name)?.bg).toEqual(hexInts(ACCENT.blue));
+        mounted.mockInput.pressArrow("down");
+      }
+      expect(new Set(walked).size).toBe(8);
+      // Retour en haut : même garantie en montant.
+      for (let step = 0; step < 12; step++) {
+        const frame = await frameOf(mounted);
+        const name = names[mounted.screen.settingsChoice()?.value ?? ""] ?? "";
+        expect(lineOf(frame, name)).toBeDefined();
+        expect(spanOf(mounted, name)?.bg).toEqual(hexInts(ACCENT.blue));
+        mounted.mockInput.pressArrow("up");
+      }
+    });
+  });
+
   test("an option the agent does not offer drops its section", async () => {
     await withScreen({}, async (mounted) => {
       await show(mounted, base(OPTIONS.filter((option) => option.category !== "thought_level")));
@@ -834,7 +905,7 @@ describe("overlay lifecycle", () => {
       mounted.screen.openOverlay("plan");
       mounted.screen.openOverlay("settings");
       expect(mounted.screen.overlay()).toBe("settings");
-      expect((await frameOf(mounted))).not.toContain("No plan yet");
+      expect(await frameOf(mounted)).not.toContain("Run the test file");
       mounted.screen.closeOverlay();
       mounted.screen.closeOverlay();
       expect(mounted.screen.overlay()).toBeUndefined();

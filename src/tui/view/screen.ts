@@ -184,12 +184,14 @@ export function createScreen(options: ScreenOptions): Screen {
 
   function context(): Context {
     const overlay = overlays.kind();
+    // La palette occupe la rangée de saisie : c'est son texte qui compte, pas celui du textarea caché.
+    const typed = overlay === "palette" ? overlays.paletteText() : textarea.plainText;
     return {
       status: state ? headerParts(state).left.dot : "idle",
       turnActive: state?.turnActive ?? false,
       pending: state?.pending !== undefined,
       ...(overlay === undefined ? {} : { overlay }),
-      inputEmpty: textarea.plainText === "",
+      inputEmpty: typed === "",
       lastWasCtrlC,
     };
   }
@@ -224,6 +226,13 @@ export function createScreen(options: ScreenOptions): Screen {
       case "closeOverlay":
         overlays.close();
         return;
+      case "clearInput":
+        // ⌃C vide la saisie : avec la palette ouverte, c'est elle qui se ferme (son texte est perdu, le brouillon revient).
+        if (overlays.kind() === "palette") {
+          overlays.close();
+          return;
+        }
+        break;
       case "selectUp":
       case "selectDown": {
         const overlay = overlays.kind();
