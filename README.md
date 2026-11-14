@@ -284,7 +284,7 @@ idnma run claude --unified   # unified screen for this launch
 idnma run claude --native    # native TUI for this launch
 ```
 
-`ui: unified` is only accepted on a `claude` or `agy` engine. Without it, the native TUI stays the default.
+`ui: unified` is only accepted on a `claude` or `agy` engine, and `--unified` follows the same rule: on any other harness it is refused before anything starts. Without either, the native TUI stays the default.
 
 ### Install `claude-agent-acp`
 
@@ -303,17 +303,18 @@ The unified screen drives Claude Code through `claude-agent-acp`. Download the a
 | `⌃R` | reopen the first held message |
 | `↑` `↓` | choose in a request or a panel |
 | `esc` | interrupt the turn, reject a request, or close a panel |
-| `⌃C` | interrupt, or clear the input; twice in a row to quit |
+| `⌃C` | interrupt, or clear the input; twice within a second to quit |
 | `⌃D` | quit, on an empty input |
 | `PgUp` `PgDn` | scroll |
 | `Home` `End` | top and bottom of the thread (empty input) |
-| `/quit` | quit |
+
+Typing `/quit` and `⏎` quits too. Any other text starting with `/`, such as `/review 42`, is sent to the agent as typed.
 
 Under tmux, `⇧⏎` needs `set -g extended-keys on` in your tmux configuration; without it, use `⌃J`.
 
 ### Peer messages
 
-A message from a peer opens a turn on its own for Claude, and its final answer goes back to the sender. For agy, the message is held until you choose Deliver, Later or Dismiss: agy runs on a consumer Google plan, and idnma never prompts it without your gesture. `⌃R` brings a held message back.
+A message from a peer opens a turn on its own for Claude, and its final answer goes back to the sender. For agy, the message is held until you choose Deliver, Later or Dismiss: idnma never prompts agy without your gesture. `⌃R` brings a held message back.
 
 ## Talking to each other
 
