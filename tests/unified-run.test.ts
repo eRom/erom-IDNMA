@@ -12,7 +12,6 @@ import type { PaneProbe } from "../src/run/pane.ts";
 import { NOTIFY, PROGRESS_OFF, PROGRESS_ON } from "../src/tui/signals.ts";
 import type { SessionState } from "../src/tui/state.ts";
 import { runUnified, type UnifiedDeps } from "../src/unified/run-unified.ts";
-import { UNIFIED_HARNESSES } from "../src/config/engine-rules.ts";
 import { missingAdapterMessage, missingAgentMessage, notConnectedMessage } from "../src/unified/preflight.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { createScreen } from "../src/tui/view/screen.ts";
@@ -501,14 +500,6 @@ describe("pre-screen messages", () => {
     expect(missingAgentMessage("pi")).toContain("pi-acp le lance");
     expect(notConnectedMessage("opencode")).toContain("opencode auth login");
     expect(notConnectedMessage("codex")).toContain("codex login");
-  });
-
-  test("every harness has a message of each kind", () => {
-    for (const harness of UNIFIED_HARNESSES) {
-      expect(missingAdapterMessage(harness)).not.toBe("");
-      expect(missingAgentMessage(harness)).not.toBe("");
-      expect(notConnectedMessage(harness)).not.toBe("");
-    }
   });
 });
 

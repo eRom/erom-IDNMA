@@ -155,17 +155,6 @@ function serviceFailure(error: unknown): string {
   return error instanceof OpencodeHttpError ? (error.serviceMessage ?? error.message) : errorMessage(error);
 }
 
-/** Les contrôles qui ne lisent que le fichier : tous, sauf `unified-harness`, que `assertUnifiedHarness` porte seul. */
-const ENGINE_FILE_CODES: EngineIssueCode[] = [
-  "codex-embedded-flag",
-  "opencode-refused-flag",
-  "opencode-session-form",
-  "opencode-model-form",
-  "dst-model",
-  "dst-refused-flag",
-  "pi-refused-flag",
-];
-
 /** Lève l'erreur d'un contrôle d'engine, de la classe que `runAgent` a toujours employée pour lui. */
 function throwIssue(issue: EngineIssue): never {
   if (issue.error === "usage") throw new UsageError(issue.message);
@@ -296,8 +285,9 @@ export async function runAgent(a: RunArgs, deps: Partial<RunDeps> = {}): Promise
   // dynamique, sur ce seul chemin : jamais dans un try/catch, un échec de chargement doit remonter.
   if (effectiveUi(engine, a.ui) === "unified") {
     assertUnifiedHarness(engine, a.ui, engineSource);
-    // Les règles du fichier valent aussi sur l'écran unifié. Les drapeaux tapés, eux, sont annoncés par l'écran.
-    throwFirstIssue(engine, engineSource, ENGINE_FILE_CODES);
+    // Toutes les règles du fichier valent aussi sur l'écran unifié (sauf `unified-harness`, déjà portée par `assertUnifiedHarness`) : une règle future est donc contrôlée ici sans autre geste. Les drapeaux tapés, eux, sont annoncés par l'écran.
+    const fileIssue = engineIssues(engine, engineSource).find((issue) => issue.code !== "unified-harness");
+    if (fileIssue !== undefined) throwIssue(fileIssue);
     const { runUnified } = await import("../unified/run-unified.ts");
     return runUnified({ agentKey, engine, passthrough: a.passthrough, deps: { probe: d.probe, which: d.which, tmuxTarget: d.tmuxTarget, tagPane: d.tagPane } });
   }
