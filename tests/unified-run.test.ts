@@ -1284,7 +1284,8 @@ describe("harness profiles", () => {
   });
 
   describe("auto-approve", () => {
-    const permissionTurn = (options: Json[]): Json => ({
+    const permissionTurn = (options: Json[], updates: Json[] = []): Json => ({
+      updates,
       permission: { toolCall: { toolCallId: "t1", title: "bash ls", kind: "execute", status: "pending" }, options },
       updatesAfterPermission: [agentChunk("done")],
     });
@@ -1292,13 +1293,16 @@ describe("harness profiles", () => {
     const ALWAYS = { optionId: "always", kind: "allow_always", name: "Always allow" };
     const REJECT = { optionId: "reject", kind: "reject_once", name: "Reject" };
 
-    test("answers allow_once without a card", async () => {
-      const session = await boot({ harness: "opencode", engine: { options: ["--auto"] }, scenario: { configOptions: fixtureOptions("opencode"), turn: permissionTurn([ONCE, ALWAYS, REJECT]) } });
+    test("answers allow_once without a card, the tool row staying visible", async () => {
+      // L'ordre réel d'opencode : la ligne d'outil arrive avant la demande de permission.
+      const bashCall: Json = { sessionUpdate: "tool_call", toolCallId: "t1", title: "touch probe2.txt", kind: "execute", status: "pending" };
+      const session = await boot({ harness: "opencode", engine: { options: ["--auto"] }, scenario: { configOptions: fixtureOptions("opencode"), turn: permissionTurn([ONCE, ALWAYS, REJECT], [bashCall]) } });
       session.screen.fire("submit", "go");
       await waitFor(() => session.state().thread.some((item) => item.kind === "agent" && item.text === "done"), "the end of the turn");
       await waitFor(() => !session.state().turnActive, "the turn end");
       expect(permissionAnswers(session.adapter)).toEqual([{ outcome: { outcome: "selected", optionId: "once" } }]);
       expect(session.screen.renders.some((render) => render.pending !== undefined)).toBe(false);
+      expect(session.state().thread).toContainEqual(expect.objectContaining({ kind: "tool", id: "t1", title: "touch probe2.txt" }));
       expect(logsOf("unified-auto-approve").map(({ ts: _ts, event: _event, ...fields }) => fields)).toEqual([{ kind: "allow_once" }]);
     });
 
