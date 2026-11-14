@@ -12,6 +12,7 @@ import type { FromMode } from "../bus/envelope.ts";
 import { reachablePeers, summarizePeer } from "../bus/peers.ts";
 import { ProtocolMismatchError, registerPeer, type Registration } from "../bus/register.ts";
 import { sendPeerMessage } from "../bus/send.ts";
+import { UNIFIED_HARNESSES } from "../config/engine-rules.ts";
 import { ConfigError, type Engine } from "../config/network.ts";
 import { resolveEnv } from "../config/secrets.ts";
 import { errorMessage, logEvent } from "../log.ts";
@@ -105,7 +106,7 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
   const d: UnifiedDeps = { ...defaultDeps, ...o.deps };
   const { agentKey, engine } = o;
   const harness = engine.harness;
-  if (harness !== "claude" && harness !== "agy") throw new ConfigError(`Le mode unifié ne vaut que pour claude et agy (harnais ${harness}).`);
+  if (harness !== "claude" && harness !== "agy") throw new ConfigError(`Le mode unifié ne vaut que pour ${UNIFIED_HARNESSES.join(", ")} (harnais ${harness}).`);
 
   // Toute erreur de résolution de l'env, de pane ou de binaire part avant le moindre effet.
   const resolvedEnv = resolveEnv(engine.env, process.env);

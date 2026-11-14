@@ -1,6 +1,6 @@
 import { isAlias, isMap, isNode, isScalar, isSeq, type Pair, type Scalar, type YAMLMap, type YAMLSeq } from "yaml";
 import type { z } from "zod";
-import { type EngineIssueCode, engineIssues } from "../config/engine-rules.ts";
+import { type EngineIssueCode, engineIssues, UNIFIED_HARNESSES } from "../config/engine-rules.ts";
 import { EngineSchema } from "../config/network.ts";
 import { commandLine } from "./command.ts";
 import type { ConfigDocument } from "./document.ts";
@@ -254,7 +254,7 @@ function engineMessage(code: EngineIssueCode, token: string | undefined): string
     case "pi-refused-flag":
       return "This option takes pi out of its terminal UI: idnma could not deliver bus messages.";
     case "unified-harness":
-      return `Unified mode covers claude and agy only, not ${token}.`;
+      return `Unified mode covers ${UNIFIED_HARNESSES.join(", ")}, not ${token}.`;
   }
 }
 

@@ -60,8 +60,8 @@ export const DST_MODEL_REASON = "dst ne prend pas de modèle au lancement ; choi
 
 export const OPENCODE_STANDALONE_REASON = "fait démarrer opencode hors de son service partagé : idnma ne pourrait plus lui livrer les messages du bus.";
 
-/** Les harnais que l'écran unifié sait piloter (ACP) : les autres gardent leur TUI native. */
-export const UNIFIED_HARNESSES = ["claude", "agy"] as const;
+/** Les harnais que l'écran unifié sait piloter (ACP). La règle `unified-harness` est l'interrupteur qui en sortirait un. */
+export const UNIFIED_HARNESSES = ["claude", "agy", "opencode", "codex", "grok", "pi", "dst"] as const;
 
 export type EngineIssueCode =
   | "codex-embedded-flag"
@@ -155,7 +155,7 @@ export function engineIssues(engine: Engine, source: string): EngineIssue[] {
       code: "unified-harness",
       field: "harness",
       error: "config",
-      message: `${source} : ui: unified ne vaut que pour claude et agy (harnais ${engine.harness}).`,
+      message: `${source} : ui: unified ne vaut que pour ${UNIFIED_HARNESSES.join(", ")} (harnais ${engine.harness}).`,
       token: engine.harness,
     });
   }

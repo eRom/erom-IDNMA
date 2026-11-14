@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Engine, Harness } from "../src/config/network.ts";
+import { HARNESSES, type Engine, type Harness } from "../src/config/network.ts";
 import { CODEX_EMBEDDED_REASON, DST_MODEL_REASON, engineIssues, OPENCODE_STANDALONE_REASON, opencodeArgvIssues } from "../src/config/engine-rules.ts";
 import { dstRefusal } from "../src/run/dst-argv.ts";
 import { PI_SUBCOMMANDS, piRefusal } from "../src/run/pi-argv.ts";
@@ -18,10 +18,11 @@ describe("engineIssues", () => {
     ]);
   });
 
-  test("ui unified on grok is a config issue on the harness field", () => {
-    const issues = engineIssues({ harness: "grok", options: [], env: {}, ui: "unified" }, source);
-    expect(issues).toEqual([expect.objectContaining({ code: "unified-harness", field: "harness", error: "config" })]);
-    expect(issues[0]!.message).toContain("grok");
+  test("ui: unified is accepted on every harness", () => {
+    for (const harness of HARNESSES) {
+      const issues = engineIssues({ harness, options: [], env: {}, ui: "unified" } as Engine, source);
+      expect(issues.find((issue) => issue.code === "unified-harness")).toBeUndefined();
+    }
   });
 
   test("ui unified on claude and agy raises nothing", () => {

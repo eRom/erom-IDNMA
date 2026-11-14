@@ -12,7 +12,8 @@ import type { PaneProbe } from "../src/run/pane.ts";
 import { NOTIFY, PROGRESS_OFF, PROGRESS_ON } from "../src/tui/signals.ts";
 import type { SessionState } from "../src/tui/state.ts";
 import { runUnified, type UnifiedDeps } from "../src/unified/run-unified.ts";
-import { missingAdapterMessage, notConnectedMessage } from "../src/unified/preflight.ts";
+import { UNIFIED_HARNESSES } from "../src/config/engine-rules.ts";
+import { missingAdapterMessage, missingAgentMessage, notConnectedMessage } from "../src/unified/preflight.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { createScreen } from "../src/tui/view/screen.ts";
 import { FakeScreen } from "./helpers/fake-screen.ts";
@@ -373,12 +374,17 @@ const statusOfRunner = (entry: SessionEntry | undefined): string | undefined => 
 
 const NETWORK = `
 agents:
-  grok:
+  codex:
     engines:
-      default:
-        harness: grok
       unified:
-        harness: grok
+        harness: codex
+        ui: unified
+        options: ["--config", "x=y"]
+  dst:
+    engines:
+      unified:
+        harness: dst
+        model: x
         ui: unified
   claude:
     engines:
@@ -441,24 +447,24 @@ describe("routing and preflight", () => {
     writeFileSync(join(configDir, ".idnma.yml"), NETWORK);
   });
 
-  test("unified on grok is refused before any effect", async () => {
+  test("unified codex engine with an embedded flag is refused before any effect", async () => {
     const { deps, touched } = countingRunDeps();
-    const error = await runAgent({ agent: "grok", ui: "unified", passthrough: [] }, deps).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(UsageError);
-    expect((error as Error).message).toContain("grok");
+    const error = await runAgent({ agent: "codex", engine: "unified", passthrough: [] }, deps).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConfigError);
+    expect((error as Error).message).toContain("--config");
     expect(touched).toEqual({ probeReads: 0, tmuxTargets: 0, tags: 0, whichCalls: 0, execs: [] });
     expect(listLiveEntries()).toEqual([]);
     expect(existsSync(controlSocketPath())).toBe(false);
   });
 
-  test("ui unified on grok in the engine is a config error", async () => {
+  test("unified dst engine with a model is refused before any effect", async () => {
     const { deps, touched } = countingRunDeps();
-    const error = await runAgent({ agent: "grok", engine: "unified", passthrough: [] }, deps).catch((caught: unknown) => caught);
+    const error = await runAgent({ agent: "dst", engine: "unified", passthrough: [] }, deps).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ConfigError);
-    expect((error as Error).message).toContain("ui: unified ne vaut que pour claude et agy");
-    expect((error as Error).message).toContain("grok");
+    expect((error as Error).message).toContain("dst ne prend pas de modèle");
     expect(touched).toEqual({ probeReads: 0, tmuxTargets: 0, tags: 0, whichCalls: 0, execs: [] });
     expect(listLiveEntries()).toEqual([]);
+    expect(existsSync(controlSocketPath())).toBe(false);
   });
 
   test("--native forces the native path", async () => {
@@ -483,6 +489,26 @@ describe("routing and preflight", () => {
     }
     expect(touched.execs).toEqual([]);
     nothingLeftBehind();
+  });
+});
+
+describe("pre-screen messages", () => {
+  test("missing adapter messages name the install command", () => {
+    expect(missingAdapterMessage("codex")).toContain("bun add -g @agentclientprotocol/codex-acp@2.5.0");
+    expect(missingAdapterMessage("pi")).toContain("bun add -g pi-acp@0.0.34");
+    expect(missingAdapterMessage("dst")).toContain("dsh --profile acp");
+    expect(missingAgentMessage("codex")).toContain("CODEX_PATH");
+    expect(missingAgentMessage("pi")).toContain("pi-acp le lance");
+    expect(notConnectedMessage("opencode")).toContain("opencode auth login");
+    expect(notConnectedMessage("codex")).toContain("codex login");
+  });
+
+  test("every harness has a message of each kind", () => {
+    for (const harness of UNIFIED_HARNESSES) {
+      expect(missingAdapterMessage(harness)).not.toBe("");
+      expect(missingAgentMessage(harness)).not.toBe("");
+      expect(notConnectedMessage(harness)).not.toBe("");
+    }
   });
 });
 

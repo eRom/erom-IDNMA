@@ -18,11 +18,11 @@ export interface Engine {
   model?: string;
   options: string[];
   env: Record<string, string>;
-  /** Écran du lancement : la TUI du harnais (`native`, défaut) ou l'écran unifié d'idnma (`unified`, claude et agy). */
+  /** Écran du lancement : la TUI du harnais (`native`, défaut) ou l'écran unifié d'idnma (`unified`). */
   ui?: "native" | "unified";
 }
 
-const HARNESSES = ["claude", "codex", "grok", "agy", "opencode", "dst", "pi"] as const satisfies readonly Harness[];
+export const HARNESSES = ["claude", "codex", "grok", "agy", "opencode", "dst", "pi"] as const satisfies readonly Harness[];
 
 // Strict : une clé mal tapée (`option:` pour `options:`) serait sinon retirée en silence, et
 // l'agent démarrerait sans ses options (codex en mode prompting, sans un mot).
