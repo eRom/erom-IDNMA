@@ -1145,6 +1145,22 @@ describe("settings filter", () => {
     });
   });
 
+  test("ctrl+c closes the panel, drops the filter and brings the draft back without quitting", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base(LONG));
+      mounted.screen.setInput("draft");
+      mounted.screen.openOverlay("settings");
+      await mounted.mockInput.typeText("deeps");
+      mounted.mockInput.pressCtrlC();
+      await mounted.renderOnce();
+      expect(mounted.screen.overlay()).toBeUndefined();
+      expect(intentsOf(mounted)).toEqual([]);
+      expect(mounted.screen.inputText()).toBe("draft");
+      mounted.screen.openOverlay("settings");
+      expect(panelRows(await frameOf(mounted))).toContain("Effort");
+    });
+  });
+
   test("the filter keeps a long catalogue inside the 18-row window", async () => {
     await withScreen({ height: 40 }, async (mounted) => {
       const many: ConfigOption[] = [

@@ -364,8 +364,8 @@ export function createScreen(options: ScreenOptions): Screen {
         recall(intent === "historyPrevious" ? -1 : 1);
         return;
       case "clearInput":
-        // ⌃C vide la saisie : avec la palette ouverte, c'est elle qui se ferme (son texte est perdu, le brouillon revient).
-        if (overlays.kind() === "palette") {
+        // ⌃C vide la saisie : avec la palette ou les réglages ouverts, c'est la surcouche qui se ferme (son texte est perdu, le brouillon revient).
+        if (overlays.kind() === "palette" || overlays.kind() === "settings") {
           overlays.close();
           return;
         }
