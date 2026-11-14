@@ -308,7 +308,7 @@ The unified screen drives Claude Code through `claude-agent-acp`. Download the a
 | `PgUp` `PgDn` | scroll |
 | `Home` `End` | top and bottom of the thread (empty input) |
 
-Typing `/quit` and `⏎` quits too. Any other text starting with `/`, such as `/review 42`, is sent to the agent as typed.
+Typing `/quit` and `⏎` quits too. In the command palette, `⏎` runs the selected command when the typed text has no space and matches a command name by prefix or substring (`/rev` or `/view` runs `/review`). Any other text starting with `/`, such as `/review 42`, is sent to the agent as typed.
 
 Under tmux, `⇧⏎` needs `set -g extended-keys on` in your tmux configuration; without it, use `⌃J`.
 
