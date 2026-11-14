@@ -1,9 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
-import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { basename, dirname, join } from "node:path";
-import { peerPidOf } from "../bus/peer-pid.ts";
-import type { PeerSummary } from "../bus/peers.ts";
+import { parentTable, peerPidOf } from "../bus/peer-pid.ts";
+import type { Nesting, PeerSummary } from "../bus/peers.ts";
 import { PeerError } from "../bus/send.ts";
 import { errorMessage, logEvent } from "../log.ts";
 import { controlDir } from "../paths.ts";
@@ -98,6 +98,17 @@ export function ensureControlDir(dir: string = controlDir()): string {
 /** Socket de contrôle d'une doublure : un fichier par pid dans le dossier de contrôle. */
 export function controlSocketPath(pid: number = process.pid): string {
   return join(controlDir(), `${pid}.sock`);
+}
+
+/**
+ * Ce qu'`idnma peer list` doit savoir des process pour masquer les sessions imbriquées (design §6.3) :
+ * la table des parents, lue une fois, et la reconnaissance d'un process idnma par son socket de contrôle
+ * (un Claude natif, lancé par execve, n'en a pas). `undefined` quand la table est illisible : rien n'est masqué.
+ */
+export function idnmaNesting(): Nesting | undefined {
+  const parentOf = parentTable();
+  if (parentOf === undefined) return undefined;
+  return { parentOf, isIdnmaProcess: (pid) => existsSync(controlSocketPath(pid)) };
 }
 
 /** Fichier pointeur d'un thread Codex vers la doublure qui le porte ; lève sur un id non conforme. */

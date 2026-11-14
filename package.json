@@ -24,6 +24,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "2.6.0",
+    "@opentui/core": "0.8.4",
     "yaml": "^2.8.0",
     "zod": "^4.0.0"
   },

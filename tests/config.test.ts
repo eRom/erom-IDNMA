@@ -220,6 +220,17 @@ test("an unknown engine key is refused and named, never silently dropped", () =>
   expect(() => loadAgentEngine("codex")).toThrow(/engines\.default.*« envs »/);
 });
 
+test("engine accepts ui: unified and ui: native", () => {
+  writeFileSync(join(dir, ".idnma.yml"), "agents:\n  claude:\n    engines:\n      default:\n        harness: claude\n        ui: unified\n      plain:\n        harness: claude\n        ui: native\n");
+  expect(loadAgentEngine("claude").engine.ui).toBe("unified");
+  expect(loadAgentEngine("claude", "plain").engine.ui).toBe("native");
+});
+
+test("engine refuses an unknown ui value", () => {
+  writeFileSync(join(dir, ".idnma.yml"), "agents:\n  claude:\n    engines:\n      default:\n        harness: claude\n        ui: fancy\n");
+  expect(() => loadAgentEngine("claude")).toThrow(/ui/);
+});
+
 test("display keys at the agent level stay accepted", () => {
   writeFileSync(
     join(dir, ".idnma.yml"),

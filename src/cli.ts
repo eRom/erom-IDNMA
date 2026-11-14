@@ -6,7 +6,7 @@ import { listAgentKeys } from "./config/network.ts";
 import { reachablePeers, summarizePeer, type PeerSummary } from "./bus/peers.ts";
 import { PeerError } from "./bus/send.ts";
 import { isDescendantOf } from "./bus/peer-pid.ts";
-import { codexUnderstudyPid, controlRequest } from "./understudy/control.ts";
+import { codexUnderstudyPid, controlRequest, idnmaNesting } from "./understudy/control.ts";
 import { parseRunArgs, UsageError } from "./run/args.ts";
 import { installTeammateLine, uninstallTeammateLine } from "./install/teammate.ts";
 import { installAgy, uninstallAgy } from "./install/agy.ts";
@@ -81,6 +81,7 @@ chiffres, - et _, 64 caractères au plus).
 ${agentsLine}
 
   --engine <e>   engine de l'agent dans .idnma.yml (défaut : default)
+  --unified / --native   écran unifié (claude, agy) ou TUI native ; l'emportent sur ui: de l'engine
 
 Tout autre jeton, et tout ce qui suit --, va au harnais. Un flag tapé remplace le même flag de
 l'engine (--model, --effort...) ; les autres options de l'engine restent.
@@ -234,7 +235,7 @@ function localPeers(): PeerSummary[] {
   // Une commande d'opencode descend du service d'opencode, pas de la doublure : la filiation ne l'exclut pas.
   // La TUI lui transmet le socket de contrôle de sa doublure, nommé `<pid>.sock`.
   const opencodeSelf = understudyPidOfControlSocket(process.env.IDNMA_CONTROL_SOCKET);
-  return reachablePeers((entry) => entry.pid === codexSelf || entry.pid === opencodeSelf || isDescendantOf(process.pid, entry.pid)).map(summarizePeer);
+  return reachablePeers((entry) => entry.pid === codexSelf || entry.pid === opencodeSelf || isDescendantOf(process.pid, entry.pid), idnmaNesting()).map(summarizePeer);
 }
 
 async function peerList(args: string[]): Promise<number> {

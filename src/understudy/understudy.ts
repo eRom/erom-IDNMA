@@ -6,7 +6,7 @@ import type { Registration } from "../bus/register.ts";
 import { reachablePeers, summarizePeer } from "../bus/peers.ts";
 import { sendPeerMessage } from "../bus/send.ts";
 import { errorMessage, logEvent } from "../log.ts";
-import { controlSocketPath, startControlServer, type ControlCall, type ControlResponse, type VerifyCaller } from "./control.ts";
+import { controlSocketPath, idnmaNesting, startControlServer, type ControlCall, type ControlResponse, type VerifyCaller } from "./control.ts";
 import { CourierUnavailableError, rejectQueuedMessages, waitBounded, type Courier } from "./courier.ts";
 import { spawnUnderPty, type PtyChild } from "./pty.ts";
 import type { MessageQueue } from "./queue.ts";
@@ -136,7 +136,7 @@ export async function runUnderstudy(o: {
           if (request.op === "read") return { ok: true, message: activeCourier !== undefined ? activeCourier.read() : (o.queue.shift()?.content ?? null) };
           // Les pairs joignables hors la doublure elle-même (elle s'inscrit sous son propre pid) : l'agent,
           // enfant de la doublure, n'a parfois pas le droit de lancer `ps` (sandbox de dst).
-          if (request.op === "list") return { ok: true, peers: reachablePeers((entry) => entry.pid === process.pid).map(summarizePeer) };
+          if (request.op === "list") return { ok: true, peers: reachablePeers((entry) => entry.pid === process.pid, idnmaNesting()).map(summarizePeer) };
           if (request.op === "hook") {
             return { ok: true, reply: activeCourier !== undefined ? await activeCourier.hook(request.harness, request.event, request.payload) : {} };
           }

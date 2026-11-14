@@ -7,6 +7,7 @@ import { ConfigDocument } from "../src/configure/document.ts";
 import type { IssueView } from "../src/configure/types.ts";
 import { collectIssues } from "../src/configure/validate.ts";
 import { buildView } from "../src/configure/view.ts";
+import { edit } from "./helpers/configure-edit.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "configure");
 const romain = readFileSync(join(FIXTURES, "romain.yml"), "utf-8");
@@ -199,6 +200,21 @@ describe("engine rules match idnma run", () => {
       "        harness: dst\n",
     ];
     for (const body of bodies) expect(issuesOf(oneEngine(body))).toEqual([]);
+  });
+
+  test("configure reports unified-harness next to the harness", () => {
+    const issues = issuesOf(oneEngine("        harness: codex\n        ui: unified\n"));
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ severity: "error", code: "unified-harness", agent: "x", engine: "default", field: "harness" });
+    expect(issues[0]!.message).toBe("Unified mode covers claude and agy only, not codex.");
+  });
+
+  test("configure accepts ui without a schema issue", () => {
+    const text = oneEngine("        harness: claude\n        ui: unified\n");
+    expect(issuesOf(text)).toEqual([]);
+    const { text: edited } = edit(text, { op: "setHarness", agent: "x", engine: "default", harness: "agy" });
+    expect(edited).toContain("ui: unified");
+    expect(issuesOf(edited)).toEqual([]);
   });
 
   test("the engine rules are checked on the engines other than default too", () => {

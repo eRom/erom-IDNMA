@@ -264,6 +264,65 @@ Flags that would take an agent off the bus are refused:
 - dst: launcher commands (`run`, `doctor`, `update`, `session`…), `-p/--print`, any `--backend` other than `dsh`, `--profile`. `idnma run dst` also refuses to start if the plugin is not installed, or was installed from another checkout.
 - Pi: `-p/--print`, `--mode` other than `text`, `--export`, `--list-models`, `-h/--help`, `-v/--version` and its subcommands (`install`, `update`, `config`…): Pi must stay in its TUI for the extension to open turns.
 
+## Unified mode
+
+For Claude Code and agy, `idnma run` can draw its own screen instead of handing the pane to the native TUI. Both agents then speak the Agent Client Protocol (ACP) to idnma, which renders the conversation, the pending requests and the peer messages in one place.
+
+Turn it on per engine, or per launch (a flag always wins over the engine):
+
+```yaml
+agents:
+  claude:
+    engines:
+      default:
+        harness: claude
+        ui: unified
+```
+
+```sh
+idnma run claude --unified   # unified screen for this launch
+idnma run claude --native    # native TUI for this launch
+```
+
+`ui: unified` is only accepted on a `claude` or `agy` engine, and `--unified` follows the same rule: on any other harness it is refused before anything starts. Without either, the native TUI stays the default.
+
+### Install `claude-agent-acp`
+
+The unified screen drives Claude Code through `claude-agent-acp`. Download the archive for your platform from the GitHub releases of [agentclientprotocol/claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp/releases) (no Node needed), then put the binary, or a link to it, in a directory of your `PATH`. idnma sets `CLAUDE_CODE_EXECUTABLE` to the `claude` command found in your `PATH`, so the Claude Code you already use is the one that runs.
+
+### Keys
+
+| Key | Effect |
+|---|---|
+| `⏎` | send (queued while a turn runs) |
+| `⇧⏎` or `⌃J` | new line |
+| `/` | command palette (on an empty input) |
+| `⌃P` | plan |
+| `⌃O` | settings: model, effort, mode |
+| `⇧⇥` | next mode (skips `bypassPermissions`) |
+| `⌃R` | reopen the first held message |
+| `⇥` | in the command palette, complete the selected command into the input |
+| `↑` `↓` | choose in a request or a panel; on an empty input, recall previous prompts |
+| `esc` | interrupt the turn, reject a request, or close a panel |
+| `⌃C` | interrupt, or clear the input; twice within a second to quit |
+| `⌃D` | quit, on an empty input |
+| `PgUp` `PgDn` | scroll |
+| `Home` `End` | top and bottom of the thread (empty input) |
+
+Typing `/quit` and `⏎` quits too. In the command palette, `⏎` runs the selected command when the typed text has no space and matches a command name by prefix or substring (`/rev` or `/view` runs `/review`). Any other text starting with `/`, such as `/review 42`, is sent to the agent as typed. To give a command arguments from the list, press `⇥` (or click its row): the input holds `/<name> ` and you type the arguments, then `⏎` sends the whole text.
+
+On an empty input, `↑` recalls the previous prompts of the thread and `↓` comes back toward the newest; editing a recalled prompt gives the arrows back to the cursor.
+
+Under tmux, `⇧⏎` needs `set -g extended-keys on` in your tmux configuration; without it, use `⌃J`.
+
+### Remote Control
+
+On the Claude engine, the `--remote-control` flag is ignored in unified mode, and the screen says so at startup: `Ignored in unified mode: --remote-control (type /remote-control instead)`. Typing `/remote-control` in the screen enables Remote Control, a command handled by `claude-agent-acp`, so the session can be reached from the phone. On agy, the flag is ignored with the generic notice and `/remote-control` has no handler: there is no access from the phone.
+
+### Peer messages
+
+A message from a peer opens a turn on its own for Claude, and its final answer goes back to the sender. For agy, the message is held until you choose Deliver, Later or Dismiss: idnma never prompts agy without your gesture. `⌃R` brings a held message back.
+
 ## Talking to each other
 
 ### From Codex, Grok, agy, opencode, dst or Pi
@@ -321,6 +380,9 @@ Both accept `--list` (peers on the local network) and `--help`, or a plain reque
 - dst, memory: 250 to 450 MB per pane.
 - Pi, after Escape: Pi drops the peer messages queued behind the interrupted turn; the understudy tells their senders so.
 - Pi: peer messages use Pi's default rendering of extension messages, an `[idnma]` block.
+- Unified mode: no search in the thread.
+- Unified mode, Claude: the session shows up twice in the `ListAgents` of native Claude sessions.
+- Unified mode: a stray waiting badge can appear at startup in a pane nobody is looking at.
 
 ## Development
 

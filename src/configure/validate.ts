@@ -253,6 +253,8 @@ function engineMessage(code: EngineIssueCode, token: string | undefined): string
       return "This option has no place in a bus pane for dst.";
     case "pi-refused-flag":
       return "This option takes pi out of its terminal UI: idnma could not deliver bus messages.";
+    case "unified-harness":
+      return `Unified mode covers claude and agy only, not ${token}.`;
   }
 }
 

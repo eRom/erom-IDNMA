@@ -60,12 +60,23 @@ export const DST_MODEL_REASON = "dst ne prend pas de modèle au lancement ; choi
 
 export const OPENCODE_STANDALONE_REASON = "fait démarrer opencode hors de son service partagé : idnma ne pourrait plus lui livrer les messages du bus.";
 
-export type EngineIssueCode = "codex-embedded-flag" | "opencode-refused-flag" | "opencode-session-form" | "opencode-model-form" | "dst-model" | "dst-refused-flag" | "pi-refused-flag";
+/** Les harnais que l'écran unifié sait piloter (ACP) : les autres gardent leur TUI native. */
+export const UNIFIED_HARNESSES = ["claude", "agy"] as const;
+
+export type EngineIssueCode =
+  | "codex-embedded-flag"
+  | "opencode-refused-flag"
+  | "opencode-session-form"
+  | "opencode-model-form"
+  | "dst-model"
+  | "dst-refused-flag"
+  | "pi-refused-flag"
+  | "unified-harness";
 
 export interface EngineIssue {
   code: EngineIssueCode;
   /** Champ de l'engine où l'erreur se corrige. */
-  field: "model" | "options";
+  field: "model" | "options" | "harness";
   /** `config` : erreur du fichier (`ConfigError`) ; `usage` : erreur d'usage (`UsageError`) telle que `runAgent` la lève. */
   error: "config" | "usage";
   /** Le message français que `runAgent` lève. */
@@ -138,6 +149,15 @@ export function engineIssues(engine: Engine, source: string): EngineIssue[] {
   } else if (engine.harness === "pi") {
     const refusal = piRefusal(engine.options);
     if (refusal !== undefined) issues.push({ code: "pi-refused-flag", field: "options", error: "config", message: `${source} : ${refusal}` });
+  }
+  if (engine.ui === "unified" && !(UNIFIED_HARNESSES as readonly Harness[]).includes(engine.harness)) {
+    issues.push({
+      code: "unified-harness",
+      field: "harness",
+      error: "config",
+      message: `${source} : ui: unified ne vaut que pour claude et agy (harnais ${engine.harness}).`,
+      token: engine.harness,
+    });
   }
   return issues;
 }

@@ -1,0 +1,215 @@
+{
+  "note": "agy session/load replay, trimmed by hand from a real capture (paths and commands neutralised).",
+  "traffic": [
+    {
+      "dir": "agent>client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "95bfb28f-f045-4df2-8b7e-9683ad5f0eb3",
+          "update": {
+            "sessionUpdate": "user_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "lance la commande shell : env | grep '^IDNMA_' ; command -v idnma"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent>client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "95bfb28f-f045-4df2-8b7e-9683ad5f0eb3",
+          "update": {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "call_11283304392550404467",
+            "name": "run_command",
+            "args": {
+              "CommandLine": "env | grep '^IDNMA_' ; command -v idnma",
+              "WaitMsBeforeAsync": 5000,
+              "toolSummary": "Check IDNMA environment variables and binary"
+            },
+            "status": "completed",
+            "kind": "execute",
+            "title": "env | grep '^IDNMA_' ; command -v idnma",
+            "rawInput": {
+              "CommandLine": "env | grep '^IDNMA_' ; command -v idnma",
+              "WaitMsBeforeAsync": 5000,
+              "toolSummary": "Check IDNMA environment variables and binary"
+            },
+            "rawOutput": {
+              "output": "Created At: 2026-11-14T13:06:53+01:00\nCompleted At: 2026-11-14T13:06:55+01:00\nCommand exited with code 0.\n\nCommand output:\nIDNMA_NAME=probe-agy-name\r\nIDNMA_CONTROL_SOCKET=/tmp/probe-agy.sock\r\nIDNMA_CONTROL_TOKEN=probe-not-a-secret-token\r\n/tmp/probe/bin/idnma\r\n",
+              "exit_code": 0
+            },
+            "content": [
+              {
+                "type": "content",
+                "content": {
+                  "type": "text",
+                  "text": "Created At: 2026-11-14T13:06:53+01:00\nCompleted At: 2026-11-14T13:06:55+01:00\nCommand exited with code 0.\n\nCommand output:\nIDNMA_NAME=probe-agy-name\r\nIDNMA_CONTROL_SOCKET=/tmp/probe-agy.sock\r\nIDNMA_CONTROL_TOKEN=probe-not-a-secret-token\r\n/tmp/probe/bin/idnma\r\n"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent>client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "95bfb28f-f045-4df2-8b7e-9683ad5f0eb3",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "Voici la sortie de la commande :\n\n```text\nIDNMA_NAME=probe-agy-name\nIDNMA_CONTROL_SOCKET=/tmp/probe-agy.sock\nIDNMA_CONTROL_TOKEN=probe-not-a-secret-token\n/tmp/probe/bin/idnma\n```"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent>client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "95bfb28f-f045-4df2-8b7e-9683ad5f0eb3",
+          "update": {
+            "sessionUpdate": "user_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "lance la commande shell : echo start; sleep 30; echo end"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent>client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "95bfb28f-f045-4df2-8b7e-9683ad5f0eb3",
+          "update": {
+            "sessionUpdate": "agent_thought_chunk",
+            "content": {
+              "type": "text",
+              "text": "Initiating the specified shell command execution. The command will run in the background due to a maximum wait time constraint. Await the command's completion.\n\n\n"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent>client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "95bfb28f-f045-4df2-8b7e-9683ad5f0eb3",
+          "update": {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "call_6659861335627692474",
+            "name": "run_command",
+            "args": {
+              "CommandLine": "echo start; sleep 30; echo end",
+              "WaitMsBeforeAsync": 10000,
+              "toolSummary": "Run sleep 30 command"
+            },
+            "status": "failed",
+            "kind": "execute",
+            "title": "echo start; sleep 30; echo end",
+            "rawInput": {
+              "CommandLine": "echo start; sleep 30; echo end",
+              "WaitMsBeforeAsync": 10000,
+              "toolSummary": "Run sleep 30 command"
+            },
+            "rawOutput": {
+              "output": ""
+            },
+            "content": [
+              {
+                "type": "content",
+                "content": {
+                  "type": "text",
+                  "text": ""
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent>client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "95bfb28f-f045-4df2-8b7e-9683ad5f0eb3",
+          "update": {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [
+              {
+                "name": "review",
+                "description": "Review the current changes.",
+                "input": {
+                  "hint": "[file or range]"
+                }
+              },
+              {
+                "name": "plan",
+                "description": "Plan carefully before making changes.",
+                "input": null
+              },
+              {
+                "name": "compact",
+                "description": "Summarize the history to free up the context window.",
+                "input": null
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent>client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "95bfb28f-f045-4df2-8b7e-9683ad5f0eb3",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 14606,
+            "size": 1048576
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent>client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "95bfb28f-f045-4df2-8b7e-9683ad5f0eb3",
+          "update": {
+            "sessionUpdate": "session_info_update",
+            "title": "Shell Command Execution Setup"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -18,6 +18,21 @@ describe("engineIssues", () => {
     ]);
   });
 
+  test("ui unified on grok is a config issue on the harness field", () => {
+    const issues = engineIssues({ harness: "grok", options: [], env: {}, ui: "unified" }, source);
+    expect(issues).toEqual([expect.objectContaining({ code: "unified-harness", field: "harness", error: "config" })]);
+    expect(issues[0]!.message).toContain("grok");
+  });
+
+  test("ui unified on claude and agy raises nothing", () => {
+    expect(engineIssues({ harness: "claude", options: [], env: {}, ui: "unified" }, source)).toEqual([]);
+    expect(engineIssues({ harness: "agy", options: [], env: {}, ui: "unified" }, source)).toEqual([]);
+  });
+
+  test("ui native raises nothing on any harness", () => {
+    expect(engineIssues({ harness: "grok", options: [], env: {}, ui: "native" }, source)).toEqual([]);
+  });
+
   test("flags an opencode option that leaves the shared service", () => {
     expect(engineIssues(engine("opencode", { options: ["--standalone"] }), source)).toEqual([
       { code: "opencode-refused-flag", field: "options", error: "config", token: "--standalone", message: `${source} : --standalone ${OPENCODE_STANDALONE_REASON}` },

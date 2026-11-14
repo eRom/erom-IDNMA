@@ -190,6 +190,14 @@ describe("parseRunArgs", () => {
     expect(parseRunArgs(["codex", "--", "--here", "--engine", "x"])).toEqual({ agent: "codex", passthrough: ["--here", "--engine", "x"] });
   });
 
+  test("parseRunArgs consumes --unified and --native, the last one wins", () => {
+    expect(parseRunArgs(["opus", "--unified", "-c"])).toEqual({ agent: "opus", ui: "unified", passthrough: ["-c"] });
+    expect(parseRunArgs(["opus", "--unified", "--native"]).ui).toBe("native");
+    expect(parseRunArgs(["opus", "--native", "--unified"]).ui).toBe("unified");
+    expect(parseRunArgs(["opus", "--", "--unified"]).passthrough).toEqual(["--unified"]);
+    expect(parseRunArgs(["opus", "--", "--unified"]).ui).toBeUndefined();
+  });
+
   test("rejects --engine without a value", () => {
     expect(() => parseRunArgs(["codex", "--engine"])).toThrow(UsageError);
     expect(() => parseRunArgs(["codex", "--engine="])).toThrow(UsageError);
