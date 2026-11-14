@@ -595,10 +595,10 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
       } catch (error) {
         assertNotExiting();
         const message = startFailureMessage(error, launchPlan);
+        // Le journal ne garde que la classe et le code : le texte d'une erreur de l'agent peut porter l'e-mail du compte.
         logEvent("unified-start-failed", {
           error: error instanceof Error ? error.name : "unknown",
           ...(error instanceof AgentStartError && error.code !== null ? { code: error.code } : {}),
-          message: errorMessage(error),
         });
         process.stderr.write(`${message}\n`);
         await releaseResources();
@@ -637,7 +637,13 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
       return "ready";
     } catch (error) {
       if (error instanceof StartupAborted) return "aborted";
-      // Une erreur d'usage ou de chargement : rien ne reste pris, l'erreur remonte telle quelle.
+      // Une erreur d'usage ou de chargement : rien ne reste pris, l'erreur remonte telle quelle. Un écran déjà ouvert
+      // rend d'abord le terminal : l'erreur imprimée par l'appelant ne doit pas tomber dessus.
+      if (screen !== undefined) {
+        screenDestroyed = true;
+        logEvent("unified-crash", { message: errorMessage(error) });
+        await attempt("screen-destroy", () => screen!.destroy());
+      }
       await releaseResources();
       throw error;
     } finally {

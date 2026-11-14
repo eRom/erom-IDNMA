@@ -493,6 +493,39 @@ describe("startup failures", () => {
     nothingLeftBehind();
   });
 
+  test("an agent error text never reaches the log, while the French message keeps its text", async () => {
+    const leaky = "Authentication required for someone@example.com";
+    const notConnected = await bootFailing({ scenario: { authRequired: true, authRequiredMessage: leaky } });
+    expect(notConnected.stderr).toContain(notConnectedMessage("claude"));
+    const started = await bootFailing({ scenario: { sessionNewError: { code: -32603, message: "internal error for someone@example.com" } } });
+    expect(started.stderr).toContain("Claude n'a pas démarré (-32603)");
+    const logged = readFileSync(join(configDir, "logs", "idnma.log"), "utf8");
+    expect(logged).not.toContain("@");
+    expect(logsOf("unified-start-failed")).toEqual([
+      expect.objectContaining({ error: "AgentNotConnectedError" }),
+      expect.objectContaining({ error: "AgentStartError", code: -32603 }),
+    ]);
+  });
+
+  test("a failure after the screen opened gives the terminal back before the error goes up", async () => {
+    let screen: FakeScreen | undefined;
+    const error = await bootFailing({
+      deps: {
+        openScreen: async (options) => {
+          screen = new FakeScreen(options.handlers);
+          screen.render = () => {
+            throw new Error("render failed");
+          };
+          return screen;
+        },
+      },
+    }).catch((caught: unknown) => caught);
+    expect((error as Error).message).toBe("render failed");
+    expect(screen!.destroyed).toBe(true);
+    expect(logsOf("unified-crash")).toEqual([expect.objectContaining({ message: "render failed" })]);
+    nothingLeftBehind();
+  });
+
   test("a resume flag without an id is a usage error and leaves nothing behind", async () => {
     const error = await bootFailing({ passthrough: ["--resume"] }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(UsageError);

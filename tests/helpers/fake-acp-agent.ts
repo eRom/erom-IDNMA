@@ -51,6 +51,8 @@ interface Scenario {
   /** Erreur ACP rendue à `session/prompt`. */
   promptError?: { code: number; message: string };
   authRequired?: boolean;
+  /** Texte de l'erreur `authRequired` ; « Authentication required » par défaut. */
+  authRequiredMessage?: string;
   loadNotFound?: boolean;
   /** Chemin du fichier où écrire le pid d'un petit-enfant `sleep 600` du même groupe de process. */
   spawnGrandchild?: string;
@@ -148,7 +150,7 @@ function handleRequest(id: unknown, method: string, params: Json): void {
       reply(id, { protocolVersion: 1, agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } }, authMethods: [] });
       return;
     case "session/new":
-      if (scenario.authRequired) return fail(id, -32000, "Authentication required");
+      if (scenario.authRequired) return fail(id, -32000, scenario.authRequiredMessage ?? "Authentication required");
       if (scenario.sessionNewError) return fail(id, scenario.sessionNewError.code, scenario.sessionNewError.message);
       reply(id, { sessionId, configOptions: options });
       return;
@@ -161,7 +163,7 @@ function handleRequest(id: unknown, method: string, params: Json): void {
       return;
     }
     case "session/load":
-      if (scenario.authRequired) return fail(id, -32000, "Authentication required");
+      if (scenario.authRequired) return fail(id, -32000, scenario.authRequiredMessage ?? "Authentication required");
       if (scenario.loadNotFound) return fail(id, -32002, "Resource not found");
       for (const update of scenario.replay ?? []) sendUpdate(update);
       reply(id, { configOptions: options });
