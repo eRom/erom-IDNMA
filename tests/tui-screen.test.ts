@@ -1,4 +1,4 @@
-import { mkdtempSync, existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -7,7 +7,7 @@ import type { ConfigOption, PermissionRequest } from "../src/acp/events.ts";
 import { type Action, initialState, reduce, type SessionState } from "../src/tui/state.ts";
 import type { Intent } from "../src/tui/keys.ts";
 import { ACCENT, LABEL, SURFACE } from "../src/tui/theme.ts";
-import { createScreen } from "../src/tui/view/screen.ts";
+import { createScreen, pbcopyText } from "../src/tui/view/screen.ts";
 
 // ---- états ----
 
@@ -134,12 +134,12 @@ function spanOf(mounted: Mounted, text: string): { fg: number[]; bg: number[] } 
   return undefined;
 }
 
-/** Lignes d'une image, sans la ligne vide que laisse le saut de ligne final. */
 async function frameOf(mounted: Mounted): Promise<string> {
   await mounted.renderOnce();
   return mounted.captureCharFrame();
 }
 
+/** Lignes d'une image, sans la ligne vide que laisse le saut de ligne final. */
 function rowsOf(frame: string): string[] {
   return frame.replace(/\n$/, "").split("\n");
 }
@@ -861,6 +861,44 @@ describe("status line fit", () => {
       expect(line).toContain("⏎ Send");
       expect(line).toContain("…");
     });
+  });
+});
+
+describe("pbcopyText against a stand-in executable", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "idnma-pbcopy-"));
+  });
+
+  /** Un script qui fait ce que `pbcopy` fait : il lit son entrée standard et la garde, ici dans un fichier. */
+  function standIn(body: string): string {
+    const path = join(dir, "pbcopy-stand-in");
+    writeFileSync(path, `#!/bin/sh\n${body}\n`);
+    chmodSync(path, 0o755);
+    return path;
+  }
+
+  test("the text reaches the executable on its standard input, byte for byte", () => {
+    const sink = join(dir, "sink");
+    const text = "Réponse à l'étape 2\n\tindentée, avec des accents é è ñ et un guillemet \" et un $HOME;\n日本語 🙂\ndernière ligne sans saut";
+    expect(pbcopyText(text, standIn(`cat > '${sink}'`))).toBe(true);
+    expect(readFileSync(sink).equals(Buffer.from(text, "utf8"))).toBe(true);
+  });
+
+  test("the text is never placed on the command line", () => {
+    const argv = join(dir, "argv");
+    expect(pbcopyText("secret words", standIn(`printf '%s' "$#" > '${argv}'\ncat > /dev/null`))).toBe(true);
+    expect(readFileSync(argv, "utf8")).toBe("0");
+  });
+
+  test("an executable that exits with an error gives false", () => {
+    expect(pbcopyText("abc", standIn("cat > /dev/null\nexit 3"))).toBe(false);
+  });
+
+  test("a missing executable gives false without throwing", () => {
+    expect(() => pbcopyText("abc", join(dir, "does-not-exist"))).not.toThrow();
+    expect(pbcopyText("abc", join(dir, "does-not-exist"))).toBe(false);
   });
 });
 

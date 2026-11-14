@@ -107,10 +107,17 @@ function statusDot(status: Status) {
   }
 }
 
-/** Copie dans le presse-papiers de macOS : `pbcopy` sans shell, le texte sur son entrée standard, jamais sur la ligne de commande. */
-function pbcopyText(text: string): boolean {
-  const result = Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(text), stdout: "ignore", stderr: "ignore" });
-  return result.exitCode === 0;
+/**
+ * Copie dans le presse-papiers de macOS : `pbcopy` sans shell, le texte sur son entrée standard, jamais sur la ligne de
+ * commande. `executable` ne change que pour les tests, qui lui substituent un script. Un exécutable absent rend faux.
+ */
+export function pbcopyText(text: string, executable = "pbcopy"): boolean {
+  try {
+    const result = Bun.spawnSync([executable], { stdin: Buffer.from(text), stdout: "ignore", stderr: "ignore" });
+    return result.exitCode === 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Le dossier de départ s'écrit `~`. */
