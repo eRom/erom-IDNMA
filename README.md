@@ -298,7 +298,7 @@ idnma run claude --native    # native TUI for this launch
 | `pi` | `pi-acp` | `bun add -g pi-acp@0.0.34` (or npm), Node 22; `pi` must be in your `PATH` |
 | `dst` | `dsh --profile acp` | nothing more |
 
-For Codex, idnma sets `CODEX_PATH` to the `codex` found in your `PATH`, so the Codex you already use is the one that runs, unless it is already set in the environment or in the engine's `env`.
+For Codex, idnma needs `codex` on your `PATH`; it passes it to the adapter as `CODEX_PATH`, so the Codex you already use is the one that runs, unless `CODEX_PATH` is already set (in the environment or in the engine's `env`), in which case that value is used.
 
 ### Engine options
 
@@ -336,7 +336,7 @@ The unified screen drives Claude Code through `claude-agent-acp`. Download the a
 | `/` | command palette (on an empty input) |
 | `⌃P` | plan |
 | `⌃O` | settings: model, effort, mode (type to filter long lists, such as the models of opencode or Pi) |
-| `⇧⇥` | next mode (skips `bypassPermissions`) |
+| `⇧⇥` | next mode (skips Claude's `bypassPermissions` and Codex's `agent-full-access`) |
 | `⌃R` | reopen the first held message |
 | `⇥` | in the command palette, complete the selected command into the input |
 | `↑` `↓` | choose in a request or a panel; on an empty input, recall previous prompts |
@@ -418,7 +418,7 @@ Both accept `--list` (peers on the local network) and `--help`, or a plain reque
 - Pi, after Escape: Pi drops the peer messages queued behind the interrupted turn; the understudy tells their senders so.
 - Pi: peer messages use Pi's default rendering of extension messages, an `[idnma]` block.
 - Unified mode: no search in the thread.
-- Unified mode, Grok and dst: no mode. The header shows none and `⇧⇥` does nothing.
+- Unified mode, Grok, dst and Pi: no mode. The header shows none and `⇧⇥` does nothing.
 - Unified mode, Pi: the startup block is shown at the start of the session (set `quietStartup: true` in Pi's settings to hide it). Replayed tool rows read "bash", because Pi sends no command on replay.
 - Unified mode, Claude: the session shows up twice in the `ListAgents` of native Claude sessions.
 - Unified mode: a stray waiting badge can appear at startup in a pane nobody is looking at.
