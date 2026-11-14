@@ -264,6 +264,57 @@ Flags that would take an agent off the bus are refused:
 - dst: launcher commands (`run`, `doctor`, `update`, `session`…), `-p/--print`, any `--backend` other than `dsh`, `--profile`. `idnma run dst` also refuses to start if the plugin is not installed, or was installed from another checkout.
 - Pi: `-p/--print`, `--mode` other than `text`, `--export`, `--list-models`, `-h/--help`, `-v/--version` and its subcommands (`install`, `update`, `config`…): Pi must stay in its TUI for the extension to open turns.
 
+## Unified mode
+
+For Claude Code and agy, `idnma run` can draw its own screen instead of handing the pane to the native TUI. Both agents then speak the Agent Client Protocol (ACP) to idnma, which renders the conversation, the pending requests and the peer messages in one place.
+
+Turn it on per engine, or per launch (a flag always wins over the engine):
+
+```yaml
+agents:
+  claude:
+    engines:
+      default:
+        harness: claude
+        ui: unified
+```
+
+```sh
+idnma run claude --unified   # unified screen for this launch
+idnma run claude --native    # native TUI for this launch
+```
+
+`ui: unified` is only accepted on a `claude` or `agy` engine. Without it, the native TUI stays the default.
+
+### Install `claude-agent-acp`
+
+The unified screen drives Claude Code through `claude-agent-acp`. Download the archive for your platform from the GitHub releases of [agentclientprotocol/claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp/releases) (no Node needed), then put the binary, or a link to it, in a directory of your `PATH`. idnma sets `CLAUDE_CODE_EXECUTABLE` to the `claude` command found in your `PATH`, so the Claude Code you already use is the one that runs.
+
+### Keys
+
+| Key | Effect |
+|---|---|
+| `⏎` | send (queued while a turn runs) |
+| `⇧⏎` or `⌃J` | new line |
+| `/` | command palette (on an empty input) |
+| `⌃P` | plan |
+| `⌃O` | settings: model, effort, mode |
+| `⇧⇥` | next mode (skips `bypassPermissions`) |
+| `⌃R` | reopen the first held message |
+| `↑` `↓` | choose in a request or a panel |
+| `esc` | interrupt the turn, reject a request, or close a panel |
+| `⌃C` | interrupt, or clear the input; twice in a row to quit |
+| `⌃D` | quit, on an empty input |
+| `PgUp` `PgDn` | scroll |
+| `Home` `End` | top and bottom of the thread (empty input) |
+| `/quit` | quit |
+
+Under tmux, `⇧⏎` needs `set -g extended-keys on` in your tmux configuration; without it, use `⌃J`.
+
+### Peer messages
+
+A message from a peer opens a turn on its own for Claude, and its final answer goes back to the sender. For agy, the message is held until you choose Deliver, Later or Dismiss: agy runs on a consumer Google plan, and idnma never prompts it without your gesture. `⌃R` brings a held message back.
+
 ## Talking to each other
 
 ### From Codex, Grok, agy, opencode, dst or Pi
@@ -321,6 +372,10 @@ Both accept `--list` (peers on the local network) and `--help`, or a plain reque
 - dst, memory: 250 to 450 MB per pane.
 - Pi, after Escape: Pi drops the peer messages queued behind the interrupted turn; the understudy tells their senders so.
 - Pi: peer messages use Pi's default rendering of extension messages, an `[idnma]` block.
+- Unified mode: no access from the phone. `--remote-control` is ignored, and the screen says so.
+- Unified mode: no search in the thread.
+- Unified mode, Claude: the session shows up twice in the `ListAgents` of native Claude sessions.
+- Unified mode: a stray waiting badge can appear at startup in a pane nobody is looking at.
 
 ## Development
 
