@@ -263,6 +263,12 @@ export function createScreen(options: ScreenOptions): Screen {
   let recalledAt: number | undefined;
   let recalledText: string | undefined;
 
+  /** Le dernier texte rappelé n'est plus « celui du rappel » : envoyé, vidé ou remplacé, il redevient de la frappe. */
+  function forgetRecall(): void {
+    recalledAt = undefined;
+    recalledText = undefined;
+  }
+
   /** Les messages de l'utilisateur dans l'ordre du fil (tapés, de la palette, de la file, rejoués), doublons consécutifs réduits. */
   function promptHistory(): string[] {
     const prompts: string[] = [];
@@ -286,8 +292,7 @@ export function createScreen(options: ScreenOptions): Screen {
     const to = Math.min(Math.max(from + direction, 0), history.length);
     const entry = history[to];
     if (entry === undefined) {
-      recalledAt = undefined;
-      recalledText = undefined;
+      forgetRecall();
       textarea.setText("");
       return;
     }
@@ -319,7 +324,10 @@ export function createScreen(options: ScreenOptions): Screen {
 
   // Le gestionnaire global passe avant la saisie : `preventDefault` lui retire la touche.
   const onKeypress = (key: Parameters<typeof intentOf>[0] & { preventDefault(): void }): void => {
+    // Une saisie vide n'a plus de rappel en cours : retaper un texte rappelé plus tôt ne rend pas les flèches à l'historique.
+    if (textarea.plainText === "") forgetRecall();
     const intent = intentOf(key, context());
+    if (intent === "submit") forgetRecall();
     if (key.ctrl && key.name === "c" && state?.exit === undefined) armCtrlC();
     else disarmCtrlC();
     // Un ⏎ qui arrive pile après l'apparition d'une demande est de la frappe d'avance : on l'avale, la touche ne va pas non plus à la saisie.
@@ -451,9 +459,11 @@ export function createScreen(options: ScreenOptions): Screen {
     paletteText: () => overlays.paletteText(),
     settingsChoice: () => overlays.settingsChoice(),
     clearInput() {
+      forgetRecall();
       textarea.setText("");
     },
     setInput(value) {
+      forgetRecall();
       textarea.setText(value);
       textarea.gotoBufferEnd();
     },

@@ -1133,6 +1133,34 @@ describe("input history", () => {
     });
   });
 
+  test("once a recalled prompt is sent, typing the same text again does not bring the arrows back", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, threeSent());
+      mounted.mockInput.pressArrow("up");
+      mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("second prompt");
+      mounted.mockInput.pressEnter();
+      mounted.screen.clearInput();
+      mounted.screen.setInput("second prompt");
+      // Un rappel encore actif ferait descendre à « third prompt ».
+      mounted.mockInput.pressArrow("down");
+      expect(mounted.screen.inputText()).toBe("second prompt");
+    });
+  });
+
+  test("once the input has been emptied, retyping a recalled text does not bring the arrows back", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, threeSent());
+      mounted.mockInput.pressArrow("up");
+      mounted.mockInput.pressArrow("up");
+      for (let step = 0; step < "second prompt".length; step++) mounted.mockInput.pressKey("BACKSPACE");
+      expect(mounted.screen.inputText()).toBe("");
+      await mounted.mockInput.typeText("second prompt");
+      mounted.mockInput.pressArrow("down");
+      expect(mounted.screen.inputText()).toBe("second prompt");
+    });
+  });
+
   test("a recalled prompt is submitted as typed", async () => {
     await withScreen({}, async (mounted) => {
       await show(mounted, threeSent());
