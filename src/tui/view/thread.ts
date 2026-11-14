@@ -14,6 +14,8 @@ type ToolItem = Extract<ThreadItem, { kind: "tool" }>;
 
 export interface Thread {
   readonly scroll: ScrollBoxRenderable;
+  /** Dernier enfant de la boîte défilante, après les items : demande en attente ou ligne d'agent arrêté. Masqué tant qu'il est vide. */
+  readonly tail: BoxRenderable;
   /** Aligne les rangées sur l'état : reconstruit les items changés, rafraîchit points et durées en place. */
   update(state: SessionState): void;
   /** Rafraîchit les durées des outils en cours (appelé chaque seconde par l'écran). */
@@ -39,7 +41,7 @@ interface ItemView {
 const CLEAR = { backgroundColor: "transparent", shouldFill: false } as const;
 
 /** Retire les séquences d'échappement et les caractères de contrôle : une sortie d'outil ne doit pas piloter le terminal. */
-function plain(text: string): string {
+export function plain(text: string): string {
   return text
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
     .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
@@ -47,7 +49,7 @@ function plain(text: string): string {
     .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
 }
 
-function text(renderer: CliRenderer, content: StyledText | string, color: string, extra: Record<string, unknown> = {}): TextRenderable {
+export function text(renderer: CliRenderer, content: StyledText | string, color: string, extra: Record<string, unknown> = {}): TextRenderable {
   return new TextRenderable(renderer, { content, fg: color, flexShrink: 0, wrapMode: "word", ...extra });
 }
 
@@ -197,6 +199,10 @@ export function createThread(renderer: CliRenderer, syntaxStyle: SyntaxStyle, no
     scrollbarOptions: { showArrows: false, visible: false },
   });
 
+  // La queue reste le dernier enfant : les items s'insèrent à leur index, donc devant elle.
+  const tail = new BoxRenderable(renderer, { id: "thread-tail", flexDirection: "column", flexShrink: 0, marginTop: 1, visible: false, ...CLEAR });
+  scroll.add(tail);
+
   const views: ItemView[] = [];
   const firstSeen = new Map<string, number>();
   let pendingToolId: string | undefined;
@@ -237,6 +243,7 @@ export function createThread(renderer: CliRenderer, syntaxStyle: SyntaxStyle, no
 
   return {
     scroll,
+    tail,
     update(state) {
       pendingToolId = state.pending?.kind === "permission" ? state.pending.request.toolCallId : undefined;
       const items = state.thread;
@@ -271,7 +278,7 @@ export function createThread(renderer: CliRenderer, syntaxStyle: SyntaxStyle, no
 
       if (items.length === 0 && placeholder === undefined) {
         placeholder = text(renderer, "New session", LABEL.tertiary, { id: "thread-empty" });
-        scroll.add(placeholder);
+        scroll.add(placeholder, 0);
       } else if (items.length > 0 && placeholder !== undefined) {
         scroll.remove(placeholder);
         placeholder.destroyRecursively();

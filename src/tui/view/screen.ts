@@ -6,10 +6,15 @@ import { headerParts, statusHints } from "../format.ts";
 import { type Context, type Intent, intentOf } from "../keys.ts";
 import type { SessionState, Status } from "../state.ts";
 import { ACCENT, LABEL, SURFACE, WINDOW } from "../theme.ts";
+import type { CommandInfo } from "../../acp/events.ts";
+import { createOverlays, createTail, type OverlayKind } from "./overlays.ts";
 import { createThread } from "./thread.ts";
 
 export interface ScreenHandlers {
-  /** `input` est le contenu de la saisie au moment de l'intention. */
+  /**
+   * `input` est le contenu de la saisie au moment de l'intention. Les intentions de pure vue (palette, plan, réglages,
+   * défilement, sélection dans une surcouche) sont traitées par l'écran et ne remontent jamais ici.
+   */
   onIntent(intent: Intent, input: string): void;
 }
 
@@ -19,6 +24,14 @@ export interface Screen {
   clearInput(): void;
   setInput(text: string): void;
   inputText(): string;
+  /** Une seule surcouche à la fois : en ouvrir une ferme l'autre. */
+  openOverlay(kind: OverlayKind): void;
+  closeOverlay(): void;
+  overlay(): OverlayKind | undefined;
+  /** Commande sélectionnée de la palette, `undefined` si elle est fermée ou ne filtre rien. */
+  paletteChoice(): CommandInfo | undefined;
+  /** Valeur sélectionnée des réglages, repérée par la `category` de son option. */
+  settingsChoice(): { category: string; value: string } | undefined;
   /** `destroy()` du moteur puis attente de `closed`. */
   destroy(): Promise<void>;
 }
@@ -131,6 +144,9 @@ export function createScreen(options: ScreenOptions): Screen {
   renderer.root.add(status);
   textarea.focus();
 
+  const tail = createTail(renderer, thread.tail);
+  const overlays = createOverlays({ renderer, inputBox, textarea, onChange: () => syncHints() });
+
   // ---- état mémorisé entre deux rendus ----
   let state: SessionState | undefined;
   let lastWasCtrlC = false;
@@ -156,14 +172,31 @@ export function createScreen(options: ScreenOptions): Screen {
     }
   }
 
+  /** Les libellés de la ligne d'état suivent l'état et la surcouche ouverte. */
+  function syncHints(): void {
+    if (!state) return;
+    const hints = statusHints(state, overlays.kind());
+    if (hints !== shownHints) {
+      shownHints = hints;
+      statusRight.content = hints;
+    }
+  }
+
   function context(): Context {
+    const overlay = overlays.kind();
     return {
       status: state ? headerParts(state).left.dot : "idle",
       turnActive: state?.turnActive ?? false,
       pending: state?.pending !== undefined,
+      ...(overlay === undefined ? {} : { overlay }),
       inputEmpty: textarea.plainText === "",
       lastWasCtrlC,
     };
+  }
+
+  /** Une demande en attente ou l'arrêt de l'agent passent avant la palette et les réglages. */
+  function blocksSelectionOverlay(): boolean {
+    return state?.pending !== undefined || state?.exit !== undefined;
   }
 
   // Le gestionnaire global passe avant la saisie : `preventDefault` lui retire la touche.
@@ -175,6 +208,30 @@ export function createScreen(options: ScreenOptions): Screen {
     if (SCROLL_INTENTS.has(intent)) {
       thread.scroll.handleKeyPress(key as Parameters<typeof thread.scroll.handleKeyPress>[0]);
       return;
+    }
+    // Intentions de vue : traitées ici, jamais transmises.
+    switch (intent) {
+      case "openPalette":
+        if (!blocksSelectionOverlay()) overlays.open("palette");
+        return;
+      case "togglePlan":
+      case "toggleSettings": {
+        const kind = intent === "togglePlan" ? "plan" : "settings";
+        if (overlays.kind() === kind) overlays.close();
+        else if (kind === "plan" || !blocksSelectionOverlay()) overlays.open(kind);
+        return;
+      }
+      case "closeOverlay":
+        overlays.close();
+        return;
+      case "selectUp":
+      case "selectDown": {
+        const overlay = overlays.kind();
+        if (state?.pending === undefined && (overlay === "palette" || overlay === "settings")) {
+          overlays.move(intent === "selectDown" ? 1 : -1);
+          return;
+        }
+      }
     }
     handlers.onIntent(intent, textarea.plainText);
   };
@@ -206,15 +263,27 @@ export function createScreen(options: ScreenOptions): Screen {
         headerRight.content = parts.right;
       }
 
-      const hints = statusHints(next, undefined);
-      if (hints !== shownHints) {
-        shownHints = hints;
-        statusRight.content = hints;
-      }
+      // La palette et les réglages cèdent la place à une demande en attente ou à l'arrêt de l'agent.
+      const overlay = overlays.kind();
+      if ((overlay === "palette" || overlay === "settings") && (next.pending !== undefined || next.exit !== undefined)) overlays.close();
+      overlays.sync(next);
+      // Pendant une demande, la saisie reste active mais sans curseur : la sélection est ailleurs.
+      textarea.showCursor = next.pending === undefined;
 
+      syncHints();
       thread.update(next);
+      tail.update(next);
       syncTimer();
     },
+    openOverlay(kind) {
+      overlays.open(kind);
+    },
+    closeOverlay() {
+      overlays.close();
+    },
+    overlay: () => overlays.kind(),
+    paletteChoice: () => overlays.paletteChoice(),
+    settingsChoice: () => overlays.settingsChoice(),
     clearInput() {
       textarea.setText("");
     },
