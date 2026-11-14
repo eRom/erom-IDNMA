@@ -173,9 +173,13 @@ export function createScreen(options: ScreenOptions): Screen {
   let timer: ReturnType<typeof setInterval> | undefined;
   let armTimer: ReturnType<typeof setTimeout> | undefined;
 
+  /** Arrête la cadence des durées d'outil ; le minuteur de la fenêtre ⌃C n'est pas concerné (un rendu ne doit pas le tuer). */
   function stopTimer(): void {
     if (timer !== undefined) clearInterval(timer);
     timer = undefined;
+  }
+
+  function clearArmTimer(): void {
     if (armTimer !== undefined) clearTimeout(armTimer);
     armTimer = undefined;
   }
@@ -196,7 +200,7 @@ export function createScreen(options: ScreenOptions): Screen {
   function armCtrlC(): void {
     ctrlCArmedUntil = now() + CTRL_C_WINDOW_MS;
     syncHints();
-    if (armTimer !== undefined) clearTimeout(armTimer);
+    clearArmTimer();
     // La mention s'efface seule à la fin de la fenêtre.
     armTimer = setTimeout(() => {
       armTimer = undefined;
@@ -208,8 +212,7 @@ export function createScreen(options: ScreenOptions): Screen {
   function disarmCtrlC(): void {
     const wasArmed = ctrlCArmedUntil > 0;
     ctrlCArmedUntil = 0;
-    if (armTimer !== undefined) clearTimeout(armTimer);
-    armTimer = undefined;
+    clearArmTimer();
     if (wasArmed) syncHints();
   }
 
@@ -316,6 +319,7 @@ export function createScreen(options: ScreenOptions): Screen {
 
   renderer.once("destroy", () => {
     stopTimer();
+    clearArmTimer();
     renderer.keyInput.off("keypress", onKeypress);
     renderer.off("selection", onSelection);
     renderer.off("resize", onResize);
@@ -377,6 +381,7 @@ export function createScreen(options: ScreenOptions): Screen {
     },
     async destroy() {
       stopTimer();
+      clearArmTimer();
       renderer.destroy();
       await renderer.closed;
     },

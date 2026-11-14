@@ -723,6 +723,37 @@ describe("double ctrl+c window", () => {
       expect(rowsOf(await show(mounted, base())).at(-1)).not.toContain("⌃C again to quit");
     });
   });
+
+  // Horloge réelle : le minuteur interne de la fenêtre est un vrai setTimeout, on laisse la fenêtre passer sans aucun nouveau rendu.
+  test("a render during the window does not keep the hint on screen once the window has passed", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base());
+      mounted.mockInput.pressCtrlC();
+      await mounted.renderOnce();
+      expect(rowsOf(mounted.captureCharFrame()).at(-1)).toContain("⌃C again to quit");
+      await show(mounted, apply(base(), { type: "heldCount", queued: 0 }));
+      await Bun.sleep(1_200);
+      await mounted.renderOnce();
+      const expired = rowsOf(mounted.captureCharFrame()).at(-1);
+      expect(expired).not.toContain("⌃C again to quit");
+      expect(expired).toContain("⏎ Send");
+    });
+  });
+
+  test("an interrupting ctrl+c followed by the turn ending inside the window leaves no stale hint", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, running());
+      mounted.mockInput.pressCtrlC();
+      await mounted.renderOnce();
+      expect(intentsOf(mounted)).toEqual(["interrupt"]);
+      await show(mounted, apply(running(), { type: "turnEnded", stopReason: "cancelled" }));
+      await Bun.sleep(1_200);
+      await mounted.renderOnce();
+      const expired = rowsOf(mounted.captureCharFrame()).at(-1);
+      expect(expired).not.toContain("⌃C again to quit");
+      expect(expired).toContain("⏎ Send");
+    });
+  });
 });
 
 describe("type-ahead guard", () => {
