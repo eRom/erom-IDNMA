@@ -249,6 +249,7 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
   const waitingPermissions: PermissionSlot[] = [];
 
   function showNextPermission(): void {
+    if (shownPermission !== undefined) return;
     const next = waitingPermissions.shift();
     if (next === undefined) return;
     shownPermission = next;
@@ -256,22 +257,27 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
   }
 
   /** Répond une fois à une demande, et ferme sa présentation une fois : `permissionResolved` par demande affichée. */
-  function settlePermission(slot: PermissionSlot, answer: PermissionAnswer): void {
+  function settlePermission(slot: PermissionSlot, answer: PermissionAnswer, promoteNext = true): void {
     if (slot.done) return;
     slot.done = true;
     slot.resolve(answer);
     if (shownPermission === slot) {
       shownPermission = undefined;
       commit({ type: "permissionResolved" });
-      showNextPermission();
+      if (promoteNext) showNextPermission();
     } else {
       const index = waitingPermissions.indexOf(slot);
       if (index !== -1) waitingPermissions.splice(index, 1);
     }
   }
 
+  /** Toutes les demandes à la fois : celles qui attendent sont closes sans jamais passer à l'écran (ni statut, ni notification). */
   function settleAllPermissions(): void {
-    for (const slot of [shownPermission, ...waitingPermissions]) if (slot !== undefined) settlePermission(slot, CANCELLED);
+    for (const slot of waitingPermissions.splice(0)) {
+      slot.done = true;
+      slot.resolve(CANCELLED);
+    }
+    if (shownPermission !== undefined) settlePermission(shownPermission, CANCELLED);
   }
 
   function onPermission(request: PermissionRequest, signal: AbortSignal): Promise<PermissionAnswer> {
@@ -281,7 +287,16 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
         return;
       }
       const slot: PermissionSlot = { request, resolve, done: false };
-      signal.addEventListener("abort", () => settlePermission(slot, CANCELLED), { once: true });
+      // ⌃C annule toutes les demandes dans la même boucle : la suivante n'est présentée qu'après, et seulement si l'une
+      // d'elles a été retirée seule par l'agent (sinon elle est déjà close et plus rien n'attend).
+      signal.addEventListener(
+        "abort",
+        () => {
+          settlePermission(slot, CANCELLED, false);
+          queueMicrotask(showNextPermission);
+        },
+        { once: true },
+      );
       waitingPermissions.push(slot);
       if (shownPermission === undefined) showNextPermission();
     });
@@ -365,6 +380,16 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
 
   // ---- intentions ----
 
+  /** `/quit` quitte, tout autre texte part comme prompt ; rend vrai si le texte a été envoyé (la saisie peut se vider). */
+  function submitText(raw: string): boolean {
+    if (raw.trim() === "/quit") {
+      void exitWith(0);
+      return false;
+    }
+    sendUserPrompt(raw);
+    return true;
+  }
+
   function confirm(): Promise<void> | undefined {
     const pending = state.pending;
     if (pending?.kind === "permission") {
@@ -387,6 +412,14 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
     }
     if (overlay === "palette") {
       const command = screen!.paletteChoice();
+      const typed = (screen!.paletteText() ?? "").replace(/^\//, "").trim();
+      // Un texte qui n'est pas un nom de commande (argument, aucune correspondance, chemin collé) part tel que tapé :
+      // `/quit` quitte, `/review 42` est envoyé. Le brouillon de la saisie reste en place.
+      if (typed !== "" && (command === undefined || /\s/.test(typed))) {
+        screen!.closeOverlay();
+        submitText(`/${typed}`);
+        return undefined;
+      }
       if (command !== undefined) {
         screen!.closeOverlay();
         sendUserPrompt(`/${command.name}`);
@@ -416,14 +449,8 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
   function handleIntent(intent: Intent, input: string): Promise<void> | undefined {
     switch (intent) {
       case "submit": {
-        const text = input.trim();
-        if (text === "") return undefined;
-        if (text === "/quit") {
-          void exitWith(0);
-          return undefined;
-        }
-        screen!.clearInput();
-        sendUserPrompt(input);
+        if (input.trim() === "") return undefined;
+        if (submitText(input)) screen!.clearInput();
         return undefined;
       }
       case "interrupt":

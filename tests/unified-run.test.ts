@@ -13,6 +13,8 @@ import { NOTIFY, PROGRESS_OFF, PROGRESS_ON } from "../src/tui/signals.ts";
 import type { SessionState } from "../src/tui/state.ts";
 import { runUnified, type UnifiedDeps } from "../src/unified/run-unified.ts";
 import { missingAdapterMessage, notConnectedMessage } from "../src/unified/preflight.ts";
+import { createTestRenderer } from "@opentui/core/testing";
+import { createScreen } from "../src/tui/view/screen.ts";
 import { FakeScreen } from "./helpers/fake-screen.ts";
 import { startFakePeer, type FakePeer } from "./helpers/fake-peer.ts";
 
@@ -253,6 +255,50 @@ async function boot(o: BootOptions = {}): Promise<Session> {
   };
   sessions.push(session);
   return session;
+}
+
+interface RealSession {
+  adapter: Adapter;
+  running: Promise<number>;
+  exits: number[];
+  setup: Awaited<ReturnType<typeof createTestRenderer>>;
+}
+
+/** Lance `runUnified` sur le vrai écran (moteur de test d'OpenTUI) : les touches passent par les vraies intentions. */
+async function bootRealScreen(scenario: Json): Promise<RealSession> {
+  const adapter = makeAdapter(scenario);
+  const exits: number[] = [];
+  const rendered: SessionState[] = [];
+  let setup: RealSession["setup"] | undefined;
+  const running = runUnified({
+    agentKey: "opus",
+    engine: engineOf("claude"),
+    // La reprise rejoue les commandes du scénario dans l'état, donc dans la palette.
+    passthrough: ["--resume", "s1"],
+    deps: {
+      probe: ownPaneProbe(),
+      which: (bin) => (bin === "claude-agent-acp" ? adapter.path : bin === "claude" ? "/fake/bin/claude" : null),
+      tmuxTarget: (paneId) => `sess:@1.${paneId}`,
+      tagPane: () => {},
+      openScreen: async (options) => {
+        setup = await createTestRenderer({ width: 104, height: 31, kittyKeyboard: true, exitOnCtrlC: false });
+        const screen = createScreen({ renderer: setup.renderer, cwd: options.cwd, handlers: options.handlers });
+        const render = screen.render;
+        screen.render = (state) => {
+          rendered.push(state);
+          render(state);
+        };
+        return screen;
+      },
+      exit: (code) => {
+        exits.push(code);
+        return undefined as never;
+      },
+      write: () => {},
+    },
+  });
+  await waitFor(() => (rendered.at(-1)?.commands.length ?? 0) > 0, "the replayed commands");
+  return { adapter, running, exits, setup: setup! };
 }
 
 interface Failure {
@@ -794,6 +840,68 @@ describe("settings, mode and palette", () => {
     await Bun.sleep(50);
     expect(promptTexts(session.adapter)).toEqual([]);
   });
+
+  describe("text typed after a slash on the real screen", () => {
+    const REPLAY = { replay: [{ sessionUpdate: "available_commands_update", availableCommands: [{ name: "review", description: "Review a PR" }, { name: "compact", description: "Compact the context" }] }] };
+
+    /** Tape `text` dans la saisie vide puis ⏎, comme Romain ; quitte au besoin si le test a échoué avant. */
+    async function typeAndEnter(real: RealSession, text: string): Promise<void> {
+      await real.setup.mockInput.typeText(text);
+      real.setup.mockInput.pressEnter();
+    }
+
+    async function quitIfStillRunning(real: RealSession): Promise<void> {
+      if (real.exits.length === 0) {
+        real.setup.mockInput.pressEscape();
+        real.setup.mockInput.pressKey("d", { ctrl: true });
+      }
+      await Promise.race([real.running, Bun.sleep(5000)]);
+    }
+
+    test("/quit typed by hand quits with code 0", async () => {
+      const real = await bootRealScreen(REPLAY);
+      try {
+        await typeAndEnter(real, "/quit");
+        expect(await Promise.race([real.running, Bun.sleep(3000).then(() => -1)])).toBe(0);
+        expect(real.exits).toEqual([0]);
+      } finally {
+        await quitIfStillRunning(real);
+      }
+    });
+
+    test("a command with an argument is sent as typed, not as the palette match", async () => {
+      const real = await bootRealScreen(REPLAY);
+      try {
+        await typeAndEnter(real, "/review 42");
+        await waitFor(() => promptTexts(real.adapter).length === 1, "the prompt");
+        expect(promptTexts(real.adapter)).toEqual(["/review 42"]);
+      } finally {
+        await quitIfStillRunning(real);
+      }
+    });
+
+    test("a pasted path is sent as a prompt", async () => {
+      const real = await bootRealScreen(REPLAY);
+      try {
+        await typeAndEnter(real, "/Users/me/notes.md explain this");
+        await waitFor(() => promptTexts(real.adapter).length === 1, "the prompt");
+        expect(promptTexts(real.adapter)).toEqual(["/Users/me/notes.md explain this"]);
+      } finally {
+        await quitIfStillRunning(real);
+      }
+    });
+
+    test("a prefix of a command still runs the selected command", async () => {
+      const real = await bootRealScreen(REPLAY);
+      try {
+        await typeAndEnter(real, "/rev");
+        await waitFor(() => promptTexts(real.adapter).length === 1, "the prompt");
+        expect(promptTexts(real.adapter)).toEqual(["/review"]);
+      } finally {
+        await quitIfStillRunning(real);
+      }
+    });
+  });
 });
 
 describe("terminal signals", () => {
@@ -805,6 +913,31 @@ describe("terminal signals", () => {
     await waitFor(() => !session.state().turnActive, "the turn end");
     // En cours, en attente de Romain (progression éteinte, notification), en cours de nouveau, repos.
     expect(session.osc).toEqual([PROGRESS_ON, PROGRESS_OFF, NOTIFY(`${session.name}: waiting for you`), PROGRESS_ON, PROGRESS_OFF]);
+  });
+
+  test("cancelling parallel permission requests never notifies again for the ones that were waiting", async () => {
+    const session = await boot({ scenario: { turn: { ...PERMISSION_TURN, permissionCount: 3 } } });
+    const notifications = () => session.osc.filter((bytes) => bytes === NOTIFY(`${session.name}: waiting for you`)).length;
+    session.screen.fire("submit", "go");
+    await waitFor(() => permissionPending(session), "the first permission");
+    // Les deux autres demandes sont arrivées derrière la première.
+    await Bun.sleep(200);
+    expect(notifications()).toBe(1);
+    session.screen.fire("interrupt");
+    await waitFor(() => !session.state().turnActive, "the turn end");
+    expect(permissionAnswers(session.adapter)).toHaveLength(3);
+    expect(notifications()).toBe(1);
+  });
+
+  test("the exit settles waiting permission requests without notifying for them", async () => {
+    const session = await boot({ scenario: { turn: { ...PERMISSION_TURN, permissionCount: 3 } } });
+    const notifications = () => session.osc.filter((bytes) => bytes === NOTIFY(`${session.name}: waiting for you`)).length;
+    session.screen.fire("submit", "go");
+    await waitFor(() => permissionPending(session), "the first permission");
+    await Bun.sleep(200);
+    session.screen.fire("quit");
+    expect(await session.running).toBe(0);
+    expect(notifications()).toBe(1);
   });
 
   test("a progress left on by a running turn is switched off when the session exits", async () => {
