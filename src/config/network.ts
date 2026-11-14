@@ -18,6 +18,8 @@ export interface Engine {
   model?: string;
   options: string[];
   env: Record<string, string>;
+  /** Écran du lancement : la TUI du harnais (`native`, défaut) ou l'écran unifié d'idnma (`unified`, claude et agy). */
+  ui?: "native" | "unified";
 }
 
 const HARNESSES = ["claude", "codex", "grok", "agy", "opencode", "dst", "pi"] as const satisfies readonly Harness[];
@@ -29,6 +31,7 @@ export const EngineSchema = z.strictObject({
   model: z.string().optional(),
   options: z.array(z.string()).default([]),
   env: z.record(z.string(), z.string()).default({}),
+  ui: z.enum(["native", "unified"]).optional(),
 });
 
 // Seul `engines` compte ici : label, info, cell et avatar servent à d'autres outils

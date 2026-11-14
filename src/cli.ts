@@ -81,6 +81,7 @@ chiffres, - et _, 64 caractères au plus).
 ${agentsLine}
 
   --engine <e>   engine de l'agent dans .idnma.yml (défaut : default)
+  --unified / --native   écran unifié (claude, agy) ou TUI native ; l'emportent sur ui: de l'engine
 
 Tout autre jeton, et tout ce qui suit --, va au harnais. Un flag tapé remplace le même flag de
 l'engine (--model, --effort...) ; les autres options de l'engine restent.
