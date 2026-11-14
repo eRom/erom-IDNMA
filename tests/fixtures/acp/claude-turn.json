@@ -1,0 +1,442 @@
+{
+  "note": "Claude turn with a permission, trimmed by hand from a real capture (paths and commands neutralised).",
+  "traffic": [
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [
+              {
+                "name": "review",
+                "description": "Review the current changes.",
+                "input": {
+                  "hint": "[file or range]"
+                }
+              },
+              {
+                "name": "plan",
+                "description": "Plan carefully before making changes.",
+                "input": null
+              },
+              {
+                "name": "compact",
+                "description": "Summarize the history to free up the context window.",
+                "input": null
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "current_mode_update",
+            "currentModeId": "default"
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [
+              {
+                "name": "review",
+                "description": "Review the current changes.",
+                "input": {
+                  "hint": "[file or range]"
+                }
+              },
+              {
+                "name": "plan",
+                "description": "Plan carefully before making changes.",
+                "input": null
+              },
+              {
+                "name": "compact",
+                "description": "Summarize the history to free up the context window.",
+                "input": null
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 19523,
+            "size": 1000000,
+            "_meta": {
+              "_claude/model": "claude-haiku-5-5"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "_meta": {
+              "claudeCode": {
+                "toolName": "Bash"
+              }
+            },
+            "toolCallId": "toolu_01NTi63RT7zsHcZaWcT51sQK",
+            "sessionUpdate": "tool_call",
+            "name": "Bash",
+            "rawInput": {},
+            "status": "pending",
+            "title": "Terminal",
+            "kind": "execute",
+            "content": []
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "_meta": {
+              "claudeCode": {
+                "toolName": "Bash"
+              }
+            },
+            "toolCallId": "toolu_01NTi63RT7zsHcZaWcT51sQK",
+            "sessionUpdate": "tool_call_update",
+            "rawInput": {
+              "command": "touch probe.txt"
+            },
+            "title": "touch probe.txt"
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "_meta": {
+              "claudeCode": {
+                "toolName": "Bash"
+              }
+            },
+            "toolCallId": "toolu_01NTi63RT7zsHcZaWcT51sQK",
+            "sessionUpdate": "tool_call_update",
+            "rawInput": {
+              "command": "touch probe.txt",
+              "description": "Create probe.txt with touch"
+            },
+            "content": [
+              {
+                "type": "content",
+                "content": {
+                  "type": "text",
+                  "text": "Create probe.txt with touch"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "session/request_permission",
+        "params": {
+          "toolCall": {
+            "toolCallId": "toolu_01NTi63RT7zsHcZaWcT51sQK",
+            "name": "Bash",
+            "status": "pending",
+            "rawInput": {
+              "command": "touch probe.txt",
+              "description": "Create probe.txt with touch"
+            },
+            "title": "touch probe.txt",
+            "kind": "execute",
+            "content": [
+              {
+                "type": "content",
+                "content": {
+                  "type": "text",
+                  "text": "Create probe.txt with touch"
+                }
+              }
+            ],
+            "locations": [
+              {
+                "path": "/tmp/probe/probe.txt"
+              }
+            ]
+          },
+          "options": [
+            {
+              "optionId": "allow-once",
+              "name": "Yes",
+              "kind": "allow_once"
+            },
+            {
+              "optionId": "reject",
+              "name": "No",
+              "kind": "reject_once"
+            }
+          ],
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4"
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 19590,
+            "size": 1000000,
+            "_meta": {
+              "_claude/model": "claude-haiku-5-5"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 19590,
+            "size": 1000000,
+            "_meta": {
+              "_claude/model": "claude-haiku-5-5"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "_meta": {
+              "claudeCode": {
+                "toolResponse": {
+                  "stdout": "",
+                  "stderr": "",
+                  "interrupted": false,
+                  "isImage": false,
+                  "noOutputExpected": true
+                },
+                "toolName": "Bash"
+              }
+            },
+            "toolCallId": "toolu_01NTi63RT7zsHcZaWcT51sQK",
+            "sessionUpdate": "tool_call_update"
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "_meta": {
+              "claudeCode": {
+                "toolName": "Bash"
+              }
+            },
+            "toolCallId": "toolu_01NTi63RT7zsHcZaWcT51sQK",
+            "sessionUpdate": "tool_call_update",
+            "status": "completed",
+            "rawOutput": "(Bash completed with no output)"
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 23315,
+            "size": 1000000,
+            "_meta": {
+              "_claude/model": "claude-haiku-5-5"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "Un"
+            },
+            "messageId": "msg_011Ch2K3DXY9ZJj65eqZ5HFv"
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": " seul mot :"
+            },
+            "messageId": "msg_011Ch2K3DXY9ZJj65eqZ5HFv"
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": " Fait"
+            },
+            "messageId": "msg_011Ch2K3DXY9ZJj65eqZ5HFv"
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 23325,
+            "size": 1000000,
+            "_meta": {
+              "_claude/model": "claude-haiku-5-5"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "usage_update",
+            "used": 23325,
+            "size": 1000000,
+            "cost": {
+              "amount": 0.00274447,
+              "currency": "USD"
+            },
+            "_meta": {
+              "_claude/origin": {
+                "kind": "human"
+              },
+              "_claude/model": "claude-haiku-5-5"
+            }
+          }
+        }
+      }
+    },
+    {
+      "dir": "agent→client",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "13f84bfe-ed11-47aa-bc84-0710729232b4",
+          "update": {
+            "sessionUpdate": "session_info_update",
+            "title": "Création du fichier probe.txt",
+            "updatedAt": "2026-11-14T06:01:29.530Z"
+          }
+        }
+      }
+    }
+  ]
+}
