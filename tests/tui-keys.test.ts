@@ -82,8 +82,12 @@ const rows: Row[] = [
 
   { title: "pageup scrolls up", key: key("pageup"), context: context(), expected: "scrollPageUp" },
   { title: "pagedown scrolls down", key: key("pagedown"), context: context(), expected: "scrollPageDown" },
-  { title: "home scrolls to the top", key: key("home"), context: context(), expected: "scrollTop" },
-  { title: "end scrolls to the bottom", key: key("end"), context: context(), expected: "scrollBottom" },
+  { title: "home on an empty input scrolls to the top", key: key("home"), context: context(), expected: "scrollTop" },
+  { title: "end on an empty input scrolls to the bottom", key: key("end"), context: context(), expected: "scrollBottom" },
+  { title: "home on a non-empty input stays in the input", key: key("home"), context: context({ inputEmpty: false }), expected: "none" },
+  { title: "end on a non-empty input stays in the input", key: key("end"), context: context({ inputEmpty: false }), expected: "none" },
+  { title: "pageup scrolls even with text in the input", key: key("pageup"), context: context({ inputEmpty: false }), expected: "scrollPageUp" },
+  { title: "pagedown scrolls even with text in the input", key: key("pagedown"), context: context({ inputEmpty: false }), expected: "scrollPageDown" },
 
   { title: "a printable character goes to the input", key: key("a"), context: context(), expected: "none" },
   { title: "backspace goes to the input", key: key("backspace"), context: context(), expected: "none" },

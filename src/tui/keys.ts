@@ -81,8 +81,9 @@ export function intentOf(key: KeyLike, context: Context): Intent {
 
   if (key.name === "pageup") return "scrollPageUp";
   if (key.name === "pagedown") return "scrollPageDown";
-  if (key.name === "home") return "scrollTop";
-  if (key.name === "end") return "scrollBottom";
+  // Début et fin du fil seulement sur une saisie vide : sinon ils déplacent le curseur dans le texte.
+  if (key.name === "home") return context.inputEmpty ? "scrollTop" : "none";
+  if (key.name === "end") return context.inputEmpty ? "scrollBottom" : "none";
 
   return "none";
 }
