@@ -29,7 +29,7 @@ interface Harness {
   modeReads: () => number;
 }
 
-function setup(rule: "auto" | "held", options: { failSend?: boolean } = {}): Harness {
+function setup(rule: "auto" | "held", options: { failSend?: boolean; hangSend?: boolean; waitMs?: number } = {}): Harness {
   const queue = new MessageQueue();
   const sent: SendArgs[] = [];
   const turns: Harness["turns"] = [];
@@ -40,6 +40,8 @@ function setup(rule: "auto" | "held", options: { failSend?: boolean } = {}): Har
   const send = (async (a: SendArgs) => {
     sent.push(a);
     if (options.failSend === true) throw new Error("pair injoignable");
+    // Un pair muet : l'envoi ne rend jamais la main.
+    if (options.hangSend === true) await new Promise<never>(() => {});
     return { msgId: "x", target: {} };
   }) as unknown as typeof sendPeerMessage;
   const delivery = createPeerDelivery({
@@ -57,6 +59,7 @@ function setup(rule: "auto" | "held", options: { failSend?: boolean } = {}): Har
     showHeld: (message, queued) => held.push({ message, queued }),
     heldCountChanged: (queued) => counts.push(queued),
     send,
+    ...(options.waitMs === undefined ? {} : { waitMs: options.waitMs }),
   });
   return { delivery, queue, sent, turns, held, counts, state, modeReads: () => reads };
 }
@@ -237,6 +240,28 @@ describe("auto rule", () => {
     // Le tour est clos : sa fin tardive n'envoie rien de plus.
     await h.delivery.onTurnEnded("end_turn");
     expect(h.sent.length).toBe(1);
+  });
+
+  test("leave does not wait for ever on a peer that never answers the open turn", async () => {
+    const h = setup("auto", { hangSend: true, waitMs: 80 });
+    arrive(h, peerMessage("premier", "codex-a", "/tmp/a.sock"));
+    h.state.idle = false;
+    const started = Date.now();
+    await h.delivery.leave();
+    // Le tour ouvert (envoi suspendu) est borné ; la file vide ne coûte rien de plus.
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(h.sent).toHaveLength(1);
+  });
+
+  test("leave bounds the open turn and the queue separately, so a mute peer on each costs two bounds at most", async () => {
+    const h = setup("auto", { hangSend: true, waitMs: 80 });
+    arrive(h, peerMessage("premier", "codex-a", "/tmp/a.sock"));
+    h.state.idle = false;
+    arrive(h, peerMessage("second", "codex-b", "/tmp/b.sock"));
+    const started = Date.now();
+    await h.delivery.leave();
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(h.sent).toHaveLength(2);
   });
 
   test("leave answers the open turn and every queued sender, then rejects late arrivals", async () => {

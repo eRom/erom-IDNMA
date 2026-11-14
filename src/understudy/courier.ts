@@ -128,7 +128,7 @@ export async function sendAutoReply(
   }
 }
 
-const DEFAULT_REJECT_WAIT_MS = 3_000;
+export const DEFAULT_REJECT_WAIT_MS = 3_000;
 
 /**
  * Vide la file et répond à chaque expéditeur que son message n'a pas été livré : une doublure qui

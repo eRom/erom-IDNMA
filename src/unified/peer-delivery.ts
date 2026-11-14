@@ -3,7 +3,7 @@ import type { FromMode } from "../bus/envelope.ts";
 import type { InboundMessage } from "../bus/inbox.ts";
 import type { Registration } from "../bus/register.ts";
 import type { sendPeerMessage } from "../bus/send.ts";
-import { isAutoReply, rejectQueuedMessages, sendAutoReply, senderNameOf } from "../understudy/courier.ts";
+import { DEFAULT_REJECT_WAIT_MS, isAutoReply, rejectQueuedMessages, sendAutoReply, senderNameOf, waitBounded } from "../understudy/courier.ts";
 import type { MessageQueue } from "../understudy/queue.ts";
 
 export interface PeerDeliveryDeps {
@@ -21,6 +21,8 @@ export interface PeerDeliveryDeps {
   /** À chaque mouvement de la file, tour en cours ou non (règle `held` seulement). */
   heldCountChanged(queued: number): void;
   send?: typeof sendPeerMessage;
+  /** Borne de chaque attente de la sortie (réponse du tour ouvert, refus de la file) ; celle du refus de la doublure par défaut. */
+  waitMs?: number;
 }
 
 export interface PeerDelivery {
@@ -107,6 +109,7 @@ export function createPeerDelivery(deps: PeerDeliveryDeps): PeerDelivery {
       fromMode: deps.fromMode(),
       label: deps.label,
       ...(deps.send === undefined ? {} : { send: deps.send }),
+      ...(deps.waitMs === undefined ? {} : { waitMs: deps.waitMs }),
     });
 
   const display = (message: InboundMessage): { from: string; text: string } => ({
@@ -231,7 +234,8 @@ export function createPeerDelivery(deps: PeerDeliveryDeps): PeerDelivery {
       if (left) return;
       left = true;
       shown = undefined;
-      await settleTurn(lostText);
+      // Un pair muet ne retient pas la sortie : l'envoi qui traîne continue sans nous, comme les refus de la file.
+      await waitBounded(settleTurn(lostText), deps.waitMs ?? DEFAULT_REJECT_WAIT_MS);
       await rejectAll();
       notifyCount();
     },
