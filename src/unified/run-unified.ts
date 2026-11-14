@@ -644,7 +644,11 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
       // Les annonces de l'ouverture, dans le fil.
       for (const text of busNotes) state = reduce(state, { type: "notice", text, tone: "info" });
       const ignoredTokens = [...launchPlan.ignored, ...opened.ignored];
-      for (const token of ignoredTokens) state = reduce(state, { type: "notice", text: `Ignored in unified mode: ${token}`, tone: "info" });
+      for (const token of ignoredTokens) {
+        // Seul claude-agent-acp traite `/remote-control` : sur agy, le drapeau ignoré n'a pas de remplaçant.
+        const instead = unifiedHarness === "claude" && token === "--remote-control" ? " (type /remote-control instead)" : "";
+        state = reduce(state, { type: "notice", text: `Ignored in unified mode: ${token}${instead}`, tone: "info" });
+      }
       if (ignoredTokens.length > 0) logEvent("unified-ignored", { flags: flagNamesOf(ignoredTokens) });
       if (opened.noPreviousSession) state = reduce(state, { type: "notice", text: "No previous session in this folder: new session.", tone: "info" });
       if (opened.resumed && opened.replayed === 0) state = reduce(state, { type: "notice", text: "The agent replayed nothing from this session.", tone: "info" });

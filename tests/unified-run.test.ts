@@ -624,10 +624,17 @@ describe("opening announcements", () => {
 
   test("ignored engine options are announced in the thread and the log, without their values", async () => {
     const session = await boot({ engine: { options: ["--remote-control", "--name", "topsecretvalue"] } });
-    expect(notices(session.state())).toContain("Ignored in unified mode: --remote-control");
+    expect(notices(session.state())).toContain("Ignored in unified mode: --remote-control (type /remote-control instead)");
+    expect(notices(session.state())).not.toContain("Ignored in unified mode: --remote-control");
     expect(notices(session.state())).toContain("Ignored in unified mode: --name topsecretvalue");
     expect(logsOf("unified-ignored")).toEqual([expect.objectContaining({ flags: ["--remote-control", "--name"] })]);
     expect(readFileSync(join(configDir, "logs", "idnma.log"), "utf8")).not.toContain("topsecretvalue");
+  });
+
+  test("on agy the ignored --remote-control keeps the generic notice, since no adapter command replaces it", async () => {
+    const session = await boot({ harness: "agy", engine: { options: ["--remote-control"] } });
+    expect(notices(session.state())).toContain("Ignored in unified mode: --remote-control");
+    expect(notices(session.state())).not.toContain("Ignored in unified mode: --remote-control (type /remote-control instead)");
   });
 
   test("the thread opens with the options the agent announced after the engine settings", async () => {

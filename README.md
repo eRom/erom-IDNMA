@@ -301,16 +301,23 @@ The unified screen drives Claude Code through `claude-agent-acp`. Download the a
 | `⌃O` | settings: model, effort, mode |
 | `⇧⇥` | next mode (skips `bypassPermissions`) |
 | `⌃R` | reopen the first held message |
-| `↑` `↓` | choose in a request or a panel |
+| `⇥` | in the command palette, complete the selected command into the input |
+| `↑` `↓` | choose in a request or a panel; on an empty input, recall previous prompts |
 | `esc` | interrupt the turn, reject a request, or close a panel |
 | `⌃C` | interrupt, or clear the input; twice within a second to quit |
 | `⌃D` | quit, on an empty input |
 | `PgUp` `PgDn` | scroll |
 | `Home` `End` | top and bottom of the thread (empty input) |
 
-Typing `/quit` and `⏎` quits too. In the command palette, `⏎` runs the selected command when the typed text has no space and matches a command name by prefix or substring (`/rev` or `/view` runs `/review`). Any other text starting with `/`, such as `/review 42`, is sent to the agent as typed.
+Typing `/quit` and `⏎` quits too. In the command palette, `⏎` runs the selected command when the typed text has no space and matches a command name by prefix or substring (`/rev` or `/view` runs `/review`). Any other text starting with `/`, such as `/review 42`, is sent to the agent as typed. To give a command arguments from the list, press `⇥` (or click its row): the input holds `/<name> ` and you type the arguments, then `⏎` sends the whole text.
+
+On an empty input, `↑` recalls the previous prompts of the thread and `↓` comes back toward the newest; editing a recalled prompt gives the arrows back to the cursor.
 
 Under tmux, `⇧⏎` needs `set -g extended-keys on` in your tmux configuration; without it, use `⌃J`.
+
+### Remote Control
+
+The engine's `--remote-control` flag is ignored in unified mode, and the screen says so at startup: `Ignored in unified mode: --remote-control (type /remote-control instead)`. Typing `/remote-control` in the screen enables Remote Control, a command handled by `claude-agent-acp`, so the session can be reached from the phone.
 
 ### Peer messages
 
@@ -373,7 +380,6 @@ Both accept `--list` (peers on the local network) and `--help`, or a plain reque
 - dst, memory: 250 to 450 MB per pane.
 - Pi, after Escape: Pi drops the peer messages queued behind the interrupted turn; the understudy tells their senders so.
 - Pi: peer messages use Pi's default rendering of extension messages, an `[idnma]` block.
-- Unified mode: no access from the phone. `--remote-control` is ignored, and the screen says so.
 - Unified mode: no search in the thread.
 - Unified mode, Claude: the session shows up twice in the `ListAgents` of native Claude sessions.
 - Unified mode: a stray waiting badge can appear at startup in a pane nobody is looking at.
