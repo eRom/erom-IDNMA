@@ -28,6 +28,7 @@ import { UsageError, type RunArgs } from "./args.ts";
 import { dstRefusal, dstWorkingDirectory, withDshBackend } from "./dst-argv.ts";
 import { parseOpencodeArgv, stripOpencodeModel } from "./opencode-argv.ts";
 import { piRefusal } from "./pi-argv.ts";
+import { assertUnifiedHarness, effectiveUi } from "../unified/preflight.ts";
 import { assertOwnPane, PaneError, tagPane, tmuxTarget, type PaneProbe } from "./pane.ts";
 
 export interface RunDeps {
@@ -129,7 +130,7 @@ export function codexWorkingDirectory(argv: string[]): string {
   return resolve(process.cwd(), directory ?? ".");
 }
 
-function definedEnv(...layers: Record<string, string | undefined>[]): Record<string, string> {
+export function definedEnv(...layers: Record<string, string | undefined>[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const layer of layers) {
     for (const [key, value] of Object.entries(layer)) if (value !== undefined) out[key] = value;
@@ -280,6 +281,13 @@ export async function runAgent(a: RunArgs, deps: Partial<RunDeps> = {}): Promise
 
   const { engine, engineKey } = loadAgentEngine(agentKey, a.engine);
   const engineSource = `.idnma.yml (agents.${agentKey}.engines.${engineKey})`;
+  // Le mode unifié se décide avant tout effet (ni pane, ni nom, ni bus). L'écran et le SDK ACP se chargent ici, par import
+  // dynamique, sur ce seul chemin : jamais dans un try/catch, un échec de chargement doit remonter.
+  if (effectiveUi(engine, a.ui) === "unified") {
+    assertUnifiedHarness(engine, a.ui, engineSource);
+    const { runUnified } = await import("../unified/run-unified.ts");
+    return runUnified({ agentKey, engine, passthrough: a.passthrough, deps: { probe: d.probe, which: d.which, tmuxTarget: d.tmuxTarget, tagPane: d.tagPane } });
+  }
   // Le contenu du fichier : règles partagées avec `idnma configure`. Les arguments tapés se contrôlent ici.
   if (engine.harness === "codex") {
     throwFirstIssue(engine, engineSource, ["codex-embedded-flag"]);

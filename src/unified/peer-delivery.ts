@@ -15,8 +15,8 @@ export interface PeerDeliveryDeps {
   /** Suit le mode réel de la session ; relu à chaque envoi, jamais mis en cache. */
   fromMode(): FromMode;
   isIdle(): boolean;
-  /** Ouvre le tour du pair et l'affiche. */
-  startPeerTurn(prompt: string, display: { from: string; text: string }): void;
+  /** Ouvre le tour du pair et l'affiche ; `msgId` est celui du message reçu, pour le journal. */
+  startPeerTurn(prompt: string, display: { from: string; text: string }, msgId?: string): void;
   showHeld(message: { from: string; text: string }, queued: number): void;
   /** À chaque mouvement de la file, tour en cours ou non (règle `held` seulement). */
   heldCountChanged(queued: number): void;
@@ -119,7 +119,7 @@ export function createPeerDelivery(deps: PeerDeliveryDeps): PeerDelivery {
     const shownAs = display(message);
     const autoReply = isAutoReply(message.content);
     turn = { message, muted: autoReply, whole: "", sinceTool: "" };
-    deps.startPeerTurn(peerPrompt(shownAs.from, shownAs.text, autoReply), shownAs);
+    deps.startPeerTurn(peerPrompt(shownAs.from, shownAs.text, autoReply), shownAs, message.msgId);
   };
 
   const canAct = (): boolean => !left && turn === undefined && deps.isIdle();

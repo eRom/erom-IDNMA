@@ -27,6 +27,10 @@ interface Scenario {
   turn?: {
     updates?: Json[];
     permission?: { toolCall: Json; options: Json[] };
+    /** Nombre de demandes de permission envoyées ensemble ; une par défaut. */
+    permissionCount?: number;
+    /** Pause avant la réponse du tour (le tour reste actif), en ms. */
+    delayMs?: number;
     updatesAfterPermission?: Json[];
     stopReason?: string;
   };
@@ -38,6 +42,14 @@ interface Scenario {
   sessionNewError?: { code: number; message: string };
   /** Code de sortie du process au milieu d'un tour. */
   exitDuringPrompt?: number;
+  /** Code de sortie du process avant la réponse à `initialize` (l'agent ne démarre pas). */
+  exitOnStart?: number;
+  /** `initialize` reste sans réponse : l'ouverture de la session ne finit jamais. */
+  neverAnswers?: boolean;
+  /** Erreur ACP rendue à `session/set_config_option`, quelle que soit la valeur demandée. */
+  setOptionError?: { code: number; message: string };
+  /** Erreur ACP rendue à `session/prompt`. */
+  promptError?: { code: number; message: string };
   authRequired?: boolean;
   loadNotFound?: boolean;
   /** Chemin du fichier où écrire le pid d'un petit-enfant `sleep 600` du même groupe de process. */
@@ -77,6 +89,7 @@ function fail(id: unknown, code: number, message: string): void {
 
 // Démarrage : l'environnement et le petit-enfant sont écrits avant la première requête.
 if (scenario.envDump) writeFileSync(scenario.envDump, JSON.stringify(process.env));
+if (scenario.exitOnStart !== undefined) process.exit(scenario.exitOnStart);
 if (scenario.spawnGrandchild) {
   const grandchild = spawn("sleep", ["600"], { stdio: "ignore" });
   writeFileSync(scenario.spawnGrandchild, String(grandchild.pid));
@@ -110,11 +123,18 @@ async function handlePrompt(id: unknown): Promise<void> {
     return;
   }
 
+  if (turn.delayMs) await new Promise((resolve) => setTimeout(resolve, turn.delayMs));
+
   if (turn.permission) {
-    const requestId = outgoingId++;
-    pendingPermissionId = requestId;
-    send({ id: requestId, method: "session/request_permission", params: { sessionId, ...turn.permission } });
-    await waitForResponse(requestId);
+    // `permissionCount` demandes à la fois (outils en parallèle) : la réponse du tour attend chacune d'elles.
+    const requestIds: number[] = [];
+    for (let i = 0; i < (turn.permissionCount ?? 1); i++) {
+      const requestId = outgoingId++;
+      requestIds.push(requestId);
+      send({ id: requestId, method: "session/request_permission", params: { sessionId, ...turn.permission } });
+    }
+    pendingPermissionId = requestIds[0];
+    await Promise.all(requestIds.map(waitForResponse));
     pendingPermissionId = undefined;
     if (!cancelled) for (const update of turn.updatesAfterPermission ?? []) sendUpdate(update);
   }
@@ -124,6 +144,7 @@ async function handlePrompt(id: unknown): Promise<void> {
 function handleRequest(id: unknown, method: string, params: Json): void {
   switch (method) {
     case "initialize":
+      if (scenario.neverAnswers) return;
       reply(id, { protocolVersion: 1, agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } }, authMethods: [] });
       return;
     case "session/new":
@@ -146,6 +167,7 @@ function handleRequest(id: unknown, method: string, params: Json): void {
       reply(id, { configOptions: options });
       return;
     case "session/set_config_option": {
+      if (scenario.setOptionError) return fail(id, scenario.setOptionError.code, scenario.setOptionError.message);
       const option = options.find((o) => o.id === params["configId"]);
       if (!option || !option.options.some((o) => o.value === params["value"])) return fail(id, -32602, "Invalid params");
       option.currentValue = String(params["value"]);
@@ -153,6 +175,7 @@ function handleRequest(id: unknown, method: string, params: Json): void {
       return;
     }
     case "session/prompt":
+      if (scenario.promptError) return fail(id, scenario.promptError.code, scenario.promptError.message);
       void handlePrompt(id);
       return;
     default:
