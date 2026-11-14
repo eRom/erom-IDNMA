@@ -67,6 +67,8 @@ function planFor(scenario: Json, overrides: Partial<LaunchPlan> = {}): LaunchPla
     harness: "claude",
     label: "Claude",
     delivery: "auto",
+    autoApprove: false,
+    peerMode: { kind: "fixed", mode: "prompting" },
     argv: [process.execPath, FAKE_AGENT],
     env: { FAKE_ACP_SCENARIO: scenarioFile, HOME: dir },
     configSteps: [],

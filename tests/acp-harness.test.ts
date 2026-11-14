@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Engine } from "../src/config/network.ts";
-import { adapterBinary, buildLaunchPlan, CLAUDE_SESSION_SETTINGS, internalSessionName, PEER_INSTRUCTION, pickLatestSession } from "../src/acp/harness.ts";
+import { buildLaunchPlan, CLAUDE_SESSION_SETTINGS, HARNESS_PROFILES, internalSessionName, PEER_INSTRUCTION, pickLatestSession } from "../src/acp/harness.ts";
 import { nameFormatProblem } from "../src/naming/choose.ts";
 import { UsageError } from "../src/run/args.ts";
 
@@ -15,7 +15,7 @@ function claudePlan(o: { engine?: Engine; passthrough?: string[]; env?: Record<s
     passthrough: o.passthrough ?? [],
     name: "opus-mars-ab12",
     env: o.env ?? {},
-    claudeExecutable: "/bin/claude",
+    agentExecutable: "/bin/claude",
   });
 }
 
@@ -145,7 +145,7 @@ describe("env handling", () => {
   });
 
   test("agy gets the env as is", () => {
-    const plan = buildLaunchPlan({ harness: "agy", binary: "/bin/agy", engine: argon, passthrough: [], name: "n", env: { A: "1" }, claudeExecutable: "/bin/claude" });
+    const plan = buildLaunchPlan({ harness: "agy", binary: "/bin/agy", engine: argon, passthrough: [], name: "n", env: { A: "1" }, agentExecutable: "/bin/claude" });
     expect(plan.env).toEqual({ A: "1" });
   });
 });
@@ -182,11 +182,6 @@ describe("agy launch plan", () => {
 });
 
 describe("helpers", () => {
-  test("adapterBinary names the program of each harness", () => {
-    expect(adapterBinary("claude")).toBe("claude-agent-acp");
-    expect(adapterBinary("agy")).toBe("agy");
-  });
-
   test("the internal session name stays a valid bus name", () => {
     const long = "a".repeat(64);
     expect(internalSessionName(long).length).toBe(64);
@@ -208,5 +203,195 @@ describe("helpers", () => {
     expect(pickLatestSession(sessions, "/none")).toBeUndefined();
     expect(pickLatestSession([{ sessionId: "undated", cwd: "/w", updatedAt: null }], "/w")).toBe("undated");
     expect(pickLatestSession([], "/w")).toBeUndefined();
+  });
+});
+
+const luna: Engine = { harness: "codex", model: "gpt-6-luna", options: ["--dangerously-bypass-approvals-and-sandbox"], env: {} };
+const grokEngine: Engine = { harness: "grok", model: "grok-4.7", options: ["--effort", "high", "--always-approve"], env: {} };
+const piEngine: Engine = { harness: "pi", model: "ollama/deepseek-v4.1-flash:cloud", options: ["--thinking", "high"], env: {} };
+const oc: Engine = { harness: "opencode", model: "ollama-cloud/deepseek-v4.1-flash", options: ["--auto"], env: {} };
+const dstEngine: Engine = { harness: "dst", options: [], env: { DSH_PERMISSION_MODE: "danger-full-access" } };
+
+function plan(harness: "opencode" | "codex" | "grok" | "pi" | "dst", binary: string, engine: Engine, passthrough: string[] = [], env: Record<string, string> = {}, agentExecutable?: string) {
+  return buildLaunchPlan({ harness, binary, engine, passthrough, name: "n-mars-ab12", env, ...(agentExecutable === undefined ? {} : { agentExecutable }) });
+}
+
+describe("opencode launch plan", () => {
+  test("opencode plan: acp argv, engine model step, auto-approve", () => {
+    const p = buildLaunchPlan({ harness: "opencode", binary: "/bin/opencode", engine: oc, passthrough: [], name: "deepseek-flash-mars-ab12", env: {} });
+    expect(p.argv).toEqual(["/bin/opencode", "acp"]);
+    expect(p.configSteps).toEqual([{ category: "model", value: "ollama-cloud/deepseek-v4.1-flash", origin: "model: ollama-cloud/deepseek-v4.1-flash" }]);
+    expect(p.autoApprove).toBe(true);
+    expect(p.peerMode).toEqual({ kind: "fixed", mode: "bypass" });
+    expect(p.label).toBe("opencode");
+    expect(p.delivery).toBe("auto");
+  });
+
+  test("opencode typed -m replaces the engine model; -s resumes by id", () => {
+    const p = plan("opencode", "/bin/opencode", oc, ["-m", "openrouter/qwen/qwen3.8-flash", "-s", "ses_abc"]);
+    expect(p.configSteps).toEqual([{ category: "model", value: "openrouter/qwen/qwen3.8-flash", origin: "--model openrouter/qwen/qwen3.8-flash" }]);
+    expect(p.resume).toEqual({ kind: "id", id: "ses_abc" });
+    expect(p.ignored).toEqual([]);
+  });
+
+  test("opencode --agent becomes a mode step", () => {
+    const p = plan("opencode", "/bin/opencode", oc, ["--agent", "plan"]);
+    expect(p.configSteps).toContainEqual({ category: "mode", value: "plan", origin: "--agent plan" });
+  });
+
+  test("opencode without --auto prompts, and -c continues", () => {
+    const p = plan("opencode", "/bin/opencode", { harness: "opencode", options: [], env: {} }, ["-c"]);
+    expect(p.autoApprove).toBe(false);
+    expect(p.peerMode).toEqual({ kind: "fixed", mode: "prompting" });
+    expect(p.resume).toEqual({ kind: "continue" });
+    expect(p.configSteps).toEqual([]);
+  });
+
+  test("opencode announces what the screen cannot honour, without a usage error", () => {
+    const p = plan("opencode", "/bin/opencode", { harness: "opencode", options: [], env: {} }, ["--print-logs", "-s"]);
+    expect(p.ignored).toEqual(["--print-logs", "-s"]);
+    expect(p.resume).toEqual({ kind: "new" });
+  });
+});
+
+describe("codex launch plan", () => {
+  test("codex plan: CODEX_PATH from the agent executable, bypass as mode step", () => {
+    const p = buildLaunchPlan({ harness: "codex", binary: "/bin/codex-acp", engine: luna, passthrough: [], name: "luna-mars-ab12", env: {}, agentExecutable: "/opt/homebrew/bin/codex" });
+    expect(p.argv).toEqual(["/bin/codex-acp"]);
+    expect(p.env.CODEX_PATH).toBe("/opt/homebrew/bin/codex");
+    expect(p.configSteps).toEqual([
+      { category: "model", value: "gpt-6-luna", origin: "--model gpt-6-luna" },
+      { category: "mode", value: "agent-full-access", origin: "--dangerously-bypass-approvals-and-sandbox" },
+    ]);
+    expect(p.peerMode).toEqual({ kind: "option", bypassValue: "agent-full-access" });
+    expect(p.autoApprove).toBe(false);
+    expect(p.label).toBe("Codex");
+  });
+
+  test("codex keeps an engine CODEX_PATH", () => {
+    const p = plan("codex", "/bin/codex-acp", luna, [], { CODEX_PATH: "/x/codex" }, "/opt/homebrew/bin/codex");
+    expect(p.env.CODEX_PATH).toBe("/x/codex");
+  });
+
+  test("codex resume --last continues, resume <id> loads that id", () => {
+    const last = plan("codex", "/bin/codex-acp", luna, ["resume", "--last"]);
+    expect(last.resume).toEqual({ kind: "continue" });
+    expect(last.ignored).not.toContain("resume");
+    expect(last.ignored).not.toContain("--last");
+    const byId = plan("codex", "/bin/codex-acp", luna, ["resume", "01a1"]);
+    expect(byId.resume).toEqual({ kind: "id", id: "01a1" });
+    expect(byId.ignored).toEqual([]);
+  });
+
+  test("codex -c is announced, not a resume", () => {
+    const p = plan("codex", "/bin/codex-acp", luna, ["-c", "model=x"]);
+    expect(p.resume).toEqual({ kind: "new" });
+    expect(p.ignored).toContain("-c model=x");
+  });
+
+  test("codex bare resume and bare --last are announced", () => {
+    const bare = plan("codex", "/bin/codex-acp", luna, ["resume"]);
+    expect(bare.resume).toEqual({ kind: "new" });
+    expect(bare.ignored).toEqual(["resume"]);
+    const last = plan("codex", "/bin/codex-acp", luna, ["--last"]);
+    expect(last.resume).toEqual({ kind: "new" });
+    expect(last.ignored).toEqual(["--last"]);
+  });
+});
+
+describe("grok launch plan", () => {
+  test("grok plan: always-approve before stdio, model and effort as steps", () => {
+    const p = buildLaunchPlan({ harness: "grok", binary: "/bin/grok", engine: grokEngine, passthrough: [], name: "grok-mars-ab12", env: {} });
+    expect(p.argv).toEqual(["/bin/grok", "agent", "--no-leader", "--always-approve", "stdio"]);
+    expect(p.configSteps.map((s) => [s.category, s.value])).toEqual([
+      ["model", "grok-4.7"],
+      ["thought_level", "high"],
+    ]);
+    expect(p.peerMode).toEqual({ kind: "fixed", mode: "bypass" });
+    expect(p.autoApprove).toBe(true);
+  });
+
+  test("grok without --always-approve prompts", () => {
+    const p = plan("grok", "/bin/grok", { harness: "grok", options: [], env: {} });
+    expect(p.argv).toEqual(["/bin/grok", "agent", "--no-leader", "stdio"]);
+    expect(p.peerMode).toEqual({ kind: "fixed", mode: "prompting" });
+    expect(p.autoApprove).toBe(false);
+  });
+
+  test("grok bare -r continues, -r <id> resumes that id", () => {
+    const engine: Engine = { harness: "grok", options: [], env: {} };
+    expect(plan("grok", "/bin/grok", engine, ["-r"]).resume).toEqual({ kind: "continue" });
+    expect(plan("grok", "/bin/grok", engine, ["-r", "01a1db96"]).resume).toEqual({ kind: "id", id: "01a1db96" });
+  });
+
+  test("grok -s names a new session and is announced", () => {
+    const p = plan("grok", "/bin/grok", { harness: "grok", options: [], env: {} }, ["-s", "0000-uuid"]);
+    expect(p.resume).toEqual({ kind: "new" });
+    expect(p.ignored).toContain("-s 0000-uuid");
+  });
+});
+
+describe("pi launch plan", () => {
+  test("pi plan: thinking as effort step, peer mode bypass", () => {
+    const p = plan("pi", "/bin/pi-acp", piEngine);
+    expect(p.argv).toEqual(["/bin/pi-acp"]);
+    expect(p.configSteps.map((s) => [s.category, s.value])).toEqual([
+      ["model", "ollama/deepseek-v4.1-flash:cloud"],
+      ["thought_level", "high"],
+    ]);
+    expect(p.peerMode).toEqual({ kind: "fixed", mode: "bypass" });
+    expect(p.label).toBe("Pi");
+  });
+
+  test("pi -r is announced", () => {
+    const p = plan("pi", "/bin/pi-acp", { harness: "pi", options: [], env: {} }, ["-r"]);
+    expect(p.resume).toEqual({ kind: "new" });
+    expect(p.ignored).toEqual(["-r"]);
+  });
+
+  test("pi -c continues and --session resumes by id", () => {
+    const engine: Engine = { harness: "pi", options: [], env: {} };
+    expect(plan("pi", "/bin/pi-acp", engine, ["-c"]).resume).toEqual({ kind: "continue" });
+    expect(plan("pi", "/bin/pi-acp", engine, ["--session", "abc"]).resume).toEqual({ kind: "id", id: "abc" });
+  });
+});
+
+describe("dst launch plan", () => {
+  test("dst plan: profile acp, peer mode from DSH_PERMISSION_MODE", () => {
+    const p = buildLaunchPlan({ harness: "dst", binary: "/bin/dsh", engine: dstEngine, passthrough: [], name: "deepseek-flash-mars-ab12", env: { DSH_PERMISSION_MODE: "danger-full-access" } });
+    expect(p.argv).toEqual(["/bin/dsh", "--profile", "acp"]);
+    expect(p.peerMode).toEqual({ kind: "fixed", mode: "bypass" });
+    expect(p.env.DSH_PERMISSION_MODE).toBe("danger-full-access");
+    const prompting = plan("dst", "/bin/dsh", dstEngine, [], {});
+    expect(prompting.peerMode).toEqual({ kind: "fixed", mode: "prompting" });
+    expect(plan("dst", "/bin/dsh", dstEngine, [], { DSH_PERMISSION_MODE: "default" }).peerMode).toEqual({ kind: "fixed", mode: "prompting" });
+  });
+
+  test("dst bare --resume continues", () => {
+    const engine: Engine = { harness: "dst", options: [], env: {} };
+    expect(plan("dst", "/bin/dsh", engine, ["--resume"]).resume).toEqual({ kind: "continue" });
+    expect(plan("dst", "/bin/dsh", engine, ["--resume", "dc33"]).resume).toEqual({ kind: "id", id: "dc33" });
+    expect(plan("dst", "/bin/dsh", engine, ["-c"]).resume).toEqual({ kind: "continue" });
+  });
+});
+
+describe("profiles", () => {
+  test("agy and claude peer modes", () => {
+    expect(agyPlan().peerMode).toEqual({ kind: "fixed", mode: "bypass" });
+    expect(agyPlan({ engine: { harness: "agy", options: [], env: {} } }).peerMode).toEqual({ kind: "fixed", mode: "prompting" });
+    expect(claudePlan().peerMode).toEqual({ kind: "option", bypassValue: "bypassPermissions" });
+    expect(claudePlan().autoApprove).toBe(false);
+  });
+
+  test("claude and agy launch binaries", () => {
+    expect(HARNESS_PROFILES.claude.launchBinary).toBe("claude-agent-acp");
+    expect(HARNESS_PROFILES.agy.launchBinary).toBe("agy");
+  });
+
+  test("every profile names a launch binary and a label", () => {
+    for (const profile of Object.values(HARNESS_PROFILES)) {
+      expect(profile.launchBinary.length).toBeGreaterThan(0);
+      expect(profile.label.length).toBeGreaterThan(0);
+    }
   });
 });

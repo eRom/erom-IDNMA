@@ -7,7 +7,7 @@ import { rmSync } from "node:fs";
 import { constants } from "node:os";
 import { AgentNotConnectedError, AgentStartError, connectAgent, SessionNotFoundError, type AgentConnection, type OpenedSession } from "../acp/connection.ts";
 import type { PermissionAnswer, PermissionRequest, StopReason } from "../acp/events.ts";
-import { adapterBinary, buildLaunchPlan, type LaunchPlan, type UnifiedHarness } from "../acp/harness.ts";
+import { buildLaunchPlan, HARNESS_PROFILES, type LaunchPlan, type UnifiedHarness } from "../acp/harness.ts";
 import type { FromMode } from "../bus/envelope.ts";
 import { reachablePeers, summarizePeer } from "../bus/peers.ts";
 import { ProtocolMismatchError, registerPeer, type Registration } from "../bus/register.ts";
@@ -110,7 +110,7 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
   // Toute erreur de résolution de l'env, de pane ou de binaire part avant le moindre effet.
   const resolvedEnv = resolveEnv(engine.env, process.env);
   assertOwnPane(d.probe);
-  const binary = d.which(adapterBinary(harness));
+  const binary = d.which(HARNESS_PROFILES[harness].launchBinary);
   if (binary === null) throw new ConfigError(missingAdapterMessage(harness));
   // Les contrôles ci-dessus ne se propagent pas aux fonctions déclarées plus bas : valeurs figées ici.
   const unifiedHarness: UnifiedHarness = harness;
@@ -576,7 +576,7 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
       });
       assertNotExiting();
 
-      const claudeExecutable = unifiedHarness === "claude" ? d.which("claude") : null;
+      const agentExecutable = unifiedHarness === "claude" ? d.which("claude") : null;
       const launchPlan = buildLaunchPlan({
         harness: unifiedHarness,
         binary: adapterPath,
@@ -584,7 +584,7 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
         passthrough: o.passthrough,
         name,
         env: definedEnv(process.env, resolvedEnv, { IDNMA_NAME: name, IDNMA_CONTROL_SOCKET: controlSocket, IDNMA_CONTROL_TOKEN: token }),
-        ...(claudeExecutable === null ? {} : { claudeExecutable }),
+        ...(agentExecutable === null ? {} : { agentExecutable }),
       });
       plan = launchPlan;
 
