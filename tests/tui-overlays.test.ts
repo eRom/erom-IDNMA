@@ -359,7 +359,7 @@ describe("command palette", () => {
       expect(frame).toContain("Review the current diff");
       const inputRow = rowsOf(frame).find((line) => line.includes("❯"));
       expect(inputRow).toContain("❯ /");
-      expect(rowsOf(frame).at(-1)).toContain("⏎ Run");
+      expect(rowsOf(frame).at(-1)).toContain("↑↓ Select  ·  ⇥ Complete  ·  ⏎ Run  ·  esc Close");
       expect(intentsOf(mounted)).toEqual([]);
     });
   });
@@ -428,6 +428,54 @@ describe("command palette", () => {
       expect(mounted.screen.paletteChoice()?.name).toBe("review");
       expect((await frameOf(mounted)).split("\n").find((line) => line.includes("❯"))).toContain("❯ /rev");
       expect(mounted.screen.inputText()).toBe("draft");
+    });
+  });
+
+  test("tab completes the selected command into the input, closes the palette and forwards nothing", async () => {
+    await withScreen({}, async (mounted) => {
+      await openPalette(mounted);
+      await mounted.mockInput.typeText("rev");
+      mounted.mockInput.pressArrow("down");
+      mounted.mockInput.pressTab();
+      await mounted.renderOnce();
+      expect(mounted.screen.overlay()).toBeUndefined();
+      expect(mounted.screen.paletteText()).toBeUndefined();
+      expect(mounted.screen.inputText()).toBe("/revise-claude-md ");
+      expect(intentsOf(mounted)).toEqual([]);
+      const frame = await frameOf(mounted);
+      expect(rowsOf(frame).find((line) => line.includes("❯"))).toContain("❯ /revise-claude-md");
+      expect(frame).not.toContain("Review pending changes");
+      // Le curseur est au bout : ce qu'on tape prolonge la commande, et ⏎ envoie le tout.
+      await mounted.mockInput.typeText("add hostinger");
+      mounted.mockInput.pressEnter();
+      await mounted.renderOnce();
+      expect(mounted.intents).toEqual([{ intent: "submit", input: "/revise-claude-md add hostinger" }]);
+    });
+  });
+
+  test("tab with no matching command does nothing and keeps the palette open", async () => {
+    await withScreen({}, async (mounted) => {
+      await openPalette(mounted);
+      await mounted.mockInput.typeText("zzz");
+      mounted.mockInput.pressTab();
+      await mounted.renderOnce();
+      expect(mounted.screen.overlay()).toBe("palette");
+      expect(mounted.screen.inputText()).toBe("");
+      expect(mounted.screen.paletteText()).toBe("/zzz");
+    });
+  });
+
+  test("a click on a palette row completes it like tab and runs nothing", async () => {
+    await withScreen({}, async (mounted) => {
+      await openPalette(mounted);
+      const frame = await frameOf(mounted);
+      const row = rowsOf(frame).findIndex((line) => line.includes("/security-review"));
+      expect(row).toBeGreaterThan(0);
+      await mounted.mockMouse.click(6, row);
+      await mounted.renderOnce();
+      expect(mounted.screen.overlay()).toBeUndefined();
+      expect(mounted.screen.inputText()).toBe("/security-review ");
+      expect(intentsOf(mounted)).toEqual([]);
     });
   });
 

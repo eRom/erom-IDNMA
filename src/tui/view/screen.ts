@@ -289,6 +289,9 @@ export function createScreen(options: ScreenOptions): Screen {
       case "closeOverlay":
         overlays.close();
         return;
+      case "complete":
+        overlays.complete();
+        return;
       case "clearInput":
         // ⌃C vide la saisie : avec la palette ouverte, c'est elle qui se ferme (son texte est perdu, le brouillon revient).
         if (overlays.kind() === "palette") {

@@ -97,7 +97,7 @@ test("status hints follow the pending prompt, then the overlay", () => {
   expect(statusHints(permission, "palette")).toBe("↑↓ Select  ·  ⏎ Confirm  ·  esc Reject");
   const held = run([{ type: "held", from: "bob", text: "x", queued: 1 }]);
   expect(statusHints(held)).toMatch(/^↑↓ Select {2}· {2}⏎ Confirm {2}· {2}esc Dismiss/);
-  expect(statusHints(initialState("alice"), "palette")).toBe("↑↓ Select  ·  ⏎ Run  ·  esc Close");
+  expect(statusHints(initialState("alice"), "palette")).toBe("↑↓ Select  ·  ⇥ Complete  ·  ⏎ Run  ·  esc Close");
   expect(statusHints(initialState("alice"), "settings")).toBe("↑↓ Select  ·  ⏎ Apply  ·  esc Close");
   expect(statusHints(initialState("alice"), "plan")).toBe("⌃P Close plan  ·  esc Close");
   expect(statusHints(run([{ type: "turnStarted" }]), "plan")).toBe("⌃P Close plan  ·  esc Interrupt");
@@ -107,7 +107,7 @@ test("the held counter follows the queue during a turn", () => {
   const state = run([{ type: "turnStarted" }, { type: "heldCount", queued: 2 }]);
   expect(statusHints(state)).toContain("2 held");
   expect(statusHints(state)).toBe("esc Interrupt  ·  ⏎ Queue message  ·  ⌃P Plan  ·  2 held  ·  ⌃R Open");
-  expect(statusHints(run([{ type: "heldCount", queued: 1 }]), "palette")).toBe("↑↓ Select  ·  ⏎ Run  ·  esc Close  ·  1 held  ·  ⌃R Open");
+  expect(statusHints(run([{ type: "heldCount", queued: 1 }]), "palette")).toBe("↑↓ Select  ·  ⇥ Complete  ·  ⏎ Run  ·  esc Close  ·  1 held  ·  ⌃R Open");
 });
 
 test("while a held card is open the suffix counts the other held messages only, and is omitted at zero", () => {

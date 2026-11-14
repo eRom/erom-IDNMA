@@ -79,6 +79,9 @@ const rows: Row[] = [
   { title: "ctrl+r reopens the held messages", key: ctrl("r"), context: context(), expected: "reopenHeld" },
   { title: "shift+tab cycles the mode", key: key("tab", { shift: true }), context: context(), expected: "nextMode" },
   { title: "plain tab goes to the input", key: key("tab"), context: context(), expected: "none" },
+  { title: "plain tab in the palette completes the selected command", key: key("tab"), context: context({ overlay: "palette" }), expected: "complete" },
+  { title: "shift+tab in the palette still cycles the mode", key: key("tab", { shift: true }), context: context({ overlay: "palette" }), expected: "nextMode" },
+  { title: "plain tab in the settings panel goes to the input", key: key("tab"), context: context({ overlay: "settings" }), expected: "none" },
 
   { title: "pageup scrolls up", key: key("pageup"), context: context(), expected: "scrollPageUp" },
   { title: "pagedown scrolls down", key: key("pagedown"), context: context(), expected: "scrollPageDown" },

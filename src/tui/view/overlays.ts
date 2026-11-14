@@ -122,6 +122,11 @@ export interface Overlays {
   paletteChoice(): CommandInfo | undefined;
   /** Texte de la saisie de la palette (barre oblique comprise), `undefined` quand elle est fermée. */
   paletteText(): string | undefined;
+  /**
+   * ⇥ : ferme la palette et met `/<nom> ` dans la saisie, curseur au bout, pour y taper les arguments. Sans effet si
+   * la palette est fermée ou ne filtre rien.
+   */
+  complete(): void;
   settingsChoice(): { category: string; value: string } | undefined;
   /** Aligne l'overlay ouvert sur l'état (commandes, options, plan). */
   sync(state: SessionState): void;
@@ -221,8 +226,27 @@ export function createOverlays(o: OverlayOptions): Overlays {
     return start;
   }
 
+  /** Commande choisie (⇥ ou clic sur sa rangée) : la saisie la reçoit, elle ne part pas. */
+  function completeWith(command: CommandInfo | undefined): void {
+    if (current !== "palette" || command === undefined) return;
+    close();
+    textarea.setText(`/${firstLine(command.name)} `);
+    textarea.gotoBufferEnd();
+  }
+
   function paletteRow(command: CommandInfo, isSelected: boolean): Renderable {
-    const row = new BoxRenderable(renderer, { flexDirection: "row", flexShrink: 0, paddingLeft: 1, paddingRight: 1, ...(isSelected ? { backgroundColor: ACCENT.blue } : CLEAR) });
+    const row = new BoxRenderable(renderer, {
+      flexDirection: "row",
+      flexShrink: 0,
+      paddingLeft: 1,
+      paddingRight: 1,
+      ...(isSelected ? { backgroundColor: ACCENT.blue } : CLEAR),
+      onMouseDown: (event) => {
+        // Pas de début de sélection de texte : la rangée disparaît avec la palette.
+        event.preventDefault();
+        completeWith(command);
+      },
+    });
     row.add(text(renderer, `/${firstLine(command.name)}`.padEnd(NAME_COLUMNS), LABEL.strong, { flexShrink: 0, wrapMode: "none" }));
     row.add(text(renderer, firstLine(command.description), isSelected ? LABEL.strong : LABEL.secondary, { flexShrink: 1, wrapMode: "none" }));
     return row;
@@ -402,6 +426,7 @@ export function createOverlays(o: OverlayOptions): Overlays {
     },
     paletteChoice: () => (current === "palette" ? matches()[selected] : undefined),
     paletteText: () => (current === "palette" ? paletteInput.value : undefined),
+    complete: () => completeWith(current === "palette" ? matches()[selected] : undefined),
     settingsChoice: () => {
       if (current !== "settings") return undefined;
       const choice = values()[selected];

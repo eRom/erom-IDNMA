@@ -34,6 +34,7 @@ export type Intent =
   | "reopenHeld"
   | "nextMode"
   | "closeOverlay"
+  | "complete"
   | "scrollPageUp"
   | "scrollPageDown"
   | "scrollTop"
@@ -78,6 +79,8 @@ export function intentOf(key: KeyLike, context: Context): Intent {
   if (key.ctrl && key.name === "o") return "toggleSettings";
   if (key.ctrl && key.name === "r") return "reopenHeld";
   if (key.name === "tab" && key.shift) return "nextMode";
+  // ⇥ dans la palette : complète la saisie avec la commande choisie, pour y taper ensuite les arguments.
+  if (key.name === "tab" && context.overlay === "palette") return "complete";
 
   if (key.name === "pageup") return "scrollPageUp";
   if (key.name === "pagedown") return "scrollPageDown";
