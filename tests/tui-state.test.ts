@@ -266,14 +266,25 @@ test("agy's live echo of a prompt is not shown twice", () => {
   const base: Action[] = [{ type: "userPrompt", text: "x" }, { type: "turnStarted" }];
   const live = run([...base, ev({ type: "chunk", role: "user", text: "x" }, "live")]);
   expect(live.thread.filter((item) => item.kind === "user")).toHaveLength(1);
-  // Rejeu : le chunk user entre dans le fil (ici après une réponse, donc en nouvel item).
-  const replay = run([...base, agentChunk("answer"), ev({ type: "chunk", role: "user", text: "x" }, "replay")]);
+  const replay = run([...base, ev({ type: "chunk", role: "user", text: "x" }, "replay")]);
   expect(replay.thread.filter((item) => item.kind === "user")).toHaveLength(2);
 });
 
-test("replayed user chunks extend the last user item", () => {
-  const state = run([ev({ type: "chunk", role: "user", text: "he" }, "replay"), ev({ type: "chunk", role: "user", text: "llo" }, "replay")]);
-  expect(state.thread).toEqual([{ kind: "user", text: "hello" }]);
+test("each replayed user chunk is its own user item", () => {
+  const state = run([ev({ type: "chunk", role: "user", text: "first" }, "replay"), ev({ type: "chunk", role: "user", text: "second" }, "replay")]);
+  expect(state.thread).toEqual([
+    { kind: "user", text: "first" },
+    { kind: "user", text: "second" },
+  ]);
+});
+
+test("a tool announced again under a known id merges into its row instead of duplicating it", () => {
+  const state = run([
+    ev({ type: "tool", id: "a", created: true, name: "Bash", kind: "execute", status: "in_progress" }),
+    ev({ type: "tool", id: "a", created: true, title: "ls -la", status: "completed", rawOutput: "x\ny" }),
+  ]);
+  expect(tools(state)).toHaveLength(1);
+  expect(tools(state)[0]).toMatchObject({ name: "Bash", title: "ls -la", toolKind: "execute", status: "completed", output: ["x", "y"], meta: "2 lines" });
 });
 
 test("a peer turn appends a peer item", () => {

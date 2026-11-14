@@ -145,7 +145,7 @@ function toolRow(event: ToolEvent, base?: ToolItem): ToolItem {
 function applyTool(state: SessionState, event: ToolEvent): SessionState {
   const bare = event.name === undefined && event.title === undefined && event.kind === undefined && event.status === undefined && event.content === undefined && event.rawOutput === undefined;
   if (!event.created && bare) return state; // mise à jour de métadonnées seules (Claude)
-  const index = event.created ? -1 : state.thread.findIndex((item) => item.kind === "tool" && item.id === event.id);
+  const index = state.thread.findIndex((item) => item.kind === "tool" && item.id === event.id);
   const existing = index >= 0 ? state.thread[index] : undefined;
   if (existing?.kind === "tool") {
     const thread = state.thread.slice();
@@ -163,7 +163,7 @@ function applyChunk(state: SessionState, event: Extract<AgentEvent, { type: "chu
   switch (event.role) {
     case "user":
       if (origin === "live") return state; // l'écho en direct d'agy : déjà affiché par `userPrompt` ou `peerTurn`
-      return last?.kind === "user" ? replaceLast({ ...last, text: last.text + event.text }) : appendItem(state, { kind: "user", text: event.text });
+      return appendItem(state, { kind: "user", text: event.text }); // agy rejoue un chunk par message utilisateur
     case "agent":
       return last?.kind === "agent" && last.streaming ? replaceLast({ ...last, text: last.text + event.text }) : appendItem(state, { kind: "agent", text: event.text, streaming: true });
     case "thought":
