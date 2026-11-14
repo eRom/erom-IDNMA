@@ -122,6 +122,8 @@ export interface Overlays {
   paletteChoice(): CommandInfo | undefined;
   /** Texte de la saisie de la palette (barre oblique comprise), `undefined` quand elle est fermée. */
   paletteText(): string | undefined;
+  /** Texte de la rangée de saisie qui a remplacé le textarea : celui de la palette ou le filtre des réglages ; `undefined` sinon. */
+  typedText(): string | undefined;
   /**
    * ⇥ : ferme la palette et met `/<nom> ` dans la saisie, curseur au bout, pour y taper les arguments. Sans effet si
    * la palette est fermée ou ne filtre rien.
@@ -156,9 +158,9 @@ const SECTIONS = [
   { category: "mode", title: "Mode" },
 ] as const;
 
-type SettingsEntry = { kind: "title"; label: string } | { kind: "value"; category: string; value: string; name: string; current: boolean };
+export type SettingsEntry = { kind: "title"; label: string } | { kind: "value"; category: string; value: string; name: string; current: boolean };
 
-function settingsEntries(options: ConfigOption[]): SettingsEntry[] {
+export function settingsEntries(options: ConfigOption[]): SettingsEntry[] {
   const entries: SettingsEntry[] = [];
   for (const section of SECTIONS) {
     const option = options.find((candidate) => candidate.category === section.category);
@@ -167,6 +169,38 @@ function settingsEntries(options: ConfigOption[]): SettingsEntry[] {
     for (const value of option.values) entries.push({ kind: "value", category: section.category, value: value.value, name: value.name, current: value.value === option.currentValue });
   }
   return entries;
+}
+
+/**
+ * Filtre des réglages, sans tenir compte de la casse : un choix reste s'il contient le texte dans son nom ou sa valeur,
+ * un titre de section qui le contient garde toute sa section. Dans chaque section, les noms qui commencent par le texte
+ * passent d'abord ; une section sans correspondance disparaît avec son titre.
+ */
+export function filterSettings(entries: SettingsEntry[], filter: string): SettingsEntry[] {
+  const needle = filter.toLowerCase();
+  if (needle === "") return entries;
+  const kept: SettingsEntry[] = [];
+  let title: Extract<SettingsEntry, { kind: "title" }> | undefined;
+  let section: Array<Extract<SettingsEntry, { kind: "value" }>> = [];
+  const flush = (): void => {
+    if (title && section.length > 0) {
+      const starting = section.filter((entry) => entry.name.toLowerCase().startsWith(needle));
+      kept.push(title, ...starting, ...section.filter((entry) => !starting.includes(entry)));
+    }
+    section = [];
+  };
+  let wholeSection = false;
+  for (const entry of entries) {
+    if (entry.kind === "title") {
+      flush();
+      title = entry;
+      wholeSection = entry.label.toLowerCase().includes(needle);
+    } else if (wholeSection || entry.name.toLowerCase().includes(needle) || entry.value.toLowerCase().includes(needle)) {
+      section.push(entry);
+    }
+  }
+  flush();
+  return kept;
 }
 
 export function createOverlays(o: OverlayOptions): Overlays {
@@ -192,11 +226,16 @@ export function createOverlays(o: OverlayOptions): Overlays {
     textColor: LABEL.strong,
     backgroundColor: SURFACE.input,
     focusedBackgroundColor: SURFACE.input,
+    // Les réglages y ouvrent un filtre vide, sans barre oblique : le texte de remplacement le dit tant qu'il est vide.
+    placeholder: "Filter",
+    placeholderColor: LABEL.disabled,
   });
   inputBox.add(paletteInput);
 
   const matches = (): CommandInfo[] => filterCommands(commands, paletteInput.value.replace(/^\//, ""));
-  const values = (): Array<Extract<SettingsEntry, { kind: "value" }>> => settingsEntries(options).filter((entry): entry is Extract<SettingsEntry, { kind: "value" }> => entry.kind === "value");
+  /** Les entrées des réglages que le filtre laisse voir ; toutes tant que le panneau n'est pas ouvert. */
+  const shownEntries = (): SettingsEntry[] => filterSettings(settingsEntries(options), current === "settings" ? paletteInput.value : "");
+  const values = (): Array<Extract<SettingsEntry, { kind: "value" }>> => shownEntries().filter((entry): entry is Extract<SettingsEntry, { kind: "value" }> => entry.kind === "value");
 
   // ---- liste commune à la palette et aux réglages ----
 
@@ -276,12 +315,13 @@ export function createOverlays(o: OverlayOptions): Overlays {
   function renderSettings(): void {
     if (!listBox) return;
     emptyList(listBox);
-    const entries = settingsEntries(options);
+    const entries = shownEntries();
     const all = values();
     if (all.length === 0) {
       selected = 0;
       settingsKey = undefined;
-      listBox.add(text(renderer, "No settings available", LABEL.tertiary, { paddingLeft: 1 }));
+      const offered = settingsEntries(options).length > 0;
+      listBox.add(text(renderer, offered ? "No matching settings" : "No settings available", LABEL.tertiary, { paddingLeft: 1 }));
       return;
     }
     // La sélection suit sa valeur quand les options changent ; sinon elle retombe sur la première.
@@ -318,7 +358,16 @@ export function createOverlays(o: OverlayOptions): Overlays {
   // ---- palette : la saisie prend la place du textarea ----
 
   paletteInput.on(InputRenderableEvents.INPUT, () => {
-    if (writing || current !== "palette") return;
+    if (writing) return;
+    // Réglages : chaque frappe renvoie la sélection sur la première correspondance.
+    if (current === "settings") {
+      selected = 0;
+      offset = 0;
+      settingsKey = undefined;
+      renderSettings();
+      return;
+    }
+    if (current !== "palette") return;
     // Effacer le `/` ferme la palette.
     if (!paletteInput.value.startsWith("/")) {
       close();
@@ -329,15 +378,20 @@ export function createOverlays(o: OverlayOptions): Overlays {
     renderPalette();
   });
 
-  function openPalette(): void {
+  /** La saisie prend la place du textarea, avec `initial` dedans : `/` pour la palette, rien pour le filtre des réglages. */
+  function takeInputRow(initial: string): void {
     textarea.blur();
     textarea.visible = false;
     writing = true;
-    paletteInput.value = "/";
+    paletteInput.value = initial;
     writing = false;
     paletteInput.visible = true;
     paletteInput.focus();
     paletteInput.gotoBufferEnd();
+  }
+
+  function openPalette(): void {
+    takeInputRow("/");
     selected = 0;
     offset = 0;
     listBox = mountList();
@@ -352,6 +406,7 @@ export function createOverlays(o: OverlayOptions): Overlays {
   }
 
   function openSettings(): void {
+    takeInputRow("");
     const all = values();
     const model = all.findIndex((entry) => entry.category === "model" && entry.current);
     selected = Math.max(model, 0);
@@ -385,7 +440,7 @@ export function createOverlays(o: OverlayOptions): Overlays {
     if (current === undefined) return;
     const was = current;
     current = undefined;
-    if (was === "palette") closePalette();
+    if (was === "palette" || was === "settings") closePalette();
     if (listBox) {
       renderer.root.remove(listBox);
       listBox.destroyRecursively();
@@ -426,6 +481,7 @@ export function createOverlays(o: OverlayOptions): Overlays {
     },
     paletteChoice: () => (current === "palette" ? matches()[selected] : undefined),
     paletteText: () => (current === "palette" ? paletteInput.value : undefined),
+    typedText: () => (current === "palette" || current === "settings" ? paletteInput.value : undefined),
     complete: () => completeWith(current === "palette" ? matches()[selected] : undefined),
     settingsChoice: () => {
       if (current !== "settings") return undefined;

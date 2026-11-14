@@ -304,8 +304,8 @@ export function createScreen(options: ScreenOptions): Screen {
 
   function context(): Context {
     const overlay = overlays.kind();
-    // La palette occupe la rangée de saisie : c'est son texte qui compte, pas celui du textarea caché.
-    const typed = overlay === "palette" ? overlays.paletteText() : textarea.plainText;
+    // La palette et le filtre des réglages occupent la rangée de saisie : c'est leur texte qui compte, pas celui du textarea caché.
+    const typed = overlay === "palette" || overlay === "settings" ? overlays.typedText() : textarea.plainText;
     return {
       status: state ? headerParts(state).left.dot : "idle",
       turnActive: state?.turnActive ?? false,

@@ -101,7 +101,7 @@ test("status hints follow the pending prompt, then the overlay", () => {
   const held = run([{ type: "held", from: "bob", text: "x", queued: 1 }]);
   expect(statusHints(held)).toMatch(/^↑↓ Select {2}· {2}⏎ Confirm {2}· {2}esc Dismiss/);
   expect(statusHints(initialState("alice"), "palette")).toBe("↑↓ Select  ·  ⇥ Complete  ·  ⏎ Run  ·  esc Close");
-  expect(statusHints(initialState("alice"), "settings")).toBe("↑↓ Select  ·  ⏎ Apply  ·  esc Close");
+  expect(statusHints(initialState("alice"), "settings")).toBe("Type to filter  ·  ↑↓ Select  ·  ⏎ Apply  ·  esc Close");
   expect(statusHints(initialState("alice"), "plan")).toBe("⌃P Close plan  ·  esc Close");
   expect(statusHints(run([{ type: "turnStarted" }]), "plan")).toBe("⌃P Close plan  ·  esc Interrupt");
 });
