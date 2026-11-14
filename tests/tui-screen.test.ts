@@ -296,6 +296,35 @@ describe("thread", () => {
     });
   });
 
+  test("blank lines in a command output keep their row and count in the hidden total", async () => {
+    await withScreen({}, async (mounted) => {
+      const output = "one\n\ntwo\n\nthree\nfour\nfive\nsix\nseven";
+      const state = withTool(base(), { id: "t1", name: "Bash", title: "blanks", kind: "execute", status: "completed", output });
+      const frame = await show(mounted, state, "more lines");
+      const lines = rowsOf(frame);
+      const first = lines.findIndex((line) => line.trim() === "one");
+      expect(lineOf(frame, "blanks")).toContain("9 lines");
+      expect(lines.slice(first, first + 5).map((line) => line.trim())).toEqual(["one", "", "two", "", "three"]);
+      expect(frame).not.toContain("four");
+      expect(frame).toContain("… 4 more lines");
+    });
+  });
+
+  test("a blank line inside a diff keeps its row and counts", async () => {
+    await withScreen({}, async (mounted) => {
+      const newText = `${numberedLines(5, "a")}\n\n${numberedLines(8, "b")}`;
+      const state = withTool(base(), { id: "t1", name: "Edit", title: "blank.ts", kind: "edit", newText });
+      const frame = await show(mounted, state, "more lines");
+      const lines = rowsOf(frame);
+      const first = lines.findIndex((line) => line.includes("+ a-1"));
+      expect(lines[first + 5]?.trim()).toBe("+");
+      expect(lines[first + 6]).toContain("+ b-1");
+      expect(frame).toContain("+ b-6");
+      expect(frame).not.toContain("b-7");
+      expect(frame).toContain("… 2 more lines");
+    });
+  });
+
   test("escape sequences and tabs in a tool output cannot drive the terminal", async () => {
     await withScreen({}, async (mounted) => {
       const output = "\x1b[31mred text\x1b[0m\n\x1b]0;hijacked title\x07tab\there\r";
@@ -329,6 +358,18 @@ describe("thread", () => {
       expect(done).toContain("idea-3");
       expect(done).not.toContain("idea-4");
       expect(done).toContain("… 2 more lines");
+    });
+  });
+
+  test("a blank line inside a finished thought keeps its row and counts", async () => {
+    await withScreen({}, async (mounted) => {
+      const thought = apply(base(), { type: "event", event: { type: "chunk", role: "thought", text: "first\n\nthird\nfourth\nfifth" }, origin: "live" }, { type: "turnEnded", stopReason: "end_turn" });
+      const frame = await show(mounted, thought, "more lines");
+      const lines = rowsOf(frame);
+      const first = lines.findIndex((line) => line.trim() === "first");
+      expect(lines.slice(first, first + 3).map((line) => line.trim())).toEqual(["first", "", "third"]);
+      expect(frame).not.toContain("fourth");
+      expect(frame).toContain("… 2 more lines");
     });
   });
 

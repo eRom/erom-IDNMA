@@ -158,7 +158,7 @@ function buildTool(renderer: CliRenderer, id: string, marginTop: number, item: T
     for (const line of shown) root.add(diffRow(renderer, line));
     if (hidden > 0) root.add(hiddenCount(renderer, hidden));
   } else if (item.output) {
-    const { shown, hidden } = truncateLines(item.output.flatMap(textLines), OUTPUT_LINES);
+    const { shown, hidden } = truncateLines(item.output.flatMap((entry) => plain(entry).split("\n")), OUTPUT_LINES);
     for (const line of shown) root.add(text(renderer, line, LABEL.secondary, { marginLeft: 2 }));
     if (hidden > 0) root.add(hiddenCount(renderer, hidden));
   }
