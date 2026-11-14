@@ -53,7 +53,12 @@ interface Scenario {
   authRequired?: boolean;
   /** Texte de l'erreur `authRequired` ; « Authentication required » par défaut. */
   authRequiredMessage?: string;
+  /** Rend -32002 à `session/load` et à `session/resume`. */
   loadNotFound?: boolean;
+  /** Remplace `agentCapabilities` dans la réponse à `initialize` ; absent : `loadSession` et `list`. */
+  capabilities?: Json;
+  /** Nombre de notifications d'extension `_x.ai/session_notification` envoyées au début de chaque tour. */
+  extNotifications?: number;
   /** Chemin du fichier où écrire le pid d'un petit-enfant `sleep 600` du même groupe de process. */
   spawnGrandchild?: string;
   /** Chemin du fichier où écrire l'environnement reçu. */
@@ -110,6 +115,7 @@ function waitForResponse(id: number): Promise<Json> {
 
 async function handlePrompt(id: unknown): Promise<void> {
   cancelled = false;
+  for (let i = 0; i < (scenario.extNotifications ?? 0); i++) send({ method: "_x.ai/session_notification", params: { sessionId } });
   if (scenario.garbageLine) process.stdout.write("this is not json\n");
   if (scenario.stderrNoise) process.stderr.write("fake agent noise during the turn\n");
   if (scenario.unknownUpdate) {
@@ -147,7 +153,7 @@ function handleRequest(id: unknown, method: string, params: Json): void {
   switch (method) {
     case "initialize":
       if (scenario.neverAnswers) return;
-      reply(id, { protocolVersion: 1, agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } }, authMethods: [] });
+      reply(id, { protocolVersion: 1, agentCapabilities: scenario.capabilities ?? { loadSession: true, sessionCapabilities: { list: {} } }, authMethods: [] });
       return;
     case "session/new":
       if (scenario.authRequired) return fail(id, -32000, scenario.authRequiredMessage ?? "Authentication required");
@@ -166,6 +172,12 @@ function handleRequest(id: unknown, method: string, params: Json): void {
       if (scenario.authRequired) return fail(id, -32000, scenario.authRequiredMessage ?? "Authentication required");
       if (scenario.loadNotFound) return fail(id, -32002, "Resource not found");
       for (const update of scenario.replay ?? []) sendUpdate(update);
+      reply(id, { configOptions: options });
+      return;
+    case "session/resume":
+      // Reprise sans rejeu : seule la réponse revient.
+      if (scenario.authRequired) return fail(id, -32000, scenario.authRequiredMessage ?? "Authentication required");
+      if (scenario.loadNotFound) return fail(id, -32002, "Resource not found");
       reply(id, { configOptions: options });
       return;
     case "session/set_config_option": {

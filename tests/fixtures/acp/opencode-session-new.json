@@ -1,0 +1,76 @@
+{
+  "_source": "Real session/new result of opencode, captured 14/11/2026 (probe five/opencode-session-new.json); sessionId replaced, values cut to four, _meta and models dropped.",
+  "sessionId": "fake-opencode",
+  "configOptions": [
+    {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "opencode/gemini-4-hydrogen",
+      "options": [
+        {
+          "value": "amd/DeepSeek-V4-Flash",
+          "name": "amd/DeepSeek V4 Flash 0731"
+        },
+        {
+          "value": "amd/DeepSeek-V4.1-Flash",
+          "name": "amd/DeepSeek V4.1 Flash"
+        },
+        {
+          "value": "amd/Gemma-4-31B-IT",
+          "name": "amd/Gemma 4 31B IT"
+        },
+        {
+          "value": "opencode/gemini-4-hydrogen",
+          "name": "opencode/Gemini 4 Hydrogen"
+        }
+      ]
+    },
+    {
+      "id": "effort",
+      "name": "Effort",
+      "description": "Available effort levels for this model",
+      "category": "thought_level",
+      "type": "select",
+      "currentValue": "default",
+      "options": [
+        {
+          "value": "low",
+          "name": "Low"
+        },
+        {
+          "value": "medium",
+          "name": "Medium"
+        },
+        {
+          "value": "high",
+          "name": "High"
+        },
+        {
+          "value": "default",
+          "name": "Default"
+        }
+      ]
+    },
+    {
+      "id": "mode",
+      "name": "Session Mode",
+      "category": "mode",
+      "type": "select",
+      "currentValue": "build",
+      "options": [
+        {
+          "value": "build",
+          "name": "Build",
+          "description": "The default agent. Executes tools based on configured permissions."
+        },
+        {
+          "value": "plan",
+          "name": "Plan",
+          "description": "Read-only agent for exploring the codebase and planning work before implementation."
+        }
+      ]
+    }
+  ]
+}

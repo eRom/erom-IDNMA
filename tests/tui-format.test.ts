@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ConfigOption } from "../src/acp/events.ts";
+import { toConfigOptions } from "../src/acp/translate.ts";
 import { fitOneRow, fitStatusLeft, formatTokens, headerParts, statusHints, truncateLines } from "../src/tui/format.ts";
 import { type Action, initialState, reduce, type SessionState } from "../src/tui/state.ts";
 
@@ -174,4 +177,23 @@ test("truncateLines keeps the first lines and counts the rest", () => {
   expect(truncateLines(lines, 20)).toEqual({ shown: lines, hidden: 0 });
   expect(truncateLines(lines, 50)).toEqual({ shown: lines, hidden: 0 });
   expect(truncateLines([], 5)).toEqual({ shown: [], hidden: 0 });
+});
+
+type RawFixture = { configOptions: Parameters<typeof toConfigOptions>[0] };
+const readFixture = (name: string): RawFixture => JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "acp", `${name}-session-new.json`), "utf8")) as RawFixture;
+
+test("dst header shows the model name, never the JSON value", () => {
+  const state = withOptions(toConfigOptions(readFixture("dst").configOptions));
+  expect(headerParts(state).left.settings).toBe("deepseek-v4-flash · high");
+});
+
+test("grok header has no mode part", () => {
+  const converted = toConfigOptions(readFixture("grok").configOptions);
+  const model = converted.find((option) => option.category === "model");
+  const modelName = model?.values.find((value) => value.value === model.currentValue)?.name;
+  expect(modelName).toBeDefined();
+  const effort = converted.find((option) => option.category === "thought_level");
+  const settings = headerParts(withOptions(converted)).left.settings;
+  expect(settings).toBe(`${modelName} · ${effort?.currentValue.toLowerCase()}`);
+  expect(settings.split(" · ").length).toBe(2);
 });

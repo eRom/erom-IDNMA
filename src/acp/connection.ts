@@ -33,10 +33,16 @@ export interface OpenedSession {
   sessionId: string;
   options: ConfigOption[];
   resumed: boolean;
-  /** Nombre d'événements rejoués avant la réponse de `session/load`. */
+  /** Posé quand une reprise a eu lieu : `load` rejoue la conversation, `resume` ne rejoue rien. */
+  resumeMethod?: "load" | "resume";
+  /** Nombre d'événements rejoués avant la réponse de `session/load` (toujours 0 pour `session/resume`). */
   replayed: number;
   /** `-c` sans session antérieure dans ce dossier : une session neuve a été ouverte. */
   noPreviousSession: boolean;
+  /** `-c` mais l'agent n'annonce pas `session/list` : une session neuve a été ouverte. */
+  listUnavailable: boolean;
+  /** Un identifiant à reprendre mais l'agent n'annonce ni `loadSession` ni `resume` : une session neuve a été ouverte. */
+  resumeUnavailable: boolean;
   /** `origin` des réglages que l'agent a refusés (« --effort turbo ») ; les jetons écartés à la traduction restent dans `LaunchPlan.ignored`. */
   ignored: string[];
 }
@@ -49,7 +55,7 @@ export class AgentNotConnectedError extends Error {
   }
 }
 
-/** Erreur ACP `-32002` sur `session/load` : la session demandée n'existe pas. */
+/** Erreur ACP `-32002` sur `session/load` ou `session/resume` : la session demandée n'existe pas. */
 export class SessionNotFoundError extends Error {
   constructor(message: string) {
     super(message);
@@ -68,7 +74,7 @@ export class AgentStartError extends Error {
 }
 
 export interface AgentConnection {
-  /** `initialize`, puis `session/new`, ou `session/list` + `session/load`, ou `session/load`, puis les réglages de l'engine. */
+  /** `initialize` (les capacités annoncées décident), puis `session/new`, ou `session/list` + reprise, ou reprise directe (`session/load` ou `session/resume`), puis les réglages de l'engine. */
   open(cwd: string): Promise<OpenedSession>;
   /** Se résout après que tous les événements du tour ont été livrés. */
   prompt(text: string): Promise<StopReason>;
@@ -89,7 +95,7 @@ const EXIT_ANNOUNCE_MS = 500;
 const MAX_LOGGED_VARIANT = 64;
 const CANCELLED: PermissionAnswer = { outcome: "cancelled" };
 
-type Phase = "start" | "list" | "load" | "new" | "options";
+type Phase = "start" | "list" | "load" | "resume" | "new" | "options";
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -104,7 +110,7 @@ function classify(error: unknown, phase: Phase): Error {
   const code = codeOf(error);
   const message = errorMessage(error);
   if (code === -32000 || /authentication required/i.test(message)) return new AgentNotConnectedError(message);
-  if (code === -32002 && phase === "load") return new SessionNotFoundError(message);
+  if (code === -32002 && (phase === "load" || phase === "resume")) return new SessionNotFoundError(message);
   return new AgentStartError(message, code ?? null);
 }
 
@@ -303,7 +309,7 @@ export function connectAgent(plan: LaunchPlan, handlers: ConnectionHandlers): Ag
 
   async function openSession(cwd: string, setPhase: (phase: Phase) => void): Promise<OpenedSession> {
     setPhase("start");
-    await call(() =>
+    const init = await call(() =>
       connection.agent.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
         // Ni lecture ni écriture de fichiers, ni terminal : l'agent exécute ses outils lui-même.
@@ -312,24 +318,47 @@ export function connectAgent(plan: LaunchPlan, handlers: ConnectionHandlers): Ag
       }),
     );
 
+    // Les capacités annoncées par l'agent décident de la voie de reprise.
+    const agentCapabilities = init.agentCapabilities;
+    const canLoad = agentCapabilities?.loadSession === true;
+    const canList = agentCapabilities?.sessionCapabilities?.list != null;
+    const canResume = agentCapabilities?.sessionCapabilities?.resume != null;
+
     let loadId = plan.resume.kind === "id" ? plan.resume.id : undefined;
     let noPreviousSession = false;
+    let listUnavailable = false;
+    let resumeUnavailable = false;
     if (plan.resume.kind === "continue") {
-      setPhase("list");
-      loadId = await findLatestSession(cwd);
-      noPreviousSession = loadId === undefined;
+      if (canList) {
+        setPhase("list");
+        loadId = await findLatestSession(cwd);
+        noPreviousSession = loadId === undefined;
+      } else {
+        listUnavailable = true;
+      }
+    }
+    let resumeMethod: "load" | "resume" | undefined;
+    if (loadId !== undefined) {
+      if (canLoad) resumeMethod = "load";
+      else if (canResume) resumeMethod = "resume";
+      else {
+        resumeUnavailable = true;
+        loadId = undefined;
+      }
     }
 
     let resumed = false;
     let replayedBefore = 0;
-    if (loadId !== undefined) {
-      setPhase("load");
+    if (loadId !== undefined && resumeMethod !== undefined) {
+      setPhase(resumeMethod);
       const sessionId = loadId;
+      const method = resumeMethod === "load" ? methods.agent.session.load : methods.agent.session.resume;
       activeSessionId = sessionId;
-      loading = true;
+      // Seul `session/load` rejoue : les événements reçus pendant `session/resume` ne seraient pas un rejeu.
+      loading = resumeMethod === "load";
       try {
         const response = await call(() =>
-          connection.agent.request(methods.agent.session.load, {
+          connection.agent.request(method, {
             sessionId,
             cwd,
             mcpServers: [],
@@ -378,7 +407,7 @@ export function connectAgent(plan: LaunchPlan, handlers: ConnectionHandlers): Ag
       }
     }
 
-    return { sessionId: activeSessionId!, options, resumed, replayed: replayedBefore, noPreviousSession, ignored };
+    return { sessionId: activeSessionId!, options, resumed, ...(resumed ? { resumeMethod } : {}), replayed: replayedBefore, noPreviousSession, listUnavailable, resumeUnavailable, ignored };
   }
 
   function signalGroup(pid: number, signal: NodeJS.Signals): void {

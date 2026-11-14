@@ -445,6 +445,96 @@ describe("connectAgent", () => {
     expect(failure).not.toBeInstanceOf(SessionNotFoundError);
   });
 
+  describe("capabilities and resume methods", () => {
+    const dstFixture = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "acp", "dst-session-new.json"), "utf8")) as { configOptions: Json[] };
+
+    test("resume falls back to session/resume when loadSession is not advertised", async () => {
+      const received = join(dir, "received.jsonl");
+      const plan = planFor(
+        { capabilities: { sessionCapabilities: { list: {}, resume: {} } }, configOptions: dstFixture.configOptions, replay: [agentChunk("never replayed")], received },
+        { resume: { kind: "id", id: "dc33" }, loadSessionMeta: { marker: 2 } },
+      );
+      const { connection, events } = connect(plan);
+
+      const session = await connection.open(dir);
+
+      expect(session.resumed).toBe(true);
+      expect(session.resumeMethod).toBe("resume");
+      expect(session.replayed).toBe(0);
+      expect(session.sessionId).toBe("dc33");
+      expect(session.resumeUnavailable).toBe(false);
+      expect(session.options.length).toBeGreaterThan(0);
+      expect(events).toEqual([]);
+      expect(requestsOf(received, "session/resume")[0]).toMatchObject({ sessionId: "dc33", cwd: dir, mcpServers: [], _meta: { marker: 2 } });
+      expect(requestsOf(received, "session/load")).toEqual([]);
+    });
+
+    test("session/load is preferred when both load and resume are advertised", async () => {
+      const received = join(dir, "received.jsonl");
+      const plan = planFor({ capabilities: { loadSession: true, sessionCapabilities: { resume: {} } }, received }, { resume: { kind: "id", id: "s-old" } });
+      const { connection } = connect(plan);
+      const session = await connection.open(dir);
+      expect(session.resumeMethod).toBe("load");
+      expect(requestsOf(received, "session/load").length).toBe(1);
+      expect(requestsOf(received, "session/resume")).toEqual([]);
+    });
+
+    test("continue without session/list opens a new session", async () => {
+      const received = join(dir, "received.jsonl");
+      const plan = planFor({ capabilities: { loadSession: true, sessionCapabilities: {} }, received }, { resume: { kind: "continue" } });
+      const { connection } = connect(plan);
+
+      const session = await connection.open(dir);
+
+      expect(session.listUnavailable).toBe(true);
+      expect(session.resumed).toBe(false);
+      expect(session.resumeMethod).toBeUndefined();
+      expect(requestsOf(received, "session/new").length).toBe(1);
+      expect(requestsOf(received, "session/list")).toEqual([]);
+    });
+
+    test("resume without load nor resume capability opens a new session", async () => {
+      const received = join(dir, "received.jsonl");
+      const { connection } = connect(planFor({ capabilities: {}, received }, { resume: { kind: "id", id: "s-old" } }));
+
+      const session = await connection.open(dir);
+
+      expect(session.resumeUnavailable).toBe(true);
+      expect(session.resumed).toBe(false);
+      expect(requestsOf(received, "session/new").length).toBe(1);
+      expect(requestsOf(received, "session/load")).toEqual([]);
+      expect(requestsOf(received, "session/resume")).toEqual([]);
+    });
+
+    test("continue with session/list and resume only resumes the latest session without replay", async () => {
+      const received = join(dir, "received.jsonl");
+      const pages = [[{ sessionId: "s-latest", cwd: dir, updatedAt: "2026-11-14T10:00:00Z" }]];
+      const plan = planFor({ capabilities: { sessionCapabilities: { list: {}, resume: {} } }, listPages: pages, received }, { resume: { kind: "continue" } });
+      const { connection } = connect(plan);
+      const session = await connection.open(dir);
+      expect(session).toMatchObject({ sessionId: "s-latest", resumed: true, resumeMethod: "resume", listUnavailable: false, noPreviousSession: false });
+    });
+
+    test("resume unknown id is SessionNotFoundError", async () => {
+      const plan = planFor({ capabilities: { sessionCapabilities: { list: {}, resume: {} } }, loadNotFound: true }, { resume: { kind: "id", id: "gone" } });
+      const { connection } = connect(plan);
+      await expect(connection.open(dir)).rejects.toBeInstanceOf(SessionNotFoundError);
+    });
+
+    test("extension notifications are dropped silently", async () => {
+      const plan = planFor({ extNotifications: 50, turn: { updates: [agentChunk("pong")] } });
+      const { connection, events } = connect(plan);
+      await connection.open(dir);
+
+      expect(await connection.prompt("ping")).toBe("end_turn");
+
+      expect(events.map((e) => e.event)).toEqual([{ type: "chunk", role: "agent", text: "pong" }]);
+      const log = logLines();
+      expect(log.some((line) => line["event"] === "acp-sdk-error")).toBe(false);
+      expect(log.some((line) => line["event"] === "acp-unknown-update")).toBe(false);
+    });
+  });
+
   test("an agent that is not logged in raises AgentNotConnectedError", async () => {
     const created = connect(planFor({ authRequired: true }));
     await expect(created.connection.open(dir)).rejects.toBeInstanceOf(AgentNotConnectedError);
