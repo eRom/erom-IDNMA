@@ -328,7 +328,9 @@ export function createScreen(options: ScreenOptions): Screen {
     if (textarea.plainText === "") forgetRecall();
     const intent = intentOf(key, context());
     if (intent === "submit") forgetRecall();
-    if (key.ctrl && key.name === "c" && state?.exit === undefined) armCtrlC();
+    // Un ⌃C qui ne fait que fermer la palette ou les réglages n'arme pas le quit : refermer un panneau deux fois ne quitte pas la session.
+    const closesOverlay = intent === "clearInput" && (overlays.kind() === "palette" || overlays.kind() === "settings");
+    if (key.ctrl && key.name === "c" && state?.exit === undefined && !closesOverlay) armCtrlC();
     else disarmCtrlC();
     // Un ⏎ qui arrive pile après l'apparition d'une demande est de la frappe d'avance : on l'avale, la touche ne va pas non plus à la saisie.
     if (intent === "confirm" && state?.pending !== undefined && now() - pendingSince < CONFIRM_GUARD_MS) {

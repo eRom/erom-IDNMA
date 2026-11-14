@@ -1161,6 +1161,52 @@ describe("settings filter", () => {
     });
   });
 
+  test("a permission arriving while a filter is typed in the panel closes it, shows the card and hands the input row back", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base(LONG));
+      mounted.screen.setInput("draft");
+      mounted.screen.openOverlay("settings");
+      await mounted.mockInput.typeText("deeps");
+      expect(mounted.screen.paletteText()).toBeUndefined();
+      const frame = await show(mounted, waitingOnBash(permission(), LONG));
+      expect(mounted.screen.overlay()).toBeUndefined();
+      expect(frame).toContain("Allow this command?");
+      expect(rowsOf(frame).some((line) => line.includes("❯ deeps"))).toBe(false);
+      expect(frame).not.toContain("Type to filter");
+      expect(mounted.screen.inputText()).toBe("draft");
+      expect(intentsOf(mounted)).toEqual([]);
+    });
+  });
+
+  test("a ctrl+c that closes the panel does not arm the quit: the next one is a first ctrl+c again", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await show(mounted, base(LONG));
+      mounted.screen.openOverlay("settings");
+      mounted.mockInput.pressCtrlC();
+      expect(mounted.screen.overlay()).toBeUndefined();
+      expect(intentsOf(mounted)).toEqual([]);
+      clock += 100;
+      mounted.mockInput.pressCtrlC();
+      expect(intentsOf(mounted)).toEqual(["clearInput"]);
+      clock += 100;
+      mounted.mockInput.pressCtrlC();
+      expect(intentsOf(mounted)).toEqual(["clearInput", "quit"]);
+    });
+  });
+
+  test("a ctrl+c that closes the palette does not arm the quit either", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await openPalette(mounted);
+      mounted.mockInput.pressCtrlC();
+      expect(mounted.screen.overlay()).toBeUndefined();
+      clock += 100;
+      mounted.mockInput.pressCtrlC();
+      expect(intentsOf(mounted)).toEqual(["clearInput"]);
+    });
+  });
+
   test("the filter keeps a long catalogue inside the 18-row window", async () => {
     await withScreen({ height: 40 }, async (mounted) => {
       const many: ConfigOption[] = [
