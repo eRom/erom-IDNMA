@@ -297,6 +297,24 @@ describe("held rule", () => {
     expect(h.counts.at(-1)).toBe(0);
   });
 
+  test("Deliver during a running turn does nothing, the message stays on screen until a Deliver at rest", () => {
+    const h = setup("held");
+    arrive(h, peerMessage("fais X"));
+    expect(h.held.length).toBe(1);
+    // Romain soumet un prompt pendant que la carte est affichée : l'écran n'est plus au repos.
+    h.state.idle = false;
+    h.delivery.deliverHeld();
+    expect(h.turns).toEqual([]);
+    expect(h.queue.size).toBe(1);
+    h.state.idle = true;
+    h.delivery.onIdle();
+    // Le message est toujours celui à l'écran : pas de seconde présentation.
+    expect(h.held.length).toBe(1);
+    h.delivery.deliverHeld();
+    expect(h.turns).toEqual([{ prompt: peerPrompt("codex-a", "fais X", false), display: { from: "codex-a", text: "fais X" } }]);
+    expect(h.queue.size).toBe(0);
+  });
+
   test("Later keeps the message queued and suspends presentation until reopen", () => {
     const h = setup("held");
     arrive(h, peerMessage("premier"));

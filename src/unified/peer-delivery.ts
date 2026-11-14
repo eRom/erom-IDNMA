@@ -191,7 +191,9 @@ export function createPeerDelivery(deps: PeerDeliveryDeps): PeerDelivery {
     },
 
     deliverHeld(): void {
-      if (left || shown === undefined) return;
+      // Seul chemin qui envoie un prompt à agy : jamais dans un tour en cours (design §6.3). Hors repos,
+      // le message reste à l'écran.
+      if (!canAct() || shown === undefined) return;
       const message = shown;
       shown = undefined;
       queue.remove(message);
