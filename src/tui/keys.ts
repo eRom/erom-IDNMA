@@ -17,6 +17,8 @@ export type Context = {
   overlay?: "palette" | "plan" | "settings";
   inputEmpty: boolean;
   lastWasCtrlC: boolean;
+  /** Les flèches parcourent l'historique : saisie vide ou texte rappelé inchangé, sans demande ni surcouche. */
+  recall: boolean;
 };
 
 export type Intent =
@@ -35,6 +37,8 @@ export type Intent =
   | "nextMode"
   | "closeOverlay"
   | "complete"
+  | "historyPrevious"
+  | "historyNext"
   | "scrollPageUp"
   | "scrollPageDown"
   | "scrollTop"
@@ -69,8 +73,8 @@ export function intentOf(key: KeyLike, context: Context): Intent {
     return context.turnActive ? "interrupt" : "none";
   }
 
-  if (key.name === "up") return selecting ? "selectUp" : "none";
-  if (key.name === "down") return selecting ? "selectDown" : "none";
+  if (key.name === "up") return selecting ? "selectUp" : context.recall ? "historyPrevious" : "none";
+  if (key.name === "down") return selecting ? "selectDown" : context.recall ? "historyNext" : "none";
 
   if (key.name === "/" && !key.ctrl && !key.meta) {
     return context.inputEmpty && !context.pending && context.overlay === undefined ? "openPalette" : "none";

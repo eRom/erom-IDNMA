@@ -855,6 +855,121 @@ describe("status line fit", () => {
   });
 });
 
+describe("input history", () => {
+  function threeSent(): SessionState {
+    return withUser(withUser(withUser(base(), "first prompt"), "second prompt"), "third prompt");
+  }
+
+  test("up recalls the previous prompts, down goes back toward the newest and past it gives the empty input back", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, threeSent());
+      mounted.mockInput.pressArrow("up");
+      mounted.mockInput.pressArrow("up");
+      await mounted.renderOnce();
+      expect(mounted.screen.inputText()).toBe("second prompt");
+      expect(mounted.captureCharFrame()).toContain("❯ second prompt");
+      mounted.mockInput.pressArrow("down");
+      expect(mounted.screen.inputText()).toBe("third prompt");
+      mounted.mockInput.pressArrow("down");
+      expect(mounted.screen.inputText()).toBe("");
+      await mounted.renderOnce();
+      expect(mounted.captureCharFrame()).toContain("Message");
+      // Une nouvelle remontée repart du plus récent.
+      mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("third prompt");
+      expect(mounted.intents).toEqual([]);
+    });
+  });
+
+  test("up stops at the oldest prompt", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, threeSent());
+      for (let step = 0; step < 6; step++) mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("first prompt");
+    });
+  });
+
+  test("consecutive duplicates count once", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, withUser(withUser(withUser(base(), "alpha"), "beta"), "beta"));
+      mounted.mockInput.pressArrow("up");
+      mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("alpha");
+    });
+  });
+
+  test("editing a recalled prompt gives the arrows back to the cursor", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, threeSent());
+      mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("third prompt");
+      await mounted.mockInput.typeText("!");
+      expect(mounted.screen.inputText()).toBe("third prompt!");
+      mounted.mockInput.pressArrow("up");
+      mounted.mockInput.pressArrow("down");
+      expect(mounted.screen.inputText()).toBe("third prompt!");
+      expect(mounted.intents).toEqual([]);
+    });
+  });
+
+  test("a typed draft is not replaced by a recall", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, threeSent());
+      mounted.screen.setInput("my draft");
+      mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("my draft");
+    });
+  });
+
+  test("prompts replayed by a resumed session are recalled too", async () => {
+    await withScreen({}, async (mounted) => {
+      const resumed = apply(base(), { type: "event", event: { type: "chunk", role: "user", text: "replayed prompt" }, origin: "replay" }, { type: "event", event: { type: "chunk", role: "agent", text: "an answer" }, origin: "replay" });
+      await show(mounted, resumed);
+      mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("replayed prompt");
+    });
+  });
+
+  test("peer messages and agent text are not part of the history", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, withAgentText(apply(withUser(base(), "mine"), { type: "peerTurn", from: "bob", text: "from a peer" }), "agent words"));
+      mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("mine");
+      mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("mine");
+    });
+  });
+
+  test("with a pending request the arrows still move the choice and nothing is recalled", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, apply(threeSent(), { type: "turnStarted" }, { type: "permission", request: PERMISSION }));
+      mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("");
+      expect(mounted.intents).toEqual([{ intent: "selectUp", input: "" }]);
+    });
+  });
+
+  test("with the palette open the arrows still move its selection", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, threeSent());
+      mounted.screen.openOverlay("palette");
+      mounted.mockInput.pressArrow("up");
+      expect(mounted.screen.inputText()).toBe("");
+      expect(mounted.screen.paletteText()).toBe("/");
+    });
+  });
+
+  test("a recalled prompt is submitted as typed", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, threeSent());
+      mounted.mockInput.pressArrow("up");
+      mounted.mockInput.pressEnter();
+      await mounted.renderOnce();
+      expect(mounted.intents).toEqual([{ intent: "submit", input: "third prompt" }]);
+    });
+  });
+});
+
 describe("lifecycle", () => {
   test("destroy resolves once the renderer is closed", async () => {
     const mounted = await mount();

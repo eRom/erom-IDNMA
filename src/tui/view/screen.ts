@@ -239,6 +239,45 @@ export function createScreen(options: ScreenOptions): Screen {
     }
   }
 
+  // ---- historique de la saisie : les prompts du fil, sans état propre au-delà du dernier rappel ----
+
+  let recalledAt: number | undefined;
+  let recalledText: string | undefined;
+
+  /** Les messages de l'utilisateur dans l'ordre du fil (tapés, de la palette, de la file, rejoués), doublons consécutifs réduits. */
+  function promptHistory(): string[] {
+    const prompts: string[] = [];
+    for (const item of state?.thread ?? []) {
+      if (item.kind === "user" && prompts.at(-1) !== item.text) prompts.push(item.text);
+    }
+    return prompts;
+  }
+
+  /** Les flèches rappellent l'historique sur une saisie vide ou sur l'entrée rappelée telle quelle ; jamais pendant une demande ni une surcouche. */
+  function canRecall(): boolean {
+    if (state === undefined || state.pending !== undefined || state.exit !== undefined || overlays.kind() !== undefined) return false;
+    const typed = textarea.plainText;
+    return typed === "" || (recalledText !== undefined && typed === recalledText);
+  }
+
+  /** `-1` remonte vers le plus ancien, `1` redescend vers le plus récent ; au-delà du plus récent, la saisie redevient vide. */
+  function recall(direction: -1 | 1): void {
+    const history = promptHistory();
+    const from = textarea.plainText === "" || recalledAt === undefined ? history.length : Math.min(recalledAt, history.length);
+    const to = Math.min(Math.max(from + direction, 0), history.length);
+    const entry = history[to];
+    if (entry === undefined) {
+      recalledAt = undefined;
+      recalledText = undefined;
+      textarea.setText("");
+      return;
+    }
+    recalledAt = to;
+    recalledText = entry;
+    textarea.setText(entry);
+    textarea.gotoBufferEnd();
+  }
+
   function context(): Context {
     const overlay = overlays.kind();
     // La palette occupe la rangée de saisie : c'est son texte qui compte, pas celui du textarea caché.
@@ -250,6 +289,7 @@ export function createScreen(options: ScreenOptions): Screen {
       ...(overlay === undefined ? {} : { overlay }),
       inputEmpty: typed === "",
       lastWasCtrlC: ctrlCArmed(),
+      recall: canRecall(),
     };
   }
 
@@ -291,6 +331,10 @@ export function createScreen(options: ScreenOptions): Screen {
         return;
       case "complete":
         overlays.complete();
+        return;
+      case "historyPrevious":
+      case "historyNext":
+        recall(intent === "historyPrevious" ? -1 : 1);
         return;
       case "clearInput":
         // ⌃C vide la saisie : avec la palette ouverte, c'est elle qui se ferme (son texte est perdu, le brouillon revient).

@@ -15,6 +15,7 @@ const baseContext: Context = {
   pending: false,
   inputEmpty: true,
   lastWasCtrlC: false,
+  recall: false,
 };
 
 function context(overrides: Partial<Context> = {}): Context {
@@ -66,6 +67,12 @@ const rows: Row[] = [
   { title: "down moves the selection of the settings panel", key: key("down"), context: context({ overlay: "settings" }), expected: "selectDown" },
   { title: "up in the text goes to the input", key: key("up"), context: context(), expected: "none" },
   { title: "down in the plan overlay goes to the input", key: key("down"), context: context({ overlay: "plan" }), expected: "none" },
+
+  { title: "up recalls the previous prompt when the input allows it", key: key("up"), context: context({ recall: true }), expected: "historyPrevious" },
+  { title: "down goes back toward the newest prompt when the input allows it", key: key("down"), context: context({ recall: true }), expected: "historyNext" },
+  { title: "up on an edited input stays in the input", key: key("up"), context: context({ recall: false, inputEmpty: false }), expected: "none" },
+  { title: "up during a permission moves the choice even when the input allows a recall", key: key("up"), context: context({ pending: true, recall: true }), expected: "selectUp" },
+  { title: "up in the palette moves the selection even when the input allows a recall", key: key("up"), context: context({ overlay: "palette", recall: true }), expected: "selectUp" },
 
   { title: "slash on an empty input opens the palette", key: key("/"), context: context(), expected: "openPalette" },
   { title: "slash in a non-empty input is typed", key: key("/"), context: context({ inputEmpty: false }), expected: "none" },
