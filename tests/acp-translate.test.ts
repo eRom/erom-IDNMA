@@ -166,6 +166,7 @@ describe("translateUpdate", () => {
   test("a multi-line command gives its first non-empty line", () => {
     expect(toolOf({ title: "bash", rawInput: { command: "echo a\necho b" } }).title).toBe("echo a");
     expect(toolOf({ title: "bash", rawInput: { command: "\n  \necho c" } }).title).toBe("echo c");
+    expect(toolOf({ title: "bash", rawInput: { command: "\n   echo d \r\necho e" } }).title).toBe("echo d");
   });
 
   test("a grok terminal command shows its command", () => {
@@ -201,9 +202,20 @@ describe("translateUpdate", () => {
     expect(outputOf({ type: "Bash", output: [111, 107, 10], output_for_prompt: "ok\n" }, text("ok\n"))).toBe("ok\n");
     expect(outputOf({ metadata: {} })).toBe('{"metadata":{}}');
     expect(outputOf({ metadata: {} }, [])).toBe('{"metadata":{}}');
-    expect(outputOf({ metadata: {} }, text(""))).toBe('{"metadata":{}}');
+    expect(outputOf({ metadata: {} }, text(""))).toBe("");
     expect(outputOf({ output: "from agy" }, text("other"))).toBe("from agy");
     expect(outputOf("plain", text("other"))).toBe("plain");
+  });
+
+  test("an interim grok update with empty output gives an empty output, never JSON", () => {
+    const interim = { type: "Bash", output: [], output_for_prompt: "", exit_code: 0 };
+    expect(toolOf({ rawOutput: interim, content: [{ type: "content", content: { type: "text", text: "" } }] }).rawOutput).toBe("");
+    expect(toolOf({ rawOutput: interim }).rawOutput).toBe("");
+  });
+
+  test("a grok output_for_prompt is taken when there is no content", () => {
+    expect(toolOf({ rawOutput: { type: "Bash", output: [111, 107, 10], output_for_prompt: "ok\n" } }).rawOutput).toBe("ok\n");
+    expect(toolOf({ rawOutput: { type: "Bash", output: [], output_for_prompt: "ok\n" }, content: [{ type: "content", content: { type: "text", text: "other" } }] }).rawOutput).toBe("ok\n");
   });
 
   test("a plan keeps its entries and skips an unknown status", () => {

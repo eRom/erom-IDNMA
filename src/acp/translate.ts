@@ -35,15 +35,18 @@ export function textOfContent(block: ContentBlock): string {
 
 /**
  * Sortie brute d'un outil : chaîne telle quelle, champ `output` d'un objet (forme agy).
- * Un autre objet (métadonnées d'opencode, sortie en octets de Grok) cède la place au contenu texte quand il y en a, sinon JSON.
+ * Un autre objet (métadonnées d'opencode, sortie en octets de Grok) se résout dans l'ordre :
+ * son `output_for_prompt` (Grok), puis le contenu texte de la même mise à jour même vide (jamais de JSON dans ce cas), puis JSON.
  */
-function rawOutputText(raw: unknown, contentText: string): string | undefined {
+function rawOutputText(raw: unknown, content: { text: string } | undefined): string | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (typeof raw === "string") return raw;
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const output = (raw as { output?: unknown }).output;
     if (typeof output === "string") return output;
-    if (contentText !== "") return contentText;
+    const forPrompt = (raw as { output_for_prompt?: unknown }).output_for_prompt;
+    if (typeof forPrompt === "string") return forPrompt;
+    if (content) return content.text;
   }
   return JSON.stringify(raw);
 }
@@ -57,7 +60,7 @@ function commandTitle(title: unknown, rawInput: unknown): string | undefined {
   if (typeof title !== "string" || !/^\S+$/.test(title) || !isRecord(rawInput)) return undefined;
   const { command } = rawInput;
   if (typeof command !== "string") return undefined;
-  return command.split("\n").find((line) => line.trim() !== "");
+  return command.split("\n").find((line) => line.trim() !== "")?.trim();
 }
 
 /** Sortie de commande portée par `_meta` : delta de Codex puis sortie de Pi, dans cet ordre. */
@@ -99,8 +102,8 @@ function toToolEvent(update: ToolCall | ToolCallUpdate, created: boolean): Agent
   }
   if (typeof update.status === "string") event.status = update.status as ToolStatus;
   if (Array.isArray(update.content)) event.content = toToolContent(update.content);
-  const contentText = (event.content ?? []).flatMap((item) => (item.kind === "text" ? [item.text] : [])).join("\n");
-  const rawOutput = rawOutputText(update.rawOutput, contentText);
+  const textItems = (event.content ?? []).flatMap((item) => (item.kind === "text" ? [item.text] : []));
+  const rawOutput = rawOutputText(update.rawOutput, textItems.length > 0 ? { text: textItems.join("\n") } : undefined);
   if (rawOutput !== undefined) event.rawOutput = rawOutput;
   const outputDelta = metaOutputDelta(update._meta);
   if (outputDelta !== undefined) event.outputDelta = outputDelta;
