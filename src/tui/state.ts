@@ -9,7 +9,7 @@ export type ThreadItem =
   | { kind: "peer"; from: string; text: string }
   | { kind: "agent"; text: string; streaming: boolean }
   | { kind: "thought"; text: string; done: boolean }
-  | { kind: "tool"; id: string; name: string; title: string; status: ToolStatus; meta: string; diff?: { path: string; lines: string[] }; output?: string[]; toolKind?: string }
+  | { kind: "tool"; id: string; name: string; title: string; status: ToolStatus; meta: string; diff?: { path: string; lines: string[] }; output?: string[]; outputText?: string; toolKind?: string }
   | { kind: "notice"; text: string; tone: "info" | "error" };
 
 /** Choix du message retenu, dans l'ordre du design §6.3. */
@@ -111,9 +111,9 @@ function diffLines(oldText: string | undefined, newText: string): { lines: strin
   return { lines: [...removed, ...added], added: added.length, removed: removed.length };
 }
 
-function outputLines(event: ToolEvent): string[] {
-  const text = event.rawOutput ?? (event.content ?? []).flatMap((item) => (item.kind === "text" ? [item.text] : [])).join("\n");
-  return splitLines(text);
+/** Texte de sortie porté par un événement : la sortie brute, sinon les contenus texte joints. */
+function outputSource(event: ToolEvent): string {
+  return event.rawOutput ?? (event.content ?? []).flatMap((item) => (item.kind === "text" ? [item.text] : [])).join("\n");
 }
 
 function toolRow(event: ToolEvent, base?: ToolItem): ToolItem {
@@ -129,7 +129,8 @@ function toolRow(event: ToolEvent, base?: ToolItem): ToolItem {
   if (toolKind !== undefined) row.toolKind = toolKind;
   if (base?.diff) row.diff = base.diff;
   if (base?.output) row.output = base.output;
-  if (event.content === undefined && event.rawOutput === undefined) return row;
+  if (base?.outputText !== undefined) row.outputText = base.outputText;
+  if (event.content === undefined && event.rawOutput === undefined && event.outputDelta === undefined) return row;
 
   const diffItem = event.content?.find((item) => item.kind === "diff");
   let diffCounts: { added: number; removed: number } | undefined;
@@ -138,15 +139,22 @@ function toolRow(event: ToolEvent, base?: ToolItem): ToolItem {
     row.diff = { path: diffItem.path, lines };
     diffCounts = { added, removed };
   }
-  const lines = outputLines(event);
-  if (lines.length > 0 && toolKind === "execute") row.output = lines;
+  const received = outputSource(event);
+  let lines = splitLines(received);
+  if (toolKind === "execute") {
+    // Le texte brut s'accumule : une sortie non vide reçue ensuite le remplace, un contenu vide ne le remet pas à zéro.
+    if (lines.length > 0) row.outputText = received;
+    else if (event.outputDelta !== undefined) row.outputText = (row.outputText ?? "") + event.outputDelta;
+    lines = splitLines(row.outputText);
+    if (lines.length > 0) row.output = lines;
+  }
   if (diffCounts) row.meta = `+${diffCounts.added} ${MINUS}${diffCounts.removed}`;
   else if (lines.length > 0 && !row.diff) row.meta = lines.length === 1 ? "1 line" : `${lines.length} lines`;
   return row;
 }
 
 function applyTool(state: SessionState, event: ToolEvent): SessionState {
-  const bare = event.name === undefined && event.title === undefined && event.kind === undefined && event.status === undefined && event.content === undefined && event.rawOutput === undefined;
+  const bare = event.name === undefined && event.title === undefined && event.kind === undefined && event.status === undefined && event.content === undefined && event.rawOutput === undefined && event.outputDelta === undefined;
   if (!event.created && bare) return state; // mise à jour de métadonnées seules (Claude)
   const index = state.thread.findIndex((item) => item.kind === "tool" && item.id === event.id);
   const existing = index >= 0 ? state.thread[index] : undefined;

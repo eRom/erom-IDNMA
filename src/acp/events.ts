@@ -27,7 +27,7 @@ export interface PlanEntry {
 
 export type AgentEvent =
   | { type: "chunk"; role: "user" | "agent" | "thought"; text: string; messageId?: string }
-  | { type: "tool"; id: string; created: boolean; name?: string; title?: string; kind?: string; status?: ToolStatus; content?: ToolContent[]; rawOutput?: string }
+  | { type: "tool"; id: string; created: boolean; name?: string; title?: string; kind?: string; status?: ToolStatus; content?: ToolContent[]; rawOutput?: string; outputDelta?: string }
   | { type: "plan"; entries: PlanEntry[] }
   | { type: "commands"; commands: CommandInfo[] }
   | { type: "config"; options: ConfigOption[] }

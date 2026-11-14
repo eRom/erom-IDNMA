@@ -143,6 +143,69 @@ describe("translateUpdate", () => {
     ]);
   });
 
+  const toolOf = (update: Record<string, unknown>) => {
+    const [event] = translateUpdate({ sessionUpdate: "tool_call", toolCallId: "t1", status: "in_progress", ...update } as any);
+    if (event?.type !== "tool") throw new Error("expected a tool event");
+    return event;
+  };
+
+  test("a bare tool title takes the command from rawInput", () => {
+    const [event] = translateUpdate({ sessionUpdate: "tool_call", toolCallId: "t1", title: "bash", kind: "other", status: "in_progress", rawInput: { description: "Create probe.txt with touch", command: "touch probe.txt" } } as any);
+    expect(event).toMatchObject({ type: "tool", title: "touch probe.txt" });
+  });
+
+  test("a title with spaces or without a command is kept", () => {
+    expect(toolOf({ title: "touch probe.txt && ls", rawInput: { command: "x" } }).title).toBe("touch probe.txt && ls");
+    expect(toolOf({ title: "Read", rawInput: { file_path: "/a" } }).title).toBe("Read");
+    expect(toolOf({ title: "bash", rawInput: { command: "" } }).title).toBe("bash");
+    expect(toolOf({ title: "bash", rawInput: "ls" }).title).toBe("bash");
+    expect(toolOf({ title: "bash", rawInput: { command: 7 } }).title).toBe("bash");
+    expect(toolOf({ title: "bash", rawInput: { command: "  \n " } }).title).toBe("bash");
+  });
+
+  test("a multi-line command gives its first non-empty line", () => {
+    expect(toolOf({ title: "bash", rawInput: { command: "echo a\necho b" } }).title).toBe("echo a");
+    expect(toolOf({ title: "bash", rawInput: { command: "\n  \necho c" } }).title).toBe("echo c");
+  });
+
+  test("a grok terminal command shows its command", () => {
+    const event = toolOf({ title: "run_terminal_command", kind: "execute", rawInput: { command: "touch probe.txt" } });
+    expect(event).toMatchObject({ title: "touch probe.txt", kind: "execute" });
+  });
+
+  test("a dst shell tool becomes an execute tool", () => {
+    expect(toolOf({ title: "bash", kind: "other", rawInput: { description: "Create probe.txt with touch", command: "touch probe.txt" } }).kind).toBe("execute");
+    expect(toolOf({ title: "bash", rawInput: { command: "ls" } }).kind).toBe("execute");
+    expect(toolOf({ title: "Read", kind: "other", rawInput: { file_path: "/a" } }).kind).toBe("other");
+    expect(toolOf({ title: "Read" }).kind).toBeUndefined();
+    expect(toolOf({ title: "bash", kind: "read", rawInput: { command: "cat a" } }).kind).toBe("read");
+  });
+
+  test("terminal output in _meta becomes an output delta", () => {
+    const update = (meta: unknown) => {
+      const [event] = translateUpdate({ sessionUpdate: "tool_call_update", toolCallId: "t1", _meta: meta } as any);
+      return event?.type === "tool" ? event.outputDelta : "missing";
+    };
+    expect(update({ terminal_output_delta: { data: "ok-codex\n", terminal_id: "exec-1" }, terminal_exit: { exit_code: 0 } })).toBe("ok-codex\n");
+    expect(update({ terminal_output: { terminal_id: "call_1", data: "ok-pi\n" } })).toBe("ok-pi\n");
+    expect(update({ terminal_output_delta: { data: "a" }, terminal_output: { data: "b" } })).toBe("ab");
+    expect(update({ terminal_output: { data: 3 } })).toBeUndefined();
+    expect(update({ other: 1 })).toBeUndefined();
+    expect(update(null)).toBeUndefined();
+  });
+
+  test("a metadata rawOutput gives way to text content", () => {
+    const text = (value: string) => [{ type: "content", content: { type: "text", text: value } }];
+    const outputOf = (rawOutput: unknown, content?: unknown) => toolOf({ rawOutput, ...(content ? { content } : {}) }).rawOutput;
+    expect(outputOf({ metadata: { status: "completed", truncated: false, exit: 0 } }, text("-rw-r--r--@ 1 u  wheel  0 probe.txt\n"))).toBe("-rw-r--r--@ 1 u  wheel  0 probe.txt\n");
+    expect(outputOf({ type: "Bash", output: [111, 107, 10], output_for_prompt: "ok\n" }, text("ok\n"))).toBe("ok\n");
+    expect(outputOf({ metadata: {} })).toBe('{"metadata":{}}');
+    expect(outputOf({ metadata: {} }, [])).toBe('{"metadata":{}}');
+    expect(outputOf({ metadata: {} }, text(""))).toBe('{"metadata":{}}');
+    expect(outputOf({ output: "from agy" }, text("other"))).toBe("from agy");
+    expect(outputOf("plain", text("other"))).toBe("plain");
+  });
+
   test("a plan keeps its entries and skips an unknown status", () => {
     const events = translateUpdate({
       sessionUpdate: "plan",
