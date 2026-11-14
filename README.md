@@ -298,18 +298,30 @@ idnma run claude --native    # native TUI for this launch
 | `pi` | `pi-acp` | `bun add -g pi-acp@0.0.34` (or npm), Node 22; `pi` must be in your `PATH` |
 | `dst` | `dsh --profile acp` | nothing more |
 
-For Codex, idnma sets `CODEX_PATH` to the `codex` found in your `PATH`, so the Codex you already use is the one that runs, unless the engine's `env` sets it.
+For Codex, idnma sets `CODEX_PATH` to the `codex` found in your `PATH`, so the Codex you already use is the one that runs, unless it is already set in the environment or in the engine's `env`.
 
 ### Engine options
 
-The model and the effort are set through the agent's own settings once the session is open. A few flags change how the unified screen behaves:
+The engine's `model:` and its effort flag (`--effort` for Grok, `--thinking` for Pi) are applied at launch, right after the session opens; afterwards `⌃O` changes them from the screen. dst takes no model at launch: a `model:` on a dst engine is refused. A few flags change how the unified screen behaves:
 
 - opencode `--auto`: idnma answers "allow once" to each permission request opencode asks.
 - Codex `--dangerously-bypass-approvals-and-sandbox`: selects Codex's full-access mode.
-- dst follows `DSH_PERMISSION_MODE` from the engine's `env`.
+- Grok `--always-approve`: passed on to `grok agent`.
+- dst: idnma forwards `DSH_PERMISSION_MODE` from the engine's `env` and dsh applies it; idnma does not configure dst.
 - A flag the unified screen cannot honor is announced at startup (`Ignored in unified mode: …`) and the launch continues.
 
-`-c` and each harness's own resume form work in unified mode. dst does not replay past exchanges on resume: the agent keeps the context, but the screen starts empty.
+Resume works in unified mode with each harness's own forms:
+
+| Harness | Resume |
+|---|---|
+| `claude`, `agy` | `-c`, `-r <id>` |
+| `opencode` | `-c`, `-s <id>` |
+| `codex` | `resume --last`, `resume <id>` |
+| `grok` | `-c`, `-r [id]` |
+| `pi` | `-c`, `--session <id>` |
+| `dst` | `-c`, `--resume [id]` |
+
+On dst, resume does not replay past exchanges: the agent keeps the context, but the screen starts empty.
 
 ### Install `claude-agent-acp`
 
