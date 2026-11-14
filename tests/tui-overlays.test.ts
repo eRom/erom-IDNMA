@@ -402,6 +402,19 @@ describe("command palette", () => {
     });
   });
 
+  test("paletteText gives the typed text with its slash, and nothing once the palette is closed", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base());
+      expect(mounted.screen.paletteText()).toBeUndefined();
+      await openPalette(mounted);
+      expect(mounted.screen.paletteText()).toBe("/");
+      await mounted.mockInput.typeText("review 42");
+      expect(mounted.screen.paletteText()).toBe("/review 42");
+      mounted.screen.closeOverlay();
+      expect(mounted.screen.paletteText()).toBeUndefined();
+    });
+  });
+
   test("enter selects the first match, is forwarded once as confirm and changes nothing in the inputs", async () => {
     await withScreen({}, async (mounted) => {
       await show(mounted, base());

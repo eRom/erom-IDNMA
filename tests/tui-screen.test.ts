@@ -632,6 +632,198 @@ describe("input and keys", () => {
   });
 });
 
+describe("interrupted turn", () => {
+  test("a cancelled tool row reads cancelled in place of its meta, a finished one keeps its own, and the turn says Interrupted", async () => {
+    await withScreen({}, async (mounted) => {
+      let state = apply(base(), { type: "userPrompt", text: "push both" }, { type: "turnStarted" });
+      state = withTool(state, { id: "done", name: "Bash", title: "git push done", kind: "execute", status: "completed", output: "a\nb" });
+      state = withTool(state, { id: "open", name: "Bash", title: "git push open", kind: "execute", status: "in_progress" });
+      state = apply(state, { type: "turnEnded", stopReason: "cancelled" });
+      const frame = await show(mounted, state);
+      expect(lineOf(frame, "git push open")).toMatch(/cancelled\s*$/);
+      expect(lineOf(frame, "git push done")).toContain("2 lines");
+      expect(lineOf(frame, "git push done")).not.toContain("cancelled");
+      expect(lineOf(frame, "Interrupted")).toBeDefined();
+    });
+  });
+
+  test("a tool cancelled by the agent exit reads cancelled too", async () => {
+    await withScreen({}, async (mounted) => {
+      const state = apply(withTool(apply(base(), { type: "turnStarted" }), { id: "open", name: "Bash", title: "sleep 60", status: "in_progress" }), { type: "agentExited", code: 1, signal: null });
+      expect(lineOf(await show(mounted, state), "sleep 60")).toMatch(/cancelled\s*$/);
+    });
+  });
+});
+
+describe("double ctrl+c window", () => {
+  const intentsOf = (mounted: Mounted): Intent[] => mounted.intents.map((entry) => entry.intent);
+  const running = (): SessionState => apply(base(), { type: "turnStarted" });
+
+  test("two ctrl+c 2.5 s apart interrupt two turns instead of quitting", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await show(mounted, running());
+      mounted.mockInput.pressCtrlC();
+      await show(mounted, apply(running(), { type: "turnEnded", stopReason: "cancelled" }));
+      clock += 2_500;
+      await show(mounted, apply(running(), { type: "turnEnded", stopReason: "cancelled" }, { type: "peerTurn", from: "codex-x", text: "ping" }, { type: "turnStarted" }));
+      mounted.mockInput.pressCtrlC();
+      expect(intentsOf(mounted)).toEqual(["interrupt", "interrupt"]);
+    });
+  });
+
+  test("the window is time-bound even when the same turn is still running", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await show(mounted, running());
+      mounted.mockInput.pressCtrlC();
+      clock += 2_500;
+      mounted.mockInput.pressCtrlC();
+      expect(intentsOf(mounted)).toEqual(["interrupt", "interrupt"]);
+    });
+  });
+
+  test("a turn that starts inside the window disarms it", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await show(mounted, running());
+      mounted.mockInput.pressCtrlC();
+      await show(mounted, base());
+      clock += 300;
+      await show(mounted, running());
+      mounted.mockInput.pressCtrlC();
+      expect(intentsOf(mounted)).toEqual(["interrupt", "interrupt"]);
+    });
+  });
+
+  test("two ctrl+c within one second at rest quit, and the status line says so while armed", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await show(mounted, base());
+      mounted.mockInput.pressCtrlC();
+      clock += 400;
+      expect(rowsOf(await show(mounted, base())).at(-1)).toContain("⌃C again to quit");
+      mounted.mockInput.pressCtrlC();
+      expect(intentsOf(mounted)).toEqual(["clearInput", "quit"]);
+    });
+  });
+
+  test("the hint goes away once the window has passed, and any other key disarms it", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await show(mounted, base());
+      mounted.mockInput.pressCtrlC();
+      clock += 1_200;
+      const expired = rowsOf(await show(mounted, base())).at(-1);
+      expect(expired).not.toContain("⌃C again to quit");
+      expect(expired).toContain("⏎ Send");
+
+      mounted.mockInput.pressCtrlC();
+      await mounted.mockInput.typeText("x");
+      expect(rowsOf(await show(mounted, base())).at(-1)).not.toContain("⌃C again to quit");
+    });
+  });
+});
+
+describe("type-ahead guard", () => {
+  const permissionState = (): SessionState => apply(base(), { type: "turnStarted" }, { type: "permission", request: PERMISSION });
+  const intentsOf = (mounted: Mounted): Intent[] => mounted.intents.map((entry) => entry.intent);
+
+  test("enter 100 ms after a request appears does nothing, 600 ms after it confirms", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await show(mounted, permissionState());
+      clock += 100;
+      mounted.mockInput.pressEnter();
+      await mounted.renderOnce();
+      expect(intentsOf(mounted)).toEqual([]);
+      expect(mounted.screen.inputText()).toBe("");
+      clock += 500;
+      mounted.mockInput.pressEnter();
+      await mounted.renderOnce();
+      expect(intentsOf(mounted)).toEqual(["confirm"]);
+    });
+  });
+
+  test("escape and arrows are never held back, and moving the choice does not restart the delay", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await show(mounted, permissionState());
+      clock += 100;
+      mounted.mockInput.pressArrow("down");
+      mounted.mockInput.pressEscape();
+      await mounted.renderOnce();
+      expect(intentsOf(mounted)).toEqual(["selectDown", "refuse"]);
+
+      mounted.intents.length = 0;
+      clock += 500;
+      await show(mounted, apply(permissionState(), { type: "select", delta: 1 }));
+      clock += 50;
+      mounted.mockInput.pressEnter();
+      await mounted.renderOnce();
+      expect(intentsOf(mounted)).toEqual(["confirm"]);
+    });
+  });
+
+  test("a held card guards enter the same way, and a second request restarts the delay", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await show(mounted, apply(base(), { type: "held", from: "codex-x", text: "ping", queued: 1 }));
+      clock += 100;
+      mounted.mockInput.pressEnter();
+      await mounted.renderOnce();
+      expect(intentsOf(mounted)).toEqual([]);
+      clock += 500;
+      await show(mounted, apply(base(), { type: "held", from: "codex-y", text: "other", queued: 2 }));
+      clock += 100;
+      mounted.mockInput.pressEnter();
+      await mounted.renderOnce();
+      expect(intentsOf(mounted)).toEqual([]);
+    });
+  });
+});
+
+describe("status line fit", () => {
+  const LONG_CWD = `${homedir()}/dev/erom-agence-network/.claude/worktrees/feat+unified-tui`;
+
+  test("at 104 columns the branch stays whole, the path is shortened from its start and the hints are intact", async () => {
+    await withScreen({ cwd: LONG_CWD, branch: "feat/unified-tui" }, async (mounted) => {
+      const idle = rowsOf(await show(mounted, base())).at(-1)!;
+      expect(idle).toContain("⎇ feat/unified-tui");
+      expect(idle).toContain("⏎ Send  ·  ⇧⏎ Newline  ·  / Commands  ·  ⌃P Plan");
+      expect(idle).toMatch(/^ …\/\S*feat\+unified-tui {2}⎇ feat\/unified-tui /);
+
+      const busy = apply(base(), { type: "userPrompt", text: "go" }, { type: "turnStarted" }, { type: "heldCount", queued: 2 });
+      const running = rowsOf(await show(mounted, busy)).at(-1)!;
+      expect(running).toContain("⎇ feat/unified-tui");
+      expect(running).toContain("esc Interrupt  ·  ⏎ Queue message  ·  ⌃P Plan  ·  2 held  ·  ⌃R Open");
+    });
+  });
+
+  test("the path comes back whole when the window grows, and is cut again when it shrinks", async () => {
+    await withScreen({ cwd: LONG_CWD, branch: "feat/unified-tui" }, async (mounted) => {
+      await show(mounted, base());
+      mounted.resize(164, 31);
+      await mounted.renderOnce();
+      expect(rowsOf(mounted.captureCharFrame()).at(-1)).toContain("~/dev/erom-agence-network/.claude/worktrees/feat+unified-tui  ⎇ feat/unified-tui");
+      mounted.resize(104, 31);
+      await mounted.renderOnce();
+      const narrow = rowsOf(mounted.captureCharFrame()).at(-1)!;
+      expect(narrow).toContain("⎇ feat/unified-tui");
+      expect(narrow).toContain("…");
+    });
+  });
+
+  test("without a branch the path alone is shortened to fit", async () => {
+    await withScreen({ cwd: `${homedir()}/${"deep/".repeat(20)}project` }, async (mounted) => {
+      const line = rowsOf(await show(mounted, base())).at(-1)!;
+      expect(line).toContain("project");
+      expect(line).toContain("⏎ Send");
+      expect(line).toContain("…");
+    });
+  });
+});
+
 describe("lifecycle", () => {
   test("destroy resolves once the renderer is closed", async () => {
     const mounted = await mount();

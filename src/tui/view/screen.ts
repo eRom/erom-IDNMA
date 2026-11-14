@@ -2,9 +2,9 @@
 // Seul `src/tui/view/` importe OpenTUI ; aucun type d'OpenTUI ne sort d'ici, hors l'option `renderer` de `createScreen`.
 import { homedir } from "node:os";
 import { BoxRenderable, type CliRenderer, createCliRenderer, SyntaxStyle, TextareaRenderable, TextRenderable, bold, fg, t } from "@opentui/core";
-import { headerParts, statusHints } from "../format.ts";
+import { fitStatusLeft, headerParts, statusHints } from "../format.ts";
 import { type Context, type Intent, intentOf } from "../keys.ts";
-import type { SessionState, Status } from "../state.ts";
+import type { Pending, SessionState, Status } from "../state.ts";
 import { ACCENT, LABEL, SURFACE, WINDOW } from "../theme.ts";
 import type { CommandInfo } from "../../acp/events.ts";
 import { createOverlays, createTail, type OverlayKind } from "./overlays.ts";
@@ -30,6 +30,8 @@ export interface Screen {
   overlay(): OverlayKind | undefined;
   /** Commande sélectionnée de la palette, `undefined` si elle est fermée ou ne filtre rien. */
   paletteChoice(): CommandInfo | undefined;
+  /** Texte tapé dans la palette, `/` initial compris ; `undefined` si elle est fermée. */
+  paletteText(): string | undefined;
   /** Valeur sélectionnée des réglages, repérée par la `category` de son option. */
   settingsChoice(): { category: string; value: string } | undefined;
   /** `destroy()` du moteur puis attente de `closed`. */
@@ -46,6 +48,18 @@ export interface ScreenOptions {
 }
 
 const SCROLL_INTENTS: ReadonlySet<Intent> = new Set(["scrollPageUp", "scrollPageDown", "scrollTop", "scrollBottom"]);
+
+/** Un second ⌃C ne quitte que dans cette fenêtre : au-delà, c'est un nouveau premier ⌃C. */
+const CTRL_C_WINDOW_MS = 1000;
+/** Un ⏎ n'a pas de sens sur une demande apparue depuis moins de ce délai : c'était de la frappe d'avance. */
+const CONFIRM_GUARD_MS = 500;
+const CTRL_C_HINT = "⌃C again to quit";
+
+/** Identité d'une demande à l'écran : changer le choix sélectionné ne la change pas, une nouvelle demande oui. */
+function pendingKeyOf(pending: Pending | undefined): unknown {
+  if (pending === undefined) return undefined;
+  return pending.kind === "permission" ? pending.request : `${pending.from}\n${pending.text}`;
+}
 
 /** Style du Markdown : une gradation de gris, la couleur reste réservée aux états. */
 function markdownStyle(renderer: CliRenderer): SyntaxStyle {
@@ -136,7 +150,7 @@ export function createScreen(options: ScreenOptions): Screen {
   const statusRight = new TextRenderable(renderer, { content: "", fg: LABEL.tertiary, flexShrink: 0, marginLeft: 2, ...keep });
   status.add(statusLeft);
   status.add(statusRight);
-  statusLeft.content = options.branch === undefined ? displayCwd(options.cwd) : `${displayCwd(options.cwd)}  ⎇ ${options.branch}`;
+  const shownCwd = displayCwd(options.cwd);
 
   renderer.root.add(header);
   renderer.root.add(thread.scroll);
@@ -149,15 +163,54 @@ export function createScreen(options: ScreenOptions): Screen {
 
   // ---- état mémorisé entre deux rendus ----
   let state: SessionState | undefined;
-  let lastWasCtrlC = false;
+  let ctrlCArmedUntil = 0;
+  let pendingKey: unknown;
+  let pendingSince = 0;
   let shownHeader = "";
   let shownRight = "";
   let shownHints = "";
+  let shownLeft = "";
   let timer: ReturnType<typeof setInterval> | undefined;
+  let armTimer: ReturnType<typeof setTimeout> | undefined;
 
   function stopTimer(): void {
     if (timer !== undefined) clearInterval(timer);
     timer = undefined;
+    if (armTimer !== undefined) clearTimeout(armTimer);
+    armTimer = undefined;
+  }
+
+  const ctrlCArmed = (): boolean => now() < ctrlCArmedUntil;
+
+  /** Le dossier cède de la place à la branche et aux libellés ; recalculé à chaque changement de l'un ou de la largeur. */
+  function layoutStatusLeft(): void {
+    // Marges de la ligne (1 + 1) et espace de séparation devant la partie droite (2).
+    const room = renderer.width - 4 - shownHints.length;
+    const left = fitStatusLeft(shownCwd, options.branch, room);
+    if (left !== shownLeft) {
+      shownLeft = left;
+      statusLeft.content = left;
+    }
+  }
+
+  function armCtrlC(): void {
+    ctrlCArmedUntil = now() + CTRL_C_WINDOW_MS;
+    syncHints();
+    if (armTimer !== undefined) clearTimeout(armTimer);
+    // La mention s'efface seule à la fin de la fenêtre.
+    armTimer = setTimeout(() => {
+      armTimer = undefined;
+      if (!renderer.isDestroyed) syncHints();
+    }, CTRL_C_WINDOW_MS + 20);
+    armTimer.unref?.();
+  }
+
+  function disarmCtrlC(): void {
+    const wasArmed = ctrlCArmedUntil > 0;
+    ctrlCArmedUntil = 0;
+    if (armTimer !== undefined) clearTimeout(armTimer);
+    armTimer = undefined;
+    if (wasArmed) syncHints();
   }
 
   /** Une seconde de cadence, seulement tant qu'une rangée d'outil en cours affiche sa durée. */
@@ -175,10 +228,11 @@ export function createScreen(options: ScreenOptions): Screen {
   /** Les libellés de la ligne d'état suivent l'état et la surcouche ouverte. */
   function syncHints(): void {
     if (!state) return;
-    const hints = statusHints(state, overlays.kind());
+    const hints = ctrlCArmed() && state.exit === undefined ? CTRL_C_HINT : statusHints(state, overlays.kind());
     if (hints !== shownHints) {
       shownHints = hints;
       statusRight.content = hints;
+      layoutStatusLeft();
     }
   }
 
@@ -192,7 +246,7 @@ export function createScreen(options: ScreenOptions): Screen {
       pending: state?.pending !== undefined,
       ...(overlay === undefined ? {} : { overlay }),
       inputEmpty: typed === "",
-      lastWasCtrlC,
+      lastWasCtrlC: ctrlCArmed(),
     };
   }
 
@@ -204,7 +258,13 @@ export function createScreen(options: ScreenOptions): Screen {
   // Le gestionnaire global passe avant la saisie : `preventDefault` lui retire la touche.
   const onKeypress = (key: Parameters<typeof intentOf>[0] & { preventDefault(): void }): void => {
     const intent = intentOf(key, context());
-    lastWasCtrlC = key.ctrl && key.name === "c";
+    if (key.ctrl && key.name === "c" && state?.exit === undefined) armCtrlC();
+    else disarmCtrlC();
+    // Un ⏎ qui arrive pile après l'apparition d'une demande est de la frappe d'avance : on l'avale, la touche ne va pas non plus à la saisie.
+    if (intent === "confirm" && state?.pending !== undefined && now() - pendingSince < CONFIRM_GUARD_MS) {
+      key.preventDefault();
+      return;
+    }
     if (intent === "none") return;
     key.preventDefault();
     if (SCROLL_INTENTS.has(intent)) {
@@ -251,16 +311,27 @@ export function createScreen(options: ScreenOptions): Screen {
     if (selected !== "") renderer.copyToClipboardOSC52(selected);
   };
   renderer.on("selection", onSelection);
+  const onResize = (): void => layoutStatusLeft();
+  renderer.on("resize", onResize);
 
   renderer.once("destroy", () => {
     stopTimer();
     renderer.keyInput.off("keypress", onKeypress);
     renderer.off("selection", onSelection);
+    renderer.off("resize", onResize);
   });
 
   return {
     render(next) {
+      const wasTurnActive = state?.turnActive === true;
       state = next;
+      // Un tour qui s'ouvre (le prochain ⌃C vise ce tour) et une demande qui apparaît (garde de ⏎) repartent de zéro.
+      if (next.turnActive && !wasTurnActive) disarmCtrlC();
+      const key = pendingKeyOf(next.pending);
+      if (key !== pendingKey) {
+        pendingKey = key;
+        pendingSince = now();
+      }
       const parts = headerParts(next);
       const headerKey = `${parts.left.dot}|${parts.left.name}|${parts.left.settings}`;
       if (headerKey !== shownHeader) {
@@ -292,6 +363,7 @@ export function createScreen(options: ScreenOptions): Screen {
     },
     overlay: () => overlays.kind(),
     paletteChoice: () => overlays.paletteChoice(),
+    paletteText: () => overlays.paletteText(),
     settingsChoice: () => overlays.settingsChoice(),
     clearInput() {
       textarea.setText("");

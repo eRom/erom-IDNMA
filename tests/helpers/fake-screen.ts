@@ -16,6 +16,8 @@ export class FakeScreen implements Screen {
   overlayKind: OverlayKind | undefined;
   /** Ce que `paletteChoice()` rend quand la palette est ouverte. */
   palette: CommandInfo | undefined;
+  /** Ce que `paletteText()` rend quand la palette est ouverte (`/` initial compris). */
+  paletteInput: string | undefined;
   /** Ce que `settingsChoice()` rend quand les réglages sont ouverts. */
   setting: { category: string; value: string } | undefined;
   /** Fait lever `clearInput()` : le gestionnaire d'intentions ne doit jamais laisser remonter l'erreur. */
@@ -61,6 +63,10 @@ export class FakeScreen implements Screen {
 
   paletteChoice(): CommandInfo | undefined {
     return this.overlayKind === "palette" ? this.palette : undefined;
+  }
+
+  paletteText(): string | undefined {
+    return this.overlayKind === "palette" ? this.paletteInput : undefined;
   }
 
   settingsChoice(): { category: string; value: string } | undefined {

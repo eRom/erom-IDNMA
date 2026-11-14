@@ -86,12 +86,31 @@ test("a cancelled turn marks open tools cancelled", () => {
   expect(state.interrupted).toBe(true);
   expect(state.turnActive).toBe(false);
   expect(tools(state).map((tool) => tool.status)).toEqual(["cancelled", "cancelled", "completed"]);
-  expect(state.thread.at(-1)).toEqual({ kind: "agent", text: "partial", streaming: false });
+  expect(state.thread.at(-2)).toEqual({ kind: "agent", text: "partial", streaming: false });
+});
+
+test("a cancelled turn ends with an Interrupted notice after the closed text", () => {
+  const state = run([{ type: "turnStarted" }, agentChunk("partial"), { type: "turnEnded", stopReason: "cancelled" }]);
+  expect(state.thread).toEqual([
+    { kind: "agent", text: "partial", streaming: false },
+    { kind: "notice", text: "Interrupted", tone: "info" },
+  ]);
+});
+
+test("a turn that failed on an error already in the thread adds no Interrupted notice", () => {
+  const state = run([{ type: "turnStarted" }, { type: "notice", text: "Turn failed: Invalid params", tone: "error" }, { type: "turnEnded", stopReason: "cancelled", failed: true }]);
+  expect(state.thread).toEqual([{ kind: "notice", text: "Turn failed: Invalid params", tone: "error" }]);
+  expect(state.interrupted).toBe(true);
+});
+
+test("a turn cancelled because the agent died adds no Interrupted notice", () => {
+  const state = run([{ type: "turnStarted" }, { type: "agentExited", code: 1, signal: null }, { type: "turnEnded", stopReason: "cancelled" }]);
+  expect(state.thread).toEqual([]);
 });
 
 test("another stop reason adds nothing to the thread and a new turn clears the interruption", () => {
   const cancelled = run([{ type: "turnStarted" }, { type: "turnEnded", stopReason: "cancelled" }]);
-  expect(cancelled.thread).toEqual([]);
+  expect(cancelled.thread).toEqual([{ kind: "notice", text: "Interrupted", tone: "info" }]);
   expect(run([{ type: "turnStarted" }], cancelled).interrupted).toBe(false);
   const refused = run([{ type: "turnStarted" }, { type: "turnEnded", stopReason: "max_tokens" }]);
   expect(refused.interrupted).toBe(false);
@@ -354,6 +373,13 @@ test("the agent exit is sticky, clears the pending and adds no thread item", () 
   expect(state.pending).toBeUndefined();
   expect(state.thread).toEqual([]);
   expect(state.status).toBe("exited");
+});
+
+test("the agent exit with queued prompts says how many were not sent", () => {
+  const one = run([{ type: "turnStarted" }, { type: "userPrompt", text: "a" }, { type: "agentExited", code: 1, signal: null }]);
+  expect(one.thread.at(-1)).toEqual({ kind: "notice", text: "1 queued message not sent", tone: "error" });
+  const two = run([{ type: "turnStarted" }, { type: "userPrompt", text: "a" }, { type: "userPrompt", text: "b" }, { type: "agentExited", code: 1, signal: null }]);
+  expect(two.thread.at(-1)).toEqual({ kind: "notice", text: "2 queued messages not sent", tone: "error" });
 });
 
 test("the agent exit cancels the tool rows still pending or in progress and leaves finished ones alone", () => {

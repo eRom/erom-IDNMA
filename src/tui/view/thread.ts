@@ -177,7 +177,8 @@ function buildTool(renderer: CliRenderer, id: string, marginTop: number, item: T
         shownColor = color;
       }
       const started = seenAt(item.id);
-      const meta = item.meta !== "" ? item.meta : isRunning(item) && item.id !== env.pendingToolId && started !== undefined ? `${Math.max(0, Math.floor((env.now - started) / 1000))}s` : "";
+      // Un outil annulé le dit à la place de sa méta : rien ne le distingue autrement d'un outil terminé.
+      const meta = item.status === "cancelled" ? "cancelled" : item.meta !== "" ? item.meta : isRunning(item) && item.id !== env.pendingToolId && started !== undefined ? `${Math.max(0, Math.floor((env.now - started) / 1000))}s` : "";
       if (meta !== shownMeta) {
         right.content = meta;
         shownMeta = meta;

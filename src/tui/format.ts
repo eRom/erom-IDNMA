@@ -40,10 +40,12 @@ const RUNNING_HINTS = "esc Interrupt  ·  ⏎ Queue message  ·  ⌃P Plan";
 /** Libellés de la ligne d'état, ceux de la maquette ; le suffixe « held » suit le compteur du design §6.3. */
 export function statusHints(state: SessionState, overlay?: "palette" | "plan" | "settings"): string {
   if (state.exit) return "Press any key to leave";
-  const base = hintsFor(state, overlay);
+  let hints = hintsFor(state, overlay);
+  // Les messages tapés pendant un tour attendent sa fin : sans ce compteur ils seraient invisibles.
+  if (state.localQueue.length > 0) hints += `  ·  ${state.localQueue.length} queued`;
   // Une carte retenue ouverte compte déjà pour un message : ⌃R rouvrirait celle qui est à l'écran.
   const others = state.pending?.kind === "held" ? state.heldCount - 1 : state.heldCount;
-  return others > 0 ? `${base}  ·  ${others} held  ·  ⌃R Open` : base;
+  return others > 0 ? `${hints}  ·  ${others} held  ·  ⌃R Open` : hints;
 }
 
 function hintsFor(state: SessionState, overlay?: "palette" | "plan" | "settings"): string {
@@ -53,6 +55,21 @@ function hintsFor(state: SessionState, overlay?: "palette" | "plan" | "settings"
   if (overlay === "plan") return state.turnActive ? "⌃P Close plan  ·  esc Interrupt" : "⌃P Close plan  ·  esc Close";
   if (overlay === "settings") return "↑↓ Select  ·  ⏎ Apply  ·  esc Close";
   return state.turnActive ? RUNNING_HINTS : IDLE_HINTS;
+}
+
+/**
+ * Partie gauche de la ligne d'état : le dossier suivi de `  ⎇ branche`, dans `room` colonnes. La branche reste entière ;
+ * le dossier perd son début, remplacé par `…`, de préférence à une frontière `/`.
+ */
+export function fitStatusLeft(path: string, branch: string | undefined, room: number): string {
+  const suffix = branch === undefined ? "" : `  ⎇ ${branch}`;
+  if (path.length + suffix.length <= room) return path + suffix;
+  const pathRoom = room - suffix.length;
+  // Plus de place pour un dossier lisible : la branche seule (le moteur coupe ce qui déborde encore).
+  if (pathRoom < 2) return suffix.trimStart();
+  const keep = pathRoom - 1;
+  const boundary = path.indexOf("/", path.length - keep);
+  return `…${boundary >= 0 ? path.slice(boundary) : path.slice(path.length - keep)}${suffix}`;
 }
 
 /** Garde les `max` premières lignes ; la troncature est l'affaire de la vue (diff : 12, sortie : 5, réflexion finie : 3). */

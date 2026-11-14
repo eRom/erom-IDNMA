@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ConfigOption } from "../src/acp/events.ts";
-import { formatTokens, headerParts, statusHints, truncateLines } from "../src/tui/format.ts";
+import { fitStatusLeft, formatTokens, headerParts, statusHints, truncateLines } from "../src/tui/format.ts";
 import { type Action, initialState, reduce, type SessionState } from "../src/tui/state.ts";
 
 function run(actions: Action[], from: SessionState = initialState("alice")): SessionState {
@@ -117,6 +117,34 @@ test("while a held card is open the suffix counts the other held messages only, 
   // Une permission en attente ne rouvre aucune carte : le compteur reste entier.
   const permission = run([{ type: "turnStarted" }, { type: "permission", request: { toolCallId: "t", title: "x", choices: [{ optionId: "a", name: "Allow", kind: "allow_once" }] } }, { type: "heldCount", queued: 3 }]);
   expect(statusHints(permission)).toBe("↑↓ Select  ·  ⏎ Confirm  ·  esc Reject  ·  3 held  ·  ⌃R Open");
+});
+
+test("the status line's left part keeps the branch whole and cuts the path from its start", () => {
+  const path = "~/dev/erom-agence-network/.claude/worktrees/feat+unified-tui";
+  expect(fitStatusLeft(path, "main", 200)).toBe(`${path}  ⎇ main`);
+  expect(fitStatusLeft(path, undefined, 200)).toBe(path);
+  // Coupe à une frontière « / » : le plus long bout de chemin qui tient.
+  expect(fitStatusLeft(path, "feat/unified-tui", 50)).toBe("…/worktrees/feat+unified-tui  ⎇ feat/unified-tui");
+  // Aucune frontière ne tient : coupe en plein mot, mais toujours dans la largeur.
+  const tight = fitStatusLeft(path, "feat/unified-tui", 32);
+  expect(tight).toBe("…unified-tui  ⎇ feat/unified-tui");
+  expect(tight.length).toBeLessThanOrEqual(32);
+  // Plus de place pour le chemin : la branche seule.
+  expect(fitStatusLeft(path, "feat/unified-tui", 15)).toBe("⎇ feat/unified-tui");
+  expect(fitStatusLeft(path, undefined, 12).length).toBeLessThanOrEqual(12);
+});
+
+test("queued messages are counted in the hints, before the held suffix", () => {
+  const queued = run([{ type: "turnStarted" }, { type: "userPrompt", text: "one" }]);
+  expect(statusHints(queued)).toBe("esc Interrupt  ·  ⏎ Queue message  ·  ⌃P Plan  ·  1 queued");
+  const both = run([{ type: "turnStarted" }, { type: "userPrompt", text: "one" }, { type: "userPrompt", text: "two" }, { type: "heldCount", queued: 2 }]);
+  expect(statusHints(both)).toBe("esc Interrupt  ·  ⏎ Queue message  ·  ⌃P Plan  ·  2 queued  ·  2 held  ·  ⌃R Open");
+  expect(statusHints(run([{ type: "turnStarted" }]))).not.toContain("queued");
+});
+
+test("an exited agent shows only the leave hint, without the queued and held suffixes", () => {
+  const state = run([{ type: "turnStarted" }, { type: "userPrompt", text: "one" }, { type: "agentExited", code: 1, signal: null }]);
+  expect(statusHints(state)).toBe("Press any key to leave");
 });
 
 test("an exited agent shows only the leave hint, without the held suffix", () => {

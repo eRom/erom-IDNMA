@@ -299,19 +299,21 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
 
   async function runTurn(prompt: string): Promise<void> {
     let stopReason: StopReason;
+    let failed = false;
     try {
       stopReason = await connection!.prompt(prompt);
     } catch (error) {
       // L'arrêt de l'agent dit déjà pourquoi (bandeau de sortie) : pas de seconde ligne.
       if (!agentLost) notice(`Turn failed: ${errorMessage(error)}`, "error");
       stopReason = "cancelled";
+      failed = true;
     }
-    endTurn(stopReason);
+    endTurn(stopReason, failed);
   }
 
-  function endTurn(stopReason: StopReason): void {
+  function endTurn(stopReason: StopReason, failed = false): void {
     settleAllPermissions();
-    commit({ type: "turnEnded", stopReason });
+    commit({ type: "turnEnded", stopReason, ...(failed ? { failed } : {}) });
     registration?.setStatus("idle");
     // Après la perte de l'agent, plus rien n'est livré ni présenté (C5).
     if (agentLost || exiting) return;

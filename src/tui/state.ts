@@ -37,7 +37,8 @@ export type Action =
   | { type: "event"; event: AgentEvent; origin: "replay" | "live" }
   | { type: "userPrompt"; text: string }
   | { type: "turnStarted" }
-  | { type: "turnEnded"; stopReason: string }
+  /** `failed` : le tour s'est arrêté sur une erreur déjà annoncée dans le fil, il n'a pas été interrompu par Romain. */
+  | { type: "turnEnded"; stopReason: string; failed?: boolean }
   | { type: "peerTurn"; from: string; text: string }
   | { type: "permission"; request: PermissionRequest }
   | { type: "permissionResolved" }
@@ -223,7 +224,10 @@ function reduceRaw(state: SessionState, action: Action): SessionState {
       const cancelled = action.stopReason === "cancelled";
       const thread = closeOpen(state.thread).map((item) => (cancelled && item.kind === "tool" && (item.status === "pending" || item.status === "in_progress") ? { ...item, status: "cancelled" as const } : item));
       const ended = { ...withoutPending(state, "permission"), thread, turnActive: false };
-      return cancelled ? { ...ended, interrupted: true } : ended;
+      if (!cancelled) return ended;
+      // Le tour d'un agent mort ou en erreur n'est pas « interrompu » : le bandeau de sortie ou l'erreur dit déjà ce qui s'est passé.
+      const marked = { ...ended, interrupted: true };
+      return state.exit || action.failed ? marked : appendItem(marked, { kind: "notice", text: "Interrupted", tone: "info" });
     }
     case "peerTurn":
       return appendItem(state, { kind: "peer", from: action.from, text: action.text });
@@ -245,7 +249,11 @@ function reduceRaw(state: SessionState, action: Action): SessionState {
       return appendItem(state, { kind: "notice", text: action.text, tone: action.tone });
     case "agentExited": {
       const { pending: _dropped, ...rest } = state;
-      return { ...rest, thread: cancelOpenTools(closeOpen(state.thread)), turnActive: false, exit: { code: action.code, signal: action.signal } };
+      const closed = cancelOpenTools(closeOpen(state.thread));
+      // La file locale ne part plus : elle est perdue, et l'écran le dit au lieu de la taire.
+      const lost = state.localQueue.length;
+      const thread: ThreadItem[] = lost === 0 ? closed : [...closed, { kind: "notice", text: `${lost} queued ${lost === 1 ? "message" : "messages"} not sent`, tone: "error" }];
+      return { ...rest, thread, turnActive: false, exit: { code: action.code, signal: action.signal } };
     }
   }
 }
