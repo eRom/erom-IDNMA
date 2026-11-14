@@ -118,6 +118,40 @@ describe("silenceConsoleError", () => {
     expect(JSON.stringify(lines)).not.toContain("payload");
   });
 
+  test("overlapping silences restore the original console.error in opening order", () => {
+    const original = console.error;
+    const restoreA = silenceConsoleError();
+    const silenced = console.error;
+    const restoreB = silenceConsoleError();
+    expect(console.error).toBe(silenced);
+    restoreA();
+    // La seconde connexion vit encore : le détournement reste en place.
+    expect(console.error).toBe(silenced);
+    restoreB();
+    expect(console.error).toBe(original);
+  });
+
+  test("overlapping silences restore the original console.error in reverse order", () => {
+    const original = console.error;
+    const restoreA = silenceConsoleError();
+    const restoreB = silenceConsoleError();
+    restoreB();
+    expect(console.error).not.toBe(original);
+    restoreA();
+    expect(console.error).toBe(original);
+  });
+
+  test("a restore called twice counts once", () => {
+    const original = console.error;
+    const restoreA = silenceConsoleError();
+    const restoreB = silenceConsoleError();
+    restoreA();
+    restoreA();
+    expect(console.error).not.toBe(original);
+    restoreB();
+    expect(console.error).toBe(original);
+  });
+
   test("a non-string first argument is logged as a fixed marker", () => {
     const restore = silenceConsoleError();
     console.error({ secret: "x@y.z" });

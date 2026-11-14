@@ -159,6 +159,30 @@ describe("connectAgent", () => {
       ["mode", "plan"],
     ]);
     expect(requestsOf(received, "session/new")[0]).toMatchObject({ cwd: dir, mcpServers: [] });
+    // Le client n'offre ni fichiers ni terminal : l'agent exécute ses outils lui-même.
+    expect(requestsOf(received, "initialize")[0]).toMatchObject({
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+    });
+  });
+
+  test("two overlapping connections closed in opening order leave console.error as it was", async () => {
+    const original = console.error;
+    const first = connect(planFor({}));
+    const second = connect(planFor({}));
+    await first.connection.open(dir);
+    await second.connection.open(dir);
+    expect(console.error).not.toBe(original);
+
+    await first.connection.close();
+    await second.connection.close();
+
+    expect(console.error).toBe(original);
+  });
+
+  test("a synchronous spawn failure leaves console.error as it was", () => {
+    const original = console.error;
+    expect(() => connectAgent(planFor({}, { argv: [] }), { onEvent: () => {}, onPermission: async () => ({ outcome: "cancelled" }), onExit: () => {} })).toThrow();
+    expect(console.error).toBe(original);
   });
 
   test("session/new carries the plan's meta", async () => {

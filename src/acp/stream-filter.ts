@@ -64,17 +64,34 @@ export function filterUnknownUpdates(
   );
 }
 
+// État du détournement de `console.error` : nombre d'appels en vie et fonction d'origine.
+let silenceDepth = 0;
+let savedConsoleError: typeof console.error | undefined;
+
 /**
  * Détourne `console.error` vers le journal pendant la vie de l'écran. Seul le premier argument est retenu, et
  * seulement s'il est une chaîne : les autres arguments peuvent porter des contenus de trame. Rend la restauration.
+ * Comptée : plusieurs appels peuvent se chevaucher (deux connexions), le premier installe le détournement et la
+ * dernière restauration remet le `console.error` d'origine, quel que soit l'ordre dans lequel elles arrivent.
  */
 export function silenceConsoleError(): () => void {
-  const original = console.error;
-  console.error = (...args: unknown[]) => {
-    const first = args[0];
-    logEvent("acp-sdk-error", { message: typeof first === "string" ? first : "non-string console.error" });
-  };
+  if (silenceDepth === 0) {
+    savedConsoleError = console.error;
+    console.error = (...args: unknown[]) => {
+      const first = args[0];
+      logEvent("acp-sdk-error", { message: typeof first === "string" ? first : "non-string console.error" });
+    };
+  }
+  silenceDepth += 1;
+  let restored = false;
   return () => {
-    console.error = original;
+    // Une restauration appelée deux fois ne compte qu'une fois.
+    if (restored) return;
+    restored = true;
+    silenceDepth -= 1;
+    if (silenceDepth === 0 && savedConsoleError !== undefined) {
+      console.error = savedConsoleError;
+      savedConsoleError = undefined;
+    }
   };
 }

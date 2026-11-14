@@ -2,7 +2,7 @@
 // du SDK officiel sur ses tubes, filtre les trames inconnues, traduit les mises à jour en événements du domaine,
 // relaie les permissions, ouvre ou recharge une session et applique les réglages de l'engine.
 // Seul module de `src/acp/` à lancer un process ; l'écran ne voit que `AgentConnection` et les types de `events.ts`.
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import {
   PROTOCOL_VERSION,
@@ -114,7 +114,14 @@ function describeExit(code: number | null, signal: string | null): string {
 
 export function connectAgent(plan: LaunchPlan, handlers: ConnectionHandlers): AgentConnection {
   const restoreConsoleError = silenceConsoleError();
-  const child = spawn(plan.argv[0]!, plan.argv.slice(1), { env: plan.env, stdio: ["pipe", "pipe", "pipe"], detached: true });
+  let child: ChildProcess;
+  try {
+    child = spawn(plan.argv[0]!, plan.argv.slice(1), { env: plan.env, stdio: ["pipe", "pipe", "pipe"], detached: true });
+  } catch (error) {
+    // Un lancer synchrone ne doit pas laisser le détournement installé.
+    restoreConsoleError();
+    throw error;
+  }
 
   let closing = false;
   let exited = false;
@@ -299,7 +306,8 @@ export function connectAgent(plan: LaunchPlan, handlers: ConnectionHandlers): Ag
     await call(() =>
       connection.agent.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: {},
+        // Ni lecture ni écriture de fichiers, ni terminal : l'agent exécute ses outils lui-même.
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
         clientInfo: { name: "idnma", version: pkg.version },
       }),
     );
