@@ -184,6 +184,21 @@ test("a diff without old text is all additions and only the first diff item coun
   expect(tools(state)[0]?.meta).toBe("+2 −0");
 });
 
+test("a final newline does not add a phantom line to a diff", () => {
+  const creation = run([ev({ type: "tool", id: "c", created: true, name: "Write", content: [{ kind: "diff", path: "n.ts", newText: "a\nb\n" }] })]);
+  expect(tools(creation)[0]?.diff?.lines).toEqual(["+a", "+b"]);
+  expect(tools(creation)[0]?.meta).toBe("+2 −0");
+
+  const edit = run([ev({ type: "tool", id: "e", created: true, name: "Edit", content: [{ kind: "diff", path: "n.ts", oldText: "a\nb\n", newText: "a\nc\n" }] })]);
+  expect(edit.thread.length).toBe(1);
+  expect(tools(edit)[0]?.diff?.lines).toEqual(["−b", "+c"]);
+  expect(tools(edit)[0]?.meta).toBe("+1 −1");
+
+  const empty = run([ev({ type: "tool", id: "z", created: true, name: "Write", content: [{ kind: "diff", path: "n.ts", newText: "" }] })]);
+  expect(tools(empty)[0]?.diff?.lines).toEqual([]);
+  expect(tools(empty)[0]?.meta).toBe("+0 −0");
+});
+
 test("an execute tool shows its output lines while another kind only reports a line count", () => {
   const exec = run([
     ev({ type: "tool", id: "e", created: true, name: "Bash", kind: "execute", status: "in_progress" }),

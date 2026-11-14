@@ -85,8 +85,12 @@ function withoutPending(state: SessionState, kind: Pending["kind"]): SessionStat
 
 const MINUS = "−"; // U+2212, le signe de la maquette
 
+/** Découpe en lignes en ignorant le saut de ligne final (il ne démarre pas une ligne de plus). */
 function splitLines(text: string | undefined): string[] {
-  return text === undefined || text === "" ? [] : text.split("\n");
+  if (text === undefined || text === "") return [];
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
 }
 
 /** Lignes `−` puis `+` d'un diff, sans les lignes communes en tête et en queue. */
@@ -108,9 +112,7 @@ function diffLines(oldText: string | undefined, newText: string): { lines: strin
 
 function outputLines(event: ToolEvent): string[] {
   const text = event.rawOutput ?? (event.content ?? []).flatMap((item) => (item.kind === "text" ? [item.text] : [])).join("\n");
-  const lines = splitLines(text);
-  if (lines.at(-1) === "") lines.pop();
-  return lines;
+  return splitLines(text);
 }
 
 function toolRow(event: ToolEvent, base?: ToolItem): ToolItem {
