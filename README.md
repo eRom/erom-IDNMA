@@ -317,7 +317,7 @@ Under tmux, `⇧⏎` needs `set -g extended-keys on` in your tmux configuration;
 
 ### Remote Control
 
-The engine's `--remote-control` flag is ignored in unified mode, and the screen says so at startup: `Ignored in unified mode: --remote-control (type /remote-control instead)`. Typing `/remote-control` in the screen enables Remote Control, a command handled by `claude-agent-acp`, so the session can be reached from the phone.
+On the Claude engine, the `--remote-control` flag is ignored in unified mode, and the screen says so at startup: `Ignored in unified mode: --remote-control (type /remote-control instead)`. Typing `/remote-control` in the screen enables Remote Control, a command handled by `claude-agent-acp`, so the session can be reached from the phone. On agy, the flag is ignored with the generic notice and `/remote-control` has no handler: there is no access from the phone.
 
 ### Peer messages
 
