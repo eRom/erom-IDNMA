@@ -34,7 +34,7 @@ export function dstPluginPath(): string {
 
 /** Corps du bloc : `JSON.stringify` produit seul les guillemets doubles du chemin (chaîne YAML valide). */
 const bodyFor = (pluginPath: string): string =>
-  toRaw(`- insert:\n    - id: idnma-bridge\n      name: ${JSON.stringify(pluginPath)}\n      disabled: !!js '!process.env.IDNMA_DST_BRIDGE && !process.env.IDNMA_CONTROL_TOKEN'\n`);
+  toRaw(`- insert:\n    - id: idnma-bridge\n      name: ${JSON.stringify(pluginPath)}\n      disabled: !!js '!process.env.IDNMA_DST_BRIDGE && !process.env.IDNMA_DST_CONTROL_TOKEN'\n`);
 
 interface Block {
   /** Début de la ligne de début. */

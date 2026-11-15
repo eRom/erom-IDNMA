@@ -597,7 +597,14 @@ export async function runUnified(o: { agentKey: string; engine: Engine; passthro
         engine,
         passthrough: o.passthrough,
         name,
-        env: definedEnv(process.env, resolvedEnv, { IDNMA_NAME: name, IDNMA_CONTROL_SOCKET: controlSocket, IDNMA_CONTROL_TOKEN: token }),
+        // dst seul reçoit aussi le jeton sous un nom dédié : son plugin le rend au shell du modèle (dsh retire les
+        // variables en `TOKEN`), sans jamais exposer `IDNMA_CONTROL_TOKEN` à un dst lancé à la main depuis un agent.
+        env: definedEnv(process.env, resolvedEnv, {
+          IDNMA_NAME: name,
+          IDNMA_CONTROL_SOCKET: controlSocket,
+          IDNMA_CONTROL_TOKEN: token,
+          ...(harness === "dst" ? { IDNMA_DST_CONTROL_TOKEN: token } : {}),
+        }),
         ...(agentExecutable === null ? {} : { agentExecutable }),
       });
       plan = launchPlan;

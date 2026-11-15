@@ -145,18 +145,27 @@ export function apply(rawContext: unknown, config: BridgePluginConfig = {}): voi
   const bridgeToken = env.IDNMA_DST_BRIDGE_TOKEN;
   const ctx = rawContext as DshContext;
   if (!bridgePath || !bridgeToken) {
-    // Écran unifié : dsh passe `IDNMA_CONTROL_TOKEN` à son processus mais le retire du shell du modèle (tout nom
-    // qui contient `TOKEN`). Sans pont, le plugin ne fait que lui rendre le jeton ; ni socket, ni écouteur, ni minuteur.
-    const token = env.IDNMA_CONTROL_TOKEN;
+    // Écran unifié : le lanceur pose `IDNMA_DST_CONTROL_TOKEN` pour dst seul, et dsh le retire du shell du modèle
+    // (tout nom qui contient `TOKEN`). Sans pont, le plugin ne fait que lui rendre le jeton ; ni socket, ni
+    // écouteur, ni minuteur. Une variable dédiée : `IDNMA_CONTROL_TOKEN` appartient à tout agent idnma, et un dst
+    // lancé à la main depuis son shell ne doit pas hériter de son identité.
+    const token = env.IDNMA_DST_CONTROL_TOKEN;
     if (token !== undefined && token !== "") {
       ctx.effect(() => {
+        let unregister: unknown;
         try {
-          const unregister = ctx.shellEnv.register(shellEnvContributor(token));
-          return typeof unregister === "function" ? (unregister as () => void) : () => {};
+          unregister = ctx.shellEnv.register(shellEnvContributor(token));
         } catch {
           // Rien à rapporter sans pont : `idnma peer send` dira lui-même qu'il n'a pas de jeton.
-          return () => {};
         }
+        return () => {
+          if (typeof unregister !== "function") return;
+          try {
+            unregister();
+          } catch {
+            // le contributeur part de toute façon avec le contexte
+          }
+        };
       });
     }
     return;

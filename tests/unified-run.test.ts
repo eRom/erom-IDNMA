@@ -27,7 +27,7 @@ type Json = Record<string, unknown>;
 const FAKE_AGENT = join(import.meta.dir, "helpers", "fake-acp-agent.ts");
 const CHILD = join(import.meta.dir, "helpers", "unified-child.ts");
 const TTY = "/dev/ttys-fake";
-const ENV_KEYS = ["PATH", "CLAUDE_CODE_EXECUTABLE", "IDNMA_CONFIG_DIR", "IDNMA_CLAUDE_DIR", "IDNMA_SOCKETS_DIR", "IDNMA_CONTROL_DIR", "IDNMA_NAME", "IDNMA_CONTROL_SOCKET", "IDNMA_CONTROL_TOKEN"] as const;
+const ENV_KEYS = ["PATH", "CLAUDE_CODE_EXECUTABLE", "IDNMA_CONFIG_DIR", "IDNMA_CLAUDE_DIR", "IDNMA_SOCKETS_DIR", "IDNMA_CONTROL_DIR", "IDNMA_NAME", "IDNMA_CONTROL_SOCKET", "IDNMA_CONTROL_TOKEN", "IDNMA_DST_CONTROL_TOKEN"] as const;
 
 let previousEnv: Record<string, string | undefined>;
 let workDir: string;
@@ -40,7 +40,7 @@ let grandchildFiles: string[];
 
 beforeEach(() => {
   previousEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
-  for (const key of ["IDNMA_NAME", "IDNMA_CONTROL_SOCKET", "IDNMA_CONTROL_TOKEN", "CLAUDE_CODE_EXECUTABLE"]) delete process.env[key];
+  for (const key of ["IDNMA_NAME", "IDNMA_CONTROL_SOCKET", "IDNMA_CONTROL_TOKEN", "IDNMA_DST_CONTROL_TOKEN", "CLAUDE_CODE_EXECUTABLE"]) delete process.env[key];
   workDir = mkdtempSync("/tmp/idnma-t-");
   binDir = join(workDir, "bin");
   mkdirSync(binDir);
@@ -1240,6 +1240,15 @@ describe("harness profiles", () => {
     expect(await session.running).toBe(0);
     nothingLeftBehind();
     expect(() => process.kill(Number(readFileSync(grandchild, "utf8")), 0)).toThrow();
+  });
+
+  test.each(["dst", "codex"] as const)("%s: IDNMA_DST_CONTROL_TOKEN is set for dst only, with the value of the control token", async (harness) => {
+    const session = await boot({ harness, scenario: { configOptions: fixtureOptions(harness) } });
+    await waitFor(() => existsSync(session.adapter.envDump), "the environment dump");
+    const env = JSON.parse(readFileSync(session.adapter.envDump, "utf8")) as Record<string, string>;
+    expect(env.IDNMA_CONTROL_TOKEN).toMatch(/^[0-9a-f]{32}$/);
+    if (harness === "dst") expect(env.IDNMA_DST_CONTROL_TOKEN).toBe(env.IDNMA_CONTROL_TOKEN);
+    else expect(env.IDNMA_DST_CONTROL_TOKEN).toBeUndefined();
   });
 
   test("codex hands its agent binary to the adapter", async () => {
