@@ -48,6 +48,8 @@ interface Scenario {
   neverAnswers?: boolean;
   /** Erreur ACP rendue à `session/set_config_option`, quelle que soit la valeur demandée. */
   setOptionError?: { code: number; message: string };
+  /** Code de sortie du process à la réception de `session/set_config_option` (l'agent meurt sans répondre). */
+  exitOnSetOption?: number;
   /** Erreur ACP rendue à `session/prompt`. */
   promptError?: { code: number; message: string };
   authRequired?: boolean;
@@ -181,6 +183,7 @@ function handleRequest(id: unknown, method: string, params: Json): void {
       reply(id, { configOptions: options });
       return;
     case "session/set_config_option": {
+      if (scenario.exitOnSetOption !== undefined) process.exit(scenario.exitOnSetOption);
       if (scenario.setOptionError) return fail(id, scenario.setOptionError.code, scenario.setOptionError.message);
       const option = options.find((o) => o.id === params["configId"]);
       if (!option || !option.options.some((o) => o.value === params["value"])) return fail(id, -32602, "Invalid params");

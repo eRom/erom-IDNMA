@@ -210,6 +210,31 @@ describe("connectAgent", () => {
     expect(session.options.find((o) => o.category === "thought_level")?.currentValue).toBe("high");
   });
 
+  test("an option refused with another error code is announced, not fatal", async () => {
+    const plan = planFor(
+      { configOptions: STANDARD_OPTIONS, setOptionError: { code: -32603, message: "Internal error" }, turn: { updates: [agentChunk("still alive")] } },
+      { configSteps: [{ category: "model", value: "openrouter/free", origin: "--model openrouter/free" }] },
+    );
+    const { connection, events } = connect(plan);
+    const session = await connection.open(dir);
+    expect(session.ignored).toEqual(["--model openrouter/free"]);
+    await connection.prompt("go");
+    expect(events.map((e) => e.event)).toContainEqual({ type: "chunk", role: "agent", text: "still alive" });
+  });
+
+  test("an agent that dies while options are applied still fails the open", async () => {
+    const plan = planFor(
+      { configOptions: STANDARD_OPTIONS, exitOnSetOption: 4 },
+      { configSteps: [{ category: "model", value: "haiku", origin: "--model haiku" }] },
+    );
+    const failure = await connect(plan).connection.open(dir).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(AgentStartError);
+    expect((failure as AgentStartError).code).toBe(4);
+  });
+
   test("a step whose category the agent does not announce is announced as ignored", async () => {
     const received = join(dir, "received.jsonl");
     const plan = planFor(
