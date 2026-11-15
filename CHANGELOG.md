@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/eRom/erom-IDNMA/compare/v0.7.3...v0.8.0) (2026-11-15)
+
+
+### Features
+
+* unified screen for claude and agy over ACP ([#19](https://github.com/eRom/erom-IDNMA/issues/19)) ([2eb8b5b](https://github.com/eRom/erom-IDNMA/commit/2eb8b5b1e9442e3261568a862a8ae6725704d537))
+* unified screen for opencode, codex, grok, pi and dst ([#21](https://github.com/eRom/erom-IDNMA/issues/21)) ([52bb4e0](https://github.com/eRom/erom-IDNMA/commit/52bb4e0983225bcc39dda9dd2fb02a0a06f97962))
+
 ## [0.7.3](https://github.com/eRom/erom-IDNMA/compare/v0.7.2...v0.7.3) (2026-11-08)
 
 
