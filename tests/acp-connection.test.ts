@@ -222,6 +222,18 @@ describe("connectAgent", () => {
     expect(events.map((e) => e.event)).toContainEqual({ type: "chunk", role: "agent", text: "still alive" });
   });
 
+  test("an agent that asks for authentication while options are applied still fails the open", async () => {
+    const plan = planFor(
+      { configOptions: STANDARD_OPTIONS, setOptionError: { code: -32000, message: "Authentication required" } },
+      { configSteps: [{ category: "model", value: "haiku", origin: "--model haiku" }] },
+    );
+    const failure = await connect(plan).connection.open(dir).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(AgentNotConnectedError);
+  });
+
   test("an agent that dies while options are applied still fails the open", async () => {
     const plan = planFor(
       { configOptions: STANDARD_OPTIONS, exitOnSetOption: 4 },

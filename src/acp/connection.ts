@@ -403,8 +403,10 @@ export function connectAgent(plan: LaunchPlan, handlers: ConnectionHandlers): Ag
       } catch (error) {
         // Toute erreur JSON-RPC rendue par l'agent vivant (`-32602`, mais aussi `-32603` chez pi-acp pour un modèle inconnu) :
         // l'agent refuse la valeur, l'écran l'annonce, l'ouverture continue. `AgentStartError` (agent mort, son `code` est
-        // un code de sortie) et les ruptures sans code JSON-RPC font toujours échouer l'ouverture.
-        if (!(error instanceof AgentStartError) && codeOf(error) !== undefined) ignored.push(step.origin);
+        // un code de sortie), les ruptures sans code JSON-RPC et `-32000` (agent non connecté : son message de connexion
+        // passe avant l'écran, design §6.6) font toujours échouer l'ouverture.
+        const code = codeOf(error);
+        if (!(error instanceof AgentStartError) && code !== undefined && code !== -32000) ignored.push(step.origin);
         else throw error;
       }
     }
