@@ -316,7 +316,7 @@ Resume works in unified mode with each harness's own forms:
 |---|---|
 | `claude`, `agy` | `-c`, `-r <id>` |
 | `opencode` | `-c`, `-s <id>` |
-| `codex` | `resume --last`, `resume <id>` |
+| `codex` | `-c`, `resume --last`, `resume <id>` |
 | `grok` | `-c`, `-r [id]` |
 | `pi` | `-c`, `--session <id>` |
 | `dst` | `-c`, `--resume [id]` |

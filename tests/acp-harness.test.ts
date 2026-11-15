@@ -283,10 +283,30 @@ describe("codex launch plan", () => {
     expect(byId.ignored).toEqual([]);
   });
 
-  test("codex -c is announced, not a resume", () => {
-    const p = plan("codex", "/bin/codex-acp", luna, ["-c", "model=x"]);
+  test("codex -c continues in unified mode", () => {
+    const short = plan("codex", "/bin/codex-acp", luna, ["-c"]);
+    expect(short.resume).toEqual({ kind: "continue" });
+    expect(short.ignored).toEqual([]);
+    const long = plan("codex", "/bin/codex-acp", luna, ["--continue"]);
+    expect(long.resume).toEqual({ kind: "continue" });
+    expect(long.ignored).toEqual([]);
+    // Le jeton qui suit n'est pas une valeur de `-c` : c'est un positionnel, annoncé.
+    const withPositional = plan("codex", "/bin/codex-acp", luna, ["-c", "model=x"]);
+    expect(withPositional.resume).toEqual({ kind: "continue" });
+    expect(withPositional.ignored).toContain("model=x");
+    // Collé, `-cmodel=x` reste un réglage du binaire : annoncé, pas une reprise.
+    const glued = plan("codex", "/bin/codex-acp", luna, ["-cmodel=x"]);
+    expect(glued.resume).toEqual({ kind: "new" });
+    expect(glued.ignored).toEqual(["-cmodel=x"]);
+  });
+
+  test("codex --config stays announced with its value, not a resume", () => {
+    const p = plan("codex", "/bin/codex-acp", luna, ["--config", "model=x"]);
     expect(p.resume).toEqual({ kind: "new" });
-    expect(p.ignored).toContain("-c model=x");
+    expect(p.ignored).toContain("--config model=x");
+    const equals = plan("codex", "/bin/codex-acp", luna, ["--config=model=x"]);
+    expect(equals.resume).toEqual({ kind: "new" });
+    expect(equals.ignored).toEqual(["--config=model=x"]);
   });
 
   test("codex bare resume and bare --last are announced", () => {

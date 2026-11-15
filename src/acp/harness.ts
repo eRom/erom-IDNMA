@@ -159,7 +159,8 @@ const PROFILE_FLAGS: Record<ProfileHarness, Map<string, FlagAction>> = {
   codex: new Map<string, FlagAction>([
     ["--model", { kind: "step", category: "model" }],
     ["--dangerously-bypass-approvals-and-sandbox", { kind: "mode", value: "agent-full-access" }],
-    // `-c` de Codex est `--config` : un réglage du binaire, jamais une reprise.
+    ["--continue", { kind: "continue" }],
+    // `--config` (forme longue, ou collée `-cx=y`) est un réglage du binaire : annoncé, jamais une reprise.
     ["--config", { kind: "skip", withValue: true }],
   ]),
   grok: new Map<string, FlagAction>([
@@ -221,7 +222,9 @@ function translateProfileTokens(harness: ProfileHarness, tokens: string[], engin
 
   for (let i = 0; i < tokens.length; ) {
     const token = tokens[i]!;
-    const flag = flagName(harness, token);
+    // En mode unifié, le `-c` tapé de Codex reprend comme chez les autres harnais ; `SHORT_ALIASES` le garde
+    // pour `--config`, qui reste le sens natif (et celui du `-cx=y` collé).
+    const flag = harness === "codex" && token === "-c" ? "--continue" : flagName(harness, token);
     if (flag === undefined) {
       // `resume` de Codex est un positionnel : `resume --last` reprend la dernière, `resume <id>` cette session.
       const following = tokens[i + 1];
