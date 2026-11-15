@@ -130,13 +130,38 @@ function readTuiVersion(): string | undefined {
   return undefined;
 }
 
+/** Contributeur du registre d'environnement de dsh : rend le jeton du canal de contrôle au shell du modèle. */
+function shellEnvContributor(token: string) {
+  return {
+    name: "idnma",
+    variables: { DSH_IDNMA_CONTROL_TOKEN: { description: "Jeton du canal de contrôle idnma (idnma peer send, idnma peer list)." } },
+    resolve: () => ({ DSH_IDNMA_CONTROL_TOKEN: token }),
+  };
+}
+
 export function apply(rawContext: unknown, config: BridgePluginConfig = {}): void {
   const env = config.env ?? process.env;
   const bridgePath = env.IDNMA_DST_BRIDGE;
   const bridgeToken = env.IDNMA_DST_BRIDGE_TOKEN;
-  if (!bridgePath || !bridgeToken) return;
-
   const ctx = rawContext as DshContext;
+  if (!bridgePath || !bridgeToken) {
+    // Écran unifié : dsh passe `IDNMA_CONTROL_TOKEN` à son processus mais le retire du shell du modèle (tout nom
+    // qui contient `TOKEN`). Sans pont, le plugin ne fait que lui rendre le jeton ; ni socket, ni écouteur, ni minuteur.
+    const token = env.IDNMA_CONTROL_TOKEN;
+    if (token !== undefined && token !== "") {
+      ctx.effect(() => {
+        try {
+          const unregister = ctx.shellEnv.register(shellEnvContributor(token));
+          return typeof unregister === "function" ? (unregister as () => void) : () => {};
+        } catch {
+          // Rien à rapporter sans pont : `idnma peer send` dira lui-même qu'il n'a pas de jeton.
+          return () => {};
+        }
+      });
+    }
+    return;
+  }
+
   const pid = config.pid ?? process.pid;
   const serversFile = config.serversFile ?? join(homedir(), ".dsh-tui", "inject", "servers.json");
   const refreshMs = config.refreshMs ?? 2000;
@@ -507,11 +532,7 @@ export function apply(rawContext: unknown, config: BridgePluginConfig = {}): voi
 
     if (controlToken !== undefined && controlToken !== "") {
       try {
-        unregisterShellEnv = ctx.shellEnv.register({
-          name: "idnma",
-          variables: { DSH_IDNMA_CONTROL_TOKEN: { description: "Jeton du canal de contrôle idnma (idnma peer send, idnma peer list)." } },
-          resolve: () => ({ DSH_IDNMA_CONTROL_TOKEN: controlToken }),
-        });
+        unregisterShellEnv = ctx.shellEnv.register(shellEnvContributor(controlToken));
       } catch {
         registerFailed = true;
       }
