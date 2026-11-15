@@ -33,15 +33,48 @@ export function textOfContent(block: ContentBlock): string {
   }
 }
 
-/** Sortie brute d'un outil : chaîne telle quelle, champ `output` d'un objet (forme agy), sinon JSON. */
-function rawOutputText(raw: unknown): string | undefined {
+/**
+ * Sortie brute d'un outil : chaîne telle quelle, champ `output` d'un objet (forme agy).
+ * Un autre objet (métadonnées d'opencode, sortie en octets de Grok) se résout dans l'ordre :
+ * son `output`, puis le contenu texte de la même mise à jour s'il n'est pas vide (le `output_for_prompt` de Grok
+ * y ajoute une ligne `exit: 0`), puis son `output_for_prompt`, puis le contenu texte même vide (jamais de JSON
+ * dans ce cas), puis JSON.
+ */
+function rawOutputText(raw: unknown, content: { text: string } | undefined): string | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (typeof raw === "string") return raw;
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const output = (raw as { output?: unknown }).output;
     if (typeof output === "string") return output;
+    if (content && content.text !== "") return content.text;
+    const forPrompt = (raw as { output_for_prompt?: unknown }).output_for_prompt;
+    if (typeof forPrompt === "string") return forPrompt;
+    if (content) return content.text;
   }
   return JSON.stringify(raw);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Première ligne non vide de la commande d'un outil, quand le titre n'est qu'un nom (`bash`, `run_terminal_command`). */
+function commandTitle(title: unknown, rawInput: unknown): string | undefined {
+  if (typeof title !== "string" || !/^\S+$/.test(title) || !isRecord(rawInput)) return undefined;
+  const { command } = rawInput;
+  if (typeof command !== "string") return undefined;
+  return command.split("\n").find((line) => line.trim() !== "")?.trim();
+}
+
+/** Sortie de commande portée par `_meta` : delta de Codex puis sortie de Pi, dans cet ordre. */
+function metaOutputDelta(meta: unknown): string | undefined {
+  if (!isRecord(meta)) return undefined;
+  let delta: string | undefined;
+  for (const key of ["terminal_output_delta", "terminal_output"]) {
+    const entry = meta[key];
+    if (isRecord(entry) && typeof entry.data === "string") delta = (delta ?? "") + entry.data;
+  }
+  return delta;
 }
 
 function toToolContent(items: ToolCallContent[]): ToolContent[] {
@@ -64,10 +97,19 @@ function toToolEvent(update: ToolCall | ToolCallUpdate, created: boolean): Agent
   if (typeof update.name === "string") event.name = update.name;
   if (typeof update.title === "string") event.title = update.title;
   if (typeof update.kind === "string") event.kind = update.kind;
+  // Un titre nu avec une commande en entrée : la commande devient le titre, et l'outil un outil d'exécution (dst envoie « other »).
+  const command = commandTitle(update.title, update.rawInput);
+  if (command !== undefined) {
+    event.title = command;
+    if (event.kind === undefined || event.kind === "other") event.kind = "execute";
+  }
   if (typeof update.status === "string") event.status = update.status as ToolStatus;
   if (Array.isArray(update.content)) event.content = toToolContent(update.content);
-  const rawOutput = rawOutputText(update.rawOutput);
+  const textItems = (event.content ?? []).flatMap((item) => (item.kind === "text" ? [item.text] : []));
+  const rawOutput = rawOutputText(update.rawOutput, textItems.length > 0 ? { text: textItems.join("\n") } : undefined);
   if (rawOutput !== undefined) event.rawOutput = rawOutput;
+  const outputDelta = metaOutputDelta(update._meta);
+  if (outputDelta !== undefined) event.outputDelta = outputDelta;
   return event;
 }
 

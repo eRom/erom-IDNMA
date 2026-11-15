@@ -266,7 +266,7 @@ Flags that would take an agent off the bus are refused:
 
 ## Unified mode
 
-For Claude Code and agy, `idnma run` can draw its own screen instead of handing the pane to the native TUI. Both agents then speak the Agent Client Protocol (ACP) to idnma, which renders the conversation, the pending requests and the peer messages in one place.
+For Claude Code, agy, opencode, Codex, Grok, Pi and dst, `idnma run` can draw its own screen instead of handing the pane to the native TUI. The agent then speaks the Agent Client Protocol (ACP) to idnma, which renders the conversation, the pending requests and the peer messages in one place, the same way for all seven.
 
 Turn it on per engine, or per launch (a flag always wins over the engine):
 
@@ -284,7 +284,44 @@ idnma run claude --unified   # unified screen for this launch
 idnma run claude --native    # native TUI for this launch
 ```
 
-`ui: unified` is only accepted on a `claude` or `agy` engine, and `--unified` follows the same rule: on any other harness it is refused before anything starts. Without either, the native TUI stays the default.
+`ui: unified` is accepted on an engine whose harness is `claude`, `agy`, `opencode`, `codex`, `grok`, `pi` or `dst`, and `--unified` follows the same rule. Without either, the native TUI stays the default.
+
+### What idnma launches
+
+| Harness | idnma launches | To install |
+|---|---|---|
+| `claude` | `claude-agent-acp` | the release archive, see below |
+| `agy` | `agy acp` | nothing more |
+| `opencode` | `opencode acp` | nothing more |
+| `codex` | `codex-acp` | `bun add -g @agentclientprotocol/codex-acp@2.5.0` (or npm), Node 22 |
+| `grok` | `grok agent --no-leader stdio` (plus `--always-approve` when the engine has it) | nothing more |
+| `pi` | `pi-acp` | `bun add -g pi-acp@0.0.34` (or npm), Node 22; `pi` must be in your `PATH` |
+| `dst` | `dsh --profile acp` | nothing more |
+
+For Codex, idnma needs `codex` on your `PATH`; it passes it to the adapter as `CODEX_PATH`, so the Codex you already use is the one that runs, unless `CODEX_PATH` is already set (in the environment or in the engine's `env`), in which case that value is used.
+
+### Engine options
+
+The engine's `model:` and its effort flag (`--effort` for Grok, `--thinking` for Pi) are applied at launch, right after the session opens; afterwards `⌃O` changes them from the screen. dst takes no model at launch: a `model:` on a dst engine is refused. A few flags change how the unified screen behaves:
+
+- opencode `--auto`: idnma answers "allow once" to each permission request opencode asks.
+- Codex `--dangerously-bypass-approvals-and-sandbox`: selects Codex's full-access mode.
+- Grok `--always-approve`: passed on to `grok agent`.
+- dst: idnma forwards `DSH_PERMISSION_MODE` from the engine's `env` and dsh applies it; idnma does not configure dst.
+- A flag the unified screen cannot honor is announced at startup (`Ignored in unified mode: …`) and the launch continues.
+
+Resume works in unified mode with each harness's own forms:
+
+| Harness | Resume |
+|---|---|
+| `claude`, `agy` | `-c`, `-r <id>` |
+| `opencode` | `-c`, `-s <id>` |
+| `codex` | `-c`, `resume --last`, `resume <id>` |
+| `grok` | `-c`, `-r [id]` |
+| `pi` | `-c`, `--session <id>` |
+| `dst` | `-c`, `--resume [id]` |
+
+On dst, resume does not replay past exchanges: the agent keeps the context, but the screen starts empty.
 
 ### Install `claude-agent-acp`
 
@@ -298,8 +335,8 @@ The unified screen drives Claude Code through `claude-agent-acp`. Download the a
 | `⇧⏎` or `⌃J` | new line |
 | `/` | command palette (on an empty input) |
 | `⌃P` | plan |
-| `⌃O` | settings: model, effort, mode |
-| `⇧⇥` | next mode (skips `bypassPermissions`) |
+| `⌃O` | settings: model, effort, mode (type to filter long lists, such as the models of opencode or Pi) |
+| `⇧⇥` | next mode (skips Claude's `bypassPermissions` and Codex's `agent-full-access`) |
 | `⌃R` | reopen the first held message |
 | `⇥` | in the command palette, complete the selected command into the input |
 | `↑` `↓` | choose in a request or a panel; on an empty input, recall previous prompts |
@@ -321,7 +358,7 @@ On the Claude engine, the `--remote-control` flag is ignored in unified mode, an
 
 ### Peer messages
 
-A message from a peer opens a turn on its own for Claude, and its final answer goes back to the sender. For agy, the message is held until you choose Deliver, Later or Dismiss: idnma never prompts agy without your gesture. `⌃R` brings a held message back.
+A message from a peer opens a turn on its own for every harness except agy, and its final answer goes back to the sender. For agy, the message is held until you choose Deliver, Later or Dismiss: idnma never prompts agy without your gesture. `⌃R` brings a held message back.
 
 ## Talking to each other
 
@@ -381,6 +418,8 @@ Both accept `--list` (peers on the local network) and `--help`, or a plain reque
 - Pi, after Escape: Pi drops the peer messages queued behind the interrupted turn; the understudy tells their senders so.
 - Pi: peer messages use Pi's default rendering of extension messages, an `[idnma]` block.
 - Unified mode: no search in the thread.
+- Unified mode, Grok, dst and Pi: no mode. The header shows none and `⇧⇥` does nothing.
+- Unified mode, Pi: the startup block is shown at the start of the session (set `quietStartup: true` in Pi's settings to hide it). Replayed tool rows read "bash", because Pi sends no command on replay.
 - Unified mode, Claude: the session shows up twice in the `ListAgents` of native Claude sessions.
 - Unified mode: a stray waiting badge can appear at startup in a pane nobody is looking at.
 

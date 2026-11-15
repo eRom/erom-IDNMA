@@ -9,7 +9,7 @@ import type { MessageQueue } from "../understudy/queue.ts";
 export interface PeerDeliveryDeps {
   rule: DeliveryRule;
   name: string;
-  label: "Claude" | "agy";
+  label: string;
   queue: MessageQueue;
   registration: Registration;
   /** Suit le mode réel de la session ; relu à chaque envoi, jamais mis en cache. */

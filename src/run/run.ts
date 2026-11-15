@@ -285,6 +285,9 @@ export async function runAgent(a: RunArgs, deps: Partial<RunDeps> = {}): Promise
   // dynamique, sur ce seul chemin : jamais dans un try/catch, un échec de chargement doit remonter.
   if (effectiveUi(engine, a.ui) === "unified") {
     assertUnifiedHarness(engine, a.ui, engineSource);
+    // Toutes les règles du fichier valent aussi sur l'écran unifié (sauf `unified-harness`, déjà portée par `assertUnifiedHarness`) : une règle future est donc contrôlée ici sans autre geste. Les drapeaux tapés, eux, sont annoncés par l'écran.
+    const fileIssue = engineIssues(engine, engineSource).find((issue) => issue.code !== "unified-harness");
+    if (fileIssue !== undefined) throwIssue(fileIssue);
     const { runUnified } = await import("../unified/run-unified.ts");
     return runUnified({ agentKey, engine, passthrough: a.passthrough, deps: { probe: d.probe, which: d.which, tmuxTarget: d.tmuxTarget, tagPane: d.tagPane } });
   }

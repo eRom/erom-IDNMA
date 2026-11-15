@@ -181,7 +181,7 @@ describe("inert without the bridge variables", () => {
   test("no listener and no connection when IDNMA_DST_BRIDGE is missing", async () => {
     const bridge = await startBridge();
     const ctx = createFakeDsh();
-    apply(ctx, { env: { IDNMA_DST_BRIDGE_TOKEN: BRIDGE_TOKEN, IDNMA_CONTROL_TOKEN: CONTROL_TOKEN }, pid: PID });
+    apply(ctx, { env: { IDNMA_DST_BRIDGE_TOKEN: BRIDGE_TOKEN }, pid: PID });
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(ctx.listenerCount()).toBe(0);
     expect(ctx.shellEnv.contributors).toHaveLength(0);
@@ -236,6 +236,83 @@ describe("hello and state", () => {
     expect(() => apply(ctx, { env: { IDNMA_DST_BRIDGE: join(dir, "absent.sock"), IDNMA_DST_BRIDGE_TOKEN: BRIDGE_TOKEN }, pid: PID, serversFile: join(dir, "servers.json") })).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(() => ctx.emit("agent/status", { agent: ctx.agents.roots()[0], status: "running" })).not.toThrow();
+    expect(() => ctx.dispose()).not.toThrow();
+  });
+});
+
+describe("shell environment without a bridge (unified screen)", () => {
+  /** Applique le plugin avec un faux dsh et rend ce qu'il a fait : écouteurs, minuteurs posés, contributeurs. */
+  function applyWithout(env: Record<string, string | undefined>): { ctx: FakeCtx; intervals: number } {
+    const ctx = createFakeDsh();
+    let intervals = 0;
+    const realSetInterval = globalThis.setInterval;
+    globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
+      intervals += 1;
+      return realSetInterval(...args);
+    }) as typeof setInterval;
+    try {
+      apply(ctx, { env, pid: PID });
+    } finally {
+      globalThis.setInterval = realSetInterval;
+    }
+    cleanups.push(() => ctx.dispose());
+    return { ctx, intervals };
+  }
+
+  test("a dedicated token alone registers DSH_IDNMA_CONTROL_TOKEN and nothing else", () => {
+    const { ctx, intervals } = applyWithout({ IDNMA_DST_CONTROL_TOKEN: CONTROL_TOKEN });
+    expect(ctx.shellEnv.contributors).toHaveLength(1);
+    const [contributor] = ctx.shellEnv.contributors;
+    expect(contributor?.name).toBe("idnma");
+    expect(Object.keys(contributor?.variables ?? {})).toEqual(["DSH_IDNMA_CONTROL_TOKEN"]);
+    expect(contributor?.resolve()).toEqual({ DSH_IDNMA_CONTROL_TOKEN: CONTROL_TOKEN });
+    // Aucun écouteur ni minuteur : le plugin ne fait que rendre le jeton au shell.
+    expect(ctx.listenerCount()).toBe(0);
+    expect(intervals).toBe(0);
+  });
+
+  test("IDNMA_CONTROL_TOKEN alone registers nothing: a dst started from an idnma agent must not inherit its identity", () => {
+    const { ctx } = applyWithout({ IDNMA_CONTROL_TOKEN: CONTROL_TOKEN });
+    expect(ctx.shellEnv.contributors).toHaveLength(0);
+    expect(ctx.listenerCount()).toBe(0);
+  });
+
+  test("a bridge path without its token still only registers the shell variable and never connects", async () => {
+    const bridge = await startBridge();
+    const { ctx } = applyWithout({ IDNMA_DST_BRIDGE: bridge.path, IDNMA_DST_CONTROL_TOKEN: CONTROL_TOKEN });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(ctx.shellEnv.contributors).toHaveLength(1);
+    expect(ctx.listenerCount()).toBe(0);
+    expect(bridge.connections).toBe(0);
+  });
+
+  test("the contributor leaves with the plugin", () => {
+    const { ctx } = applyWithout({ IDNMA_DST_CONTROL_TOKEN: CONTROL_TOKEN });
+    expect(ctx.shellEnv.contributors).toHaveLength(1);
+    ctx.dispose();
+    expect(ctx.shellEnv.contributors).toHaveLength(0);
+  });
+
+  test("no dedicated token, or an empty one, registers nothing", () => {
+    for (const env of [{}, { IDNMA_DST_CONTROL_TOKEN: "" }]) {
+      const { ctx } = applyWithout(env);
+      expect(ctx.shellEnv.contributors).toHaveLength(0);
+      expect(ctx.listenerCount()).toBe(0);
+    }
+  });
+
+  test("a register that throws is swallowed: no crash, and a failing unregister does not break the dispose", () => {
+    const failing = createFakeDsh();
+    failing.shellEnv.failWith = new Error("contributor idnma already registered");
+    expect(() => apply(failing, { env: { IDNMA_DST_CONTROL_TOKEN: CONTROL_TOKEN }, pid: PID })).not.toThrow();
+    expect(failing.shellEnv.contributors).toHaveLength(0);
+    expect(() => failing.dispose()).not.toThrow();
+
+    const ctx = createFakeDsh();
+    ctx.shellEnv.register = () => () => {
+      throw new Error("unregister refused");
+    };
+    apply(ctx, { env: { IDNMA_DST_CONTROL_TOKEN: CONTROL_TOKEN }, pid: PID });
     expect(() => ctx.dispose()).not.toThrow();
   });
 });

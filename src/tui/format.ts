@@ -53,7 +53,7 @@ function hintsFor(state: SessionState, overlay?: "palette" | "plan" | "settings"
   if (state.pending?.kind === "held") return "↑↓ Select  ·  ⏎ Confirm  ·  esc Dismiss";
   if (overlay === "palette") return "↑↓ Select  ·  ⇥ Complete  ·  ⏎ Run  ·  esc Close";
   if (overlay === "plan") return state.turnActive ? "⌃P Close plan  ·  esc Interrupt" : "⌃P Close plan  ·  esc Close";
-  if (overlay === "settings") return "↑↓ Select  ·  ⏎ Apply  ·  esc Close";
+  if (overlay === "settings") return "Type to filter  ·  ↑↓ Select  ·  ⏎ Apply  ·  esc Close";
   return state.turnActive ? RUNNING_HINTS : IDLE_HINTS;
 }
 

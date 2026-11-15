@@ -143,6 +143,92 @@ describe("translateUpdate", () => {
     ]);
   });
 
+  const toolOf = (update: Record<string, unknown>) => {
+    const [event] = translateUpdate({ sessionUpdate: "tool_call", toolCallId: "t1", status: "in_progress", ...update } as any);
+    if (event?.type !== "tool") throw new Error("expected a tool event");
+    return event;
+  };
+
+  test("a bare tool title takes the command from rawInput", () => {
+    const [event] = translateUpdate({ sessionUpdate: "tool_call", toolCallId: "t1", title: "bash", kind: "other", status: "in_progress", rawInput: { description: "Create probe.txt with touch", command: "touch probe.txt" } } as any);
+    expect(event).toMatchObject({ type: "tool", title: "touch probe.txt" });
+  });
+
+  test("a title with spaces or without a command is kept", () => {
+    expect(toolOf({ title: "touch probe.txt && ls", rawInput: { command: "x" } }).title).toBe("touch probe.txt && ls");
+    expect(toolOf({ title: "Read", rawInput: { file_path: "/a" } }).title).toBe("Read");
+    expect(toolOf({ title: "bash", rawInput: { command: "" } }).title).toBe("bash");
+    expect(toolOf({ title: "bash", rawInput: "ls" }).title).toBe("bash");
+    expect(toolOf({ title: "bash", rawInput: { command: 7 } }).title).toBe("bash");
+    expect(toolOf({ title: "bash", rawInput: { command: "  \n " } }).title).toBe("bash");
+  });
+
+  test("a multi-line command gives its first non-empty line", () => {
+    expect(toolOf({ title: "bash", rawInput: { command: "echo a\necho b" } }).title).toBe("echo a");
+    expect(toolOf({ title: "bash", rawInput: { command: "\n  \necho c" } }).title).toBe("echo c");
+    expect(toolOf({ title: "bash", rawInput: { command: "\n   echo d \r\necho e" } }).title).toBe("echo d");
+  });
+
+  test("a grok terminal command shows its command", () => {
+    const event = toolOf({ title: "run_terminal_command", kind: "execute", rawInput: { command: "touch probe.txt" } });
+    expect(event).toMatchObject({ title: "touch probe.txt", kind: "execute" });
+  });
+
+  test("a dst shell tool becomes an execute tool", () => {
+    expect(toolOf({ title: "bash", kind: "other", rawInput: { description: "Create probe.txt with touch", command: "touch probe.txt" } }).kind).toBe("execute");
+    expect(toolOf({ title: "bash", rawInput: { command: "ls" } }).kind).toBe("execute");
+    expect(toolOf({ title: "Read", kind: "other", rawInput: { file_path: "/a" } }).kind).toBe("other");
+    expect(toolOf({ title: "Read" }).kind).toBeUndefined();
+    expect(toolOf({ title: "bash", kind: "read", rawInput: { command: "cat a" } }).kind).toBe("read");
+  });
+
+  test("terminal output in _meta becomes an output delta", () => {
+    const update = (meta: unknown) => {
+      const [event] = translateUpdate({ sessionUpdate: "tool_call_update", toolCallId: "t1", _meta: meta } as any);
+      return event?.type === "tool" ? event.outputDelta : "missing";
+    };
+    expect(update({ terminal_output_delta: { data: "ok-codex\n", terminal_id: "exec-1" }, terminal_exit: { exit_code: 0 } })).toBe("ok-codex\n");
+    expect(update({ terminal_output: { terminal_id: "call_1", data: "ok-pi\n" } })).toBe("ok-pi\n");
+    expect(update({ terminal_output_delta: { data: "a" }, terminal_output: { data: "b" } })).toBe("ab");
+    expect(update({ terminal_output: { data: 3 } })).toBeUndefined();
+    expect(update({ other: 1 })).toBeUndefined();
+    expect(update(null)).toBeUndefined();
+  });
+
+  test("a metadata rawOutput gives way to text content", () => {
+    const text = (value: string) => [{ type: "content", content: { type: "text", text: value } }];
+    const outputOf = (rawOutput: unknown, content?: unknown) => toolOf({ rawOutput, ...(content ? { content } : {}) }).rawOutput;
+    expect(outputOf({ metadata: { status: "completed", truncated: false, exit: 0 } }, text("-rw-r--r--@ 1 u  wheel  0 probe.txt\n"))).toBe("-rw-r--r--@ 1 u  wheel  0 probe.txt\n");
+    expect(outputOf({ type: "Bash", output: [111, 107, 10], output_for_prompt: "exit: 0\nok\n" }, text("shown\n"))).toBe("shown\n");
+    expect(outputOf({ metadata: {} })).toBe('{"metadata":{}}');
+    expect(outputOf({ metadata: {} }, [])).toBe('{"metadata":{}}');
+    expect(outputOf({ metadata: {} }, text(""))).toBe("");
+    expect(outputOf({ output: "from agy" }, text("other"))).toBe("from agy");
+    expect(outputOf("plain", text("other"))).toBe("plain");
+  });
+
+  test("an interim grok update with empty output gives an empty output, never JSON", () => {
+    const interim = { type: "Bash", output: [], output_for_prompt: "", exit_code: 0 };
+    expect(toolOf({ rawOutput: interim, content: [{ type: "content", content: { type: "text", text: "" } }] }).rawOutput).toBe("");
+    expect(toolOf({ rawOutput: interim }).rawOutput).toBe("");
+  });
+
+  test("a grok output_for_prompt is taken when there is no content", () => {
+    expect(toolOf({ rawOutput: { type: "Bash", output: [111, 107, 10], output_for_prompt: "ok\n" } }).rawOutput).toBe("ok\n");
+  });
+
+  test("a grok final frame shows its text content, not the exit line of output_for_prompt", () => {
+    const rawOutput = { type: "Bash", output: [111, 107, 10], output_for_prompt: "exit: 0\nok\n", exit_code: 0 };
+    const event = toolOf({ status: "completed", rawOutput, content: [{ type: "content", content: { type: "text", text: "ok\n" } }] });
+    expect(event.rawOutput).toBe("ok\n");
+  });
+
+  test("an output_for_prompt gives way to a non-empty content but beats an empty one", () => {
+    const emptyText = [{ type: "content", content: { type: "text", text: "" } }];
+    expect(toolOf({ rawOutput: { output_for_prompt: "from prompt\n" }, content: emptyText }).rawOutput).toBe("from prompt\n");
+    expect(toolOf({ rawOutput: { output_for_prompt: "from prompt\n" }, content: [{ type: "content", content: { type: "text", text: "from content\n" } }] }).rawOutput).toBe("from content\n");
+  });
+
   test("a plan keeps its entries and skips an unknown status", () => {
     const events = translateUpdate({
       sessionUpdate: "plan",

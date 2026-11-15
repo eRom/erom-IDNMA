@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CommandInfo, ConfigOption } from "../src/acp/events.ts";
+import { HARNESS_PROFILES, type UnifiedHarness } from "../src/acp/harness.ts";
 import { sendPeerMessage } from "../src/bus/send.ts";
 import { listLiveEntries, type SessionEntry } from "../src/bus/registry.ts";
 import { ConfigError, type Engine } from "../src/config/network.ts";
@@ -12,7 +13,7 @@ import type { PaneProbe } from "../src/run/pane.ts";
 import { NOTIFY, PROGRESS_OFF, PROGRESS_ON } from "../src/tui/signals.ts";
 import type { SessionState } from "../src/tui/state.ts";
 import { runUnified, type UnifiedDeps } from "../src/unified/run-unified.ts";
-import { missingAdapterMessage, notConnectedMessage } from "../src/unified/preflight.ts";
+import { missingAdapterMessage, missingAgentMessage, notConnectedMessage } from "../src/unified/preflight.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { createScreen } from "../src/tui/view/screen.ts";
 import { FakeScreen } from "./helpers/fake-screen.ts";
@@ -26,7 +27,7 @@ type Json = Record<string, unknown>;
 const FAKE_AGENT = join(import.meta.dir, "helpers", "fake-acp-agent.ts");
 const CHILD = join(import.meta.dir, "helpers", "unified-child.ts");
 const TTY = "/dev/ttys-fake";
-const ENV_KEYS = ["PATH", "CLAUDE_CODE_EXECUTABLE", "IDNMA_CONFIG_DIR", "IDNMA_CLAUDE_DIR", "IDNMA_SOCKETS_DIR", "IDNMA_CONTROL_DIR", "IDNMA_NAME", "IDNMA_CONTROL_SOCKET", "IDNMA_CONTROL_TOKEN"] as const;
+const ENV_KEYS = ["PATH", "CLAUDE_CODE_EXECUTABLE", "IDNMA_CONFIG_DIR", "IDNMA_CLAUDE_DIR", "IDNMA_SOCKETS_DIR", "IDNMA_CONTROL_DIR", "IDNMA_NAME", "IDNMA_CONTROL_SOCKET", "IDNMA_CONTROL_TOKEN", "IDNMA_DST_CONTROL_TOKEN"] as const;
 
 let previousEnv: Record<string, string | undefined>;
 let workDir: string;
@@ -39,7 +40,7 @@ let grandchildFiles: string[];
 
 beforeEach(() => {
   previousEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
-  for (const key of ["IDNMA_NAME", "IDNMA_CONTROL_SOCKET", "IDNMA_CONTROL_TOKEN", "CLAUDE_CODE_EXECUTABLE"]) delete process.env[key];
+  for (const key of ["IDNMA_NAME", "IDNMA_CONTROL_SOCKET", "IDNMA_CONTROL_TOKEN", "IDNMA_DST_CONTROL_TOKEN", "CLAUDE_CODE_EXECUTABLE"]) delete process.env[key];
   workDir = mkdtempSync("/tmp/idnma-t-");
   binDir = join(workDir, "bin");
   mkdirSync(binDir);
@@ -115,18 +116,22 @@ interface Adapter {
   path: string;
   received: string;
   envDump: string;
+  /** Les arguments reçus par l'adaptateur factice, un par ligne (fichier absent tant qu'il n'a pas démarré). */
+  argsFile: string;
 }
 
 function makeAdapter(scenario: Json = {}): Adapter {
   adapterCount += 1;
   const received = join(workDir, `received-${adapterCount}.jsonl`);
   const envDump = join(workDir, `env-${adapterCount}.json`);
+  const argsFile = join(workDir, `args-${adapterCount}.txt`);
   const scenarioFile = join(workDir, `scenario-${adapterCount}.json`);
   writeFileSync(scenarioFile, JSON.stringify({ configOptions: STANDARD_OPTIONS, received, envDump, ...scenario }));
   const path = join(binDir, `adapter-${adapterCount}`);
-  writeFileSync(path, `#!/bin/sh\nFAKE_ACP_SCENARIO='${scenarioFile}' exec '${process.execPath}' '${FAKE_AGENT}'\n`);
+  // Le shim note ses arguments avant de lancer l'agent factice : de quoi vérifier la ligne de commande de chaque harnais.
+  writeFileSync(path, `#!/bin/sh\n: > '${argsFile}'\nfor arg in "$@"; do printf '%s\\n' "$arg" >> '${argsFile}'; done\nFAKE_ACP_SCENARIO='${scenarioFile}' exec '${process.execPath}' '${FAKE_AGENT}'\n`);
   chmodSync(path, 0o755);
-  return { path, received, envDump };
+  return { path, received, envDump, argsFile };
 }
 
 function readLines(file: string): Json[] {
@@ -135,6 +140,22 @@ function readLines(file: string): Json[] {
     .split("\n")
     .filter((line) => line.trim() !== "")
     .map((line) => JSON.parse(line) as Json);
+}
+
+/** Les arguments que l'adaptateur factice a reçus, sans le nom du programme. */
+function adapterArgs(adapter: Adapter): string[] {
+  return existsSync(adapter.argsFile) ? readFileSync(adapter.argsFile, "utf8").split("\n").filter((line) => line !== "") : [];
+}
+
+/** Les options de configuration d'une vraie ouverture de session, capturées par harnais. */
+function fixtureOptions(harness: UnifiedHarness): Json[] {
+  return (JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "acp", `${harness}-session-new.json`), "utf8")) as { configOptions: Json[] }).configOptions;
+}
+
+/** `which` du runner : le shim pour le programme que le harnais lance, un faux chemin pour le binaire de l'agent. */
+function whichFor(harness: UnifiedHarness, adapter: Adapter): (bin: string) => string | null {
+  const profile = HARNESS_PROFILES[harness];
+  return (bin) => (bin === profile.launchBinary ? adapter.path : bin === profile.agentBinary?.name ? `/fake/bin/${bin}` : null);
 }
 
 function logLines(): Json[] {
@@ -176,7 +197,7 @@ function ownPaneProbe(): PaneProbe {
   return { env: { TMUX: "fake,1,0", TMUX_PANE: "%7" }, stdinIsTTY: true, stdinTty: () => TTY, paneTty: () => TTY };
 }
 
-function engineOf(harness: "claude" | "agy", extra: Partial<Engine> = {}): Engine {
+function engineOf(harness: UnifiedHarness, extra: Partial<Engine> = {}): Engine {
   return { harness, options: [], env: {}, ...extra };
 }
 
@@ -194,7 +215,7 @@ interface Session {
 }
 
 interface BootOptions {
-  harness?: "claude" | "agy";
+  harness?: UnifiedHarness;
   scenario?: Json;
   passthrough?: string[];
   engine?: Partial<Engine>;
@@ -212,12 +233,12 @@ async function boot(o: BootOptions = {}): Promise<Session> {
     resolveScreen = resolve;
   });
   const running = runUnified({
-    agentKey: harness === "claude" ? "opus" : "argon",
+    agentKey: harness === "claude" ? "opus" : harness === "agy" ? "argon" : harness,
     engine: engineOf(harness, o.engine),
     passthrough: o.passthrough ?? [],
     deps: {
       probe: ownPaneProbe(),
-      which: (bin) => (bin === "claude-agent-acp" || bin === "agy" ? adapter.path : bin === "claude" ? "/fake/bin/claude" : null),
+      which: whichFor(harness, adapter),
       tmuxTarget: (paneId) => `sess:@1.${paneId}`,
       tagPane: (paneId, agentKey, name) => {
         tags.push({ paneId, agentKey, name });
@@ -315,12 +336,12 @@ async function bootFailing(o: BootOptions & { deps?: Partial<UnifiedDeps> } = {}
   const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
   try {
     const code = await runUnified({
-      agentKey: harness === "claude" ? "opus" : "argon",
+      agentKey: harness === "claude" ? "opus" : harness === "agy" ? "argon" : harness,
       engine: engineOf(harness, o.engine),
       passthrough: o.passthrough ?? [],
       deps: {
         probe: ownPaneProbe(),
-        which: (bin) => (bin === "claude-agent-acp" || bin === "agy" ? adapter.path : null),
+        which: whichFor(harness, adapter),
         tmuxTarget: (paneId) => `sess:@1.${paneId}`,
         tagPane: () => {},
         openScreen: async (options) => {
@@ -373,12 +394,17 @@ const statusOfRunner = (entry: SessionEntry | undefined): string | undefined => 
 
 const NETWORK = `
 agents:
-  grok:
+  codex:
     engines:
-      default:
-        harness: grok
       unified:
-        harness: grok
+        harness: codex
+        ui: unified
+        options: ["--config", "x=y"]
+  dst:
+    engines:
+      unified:
+        harness: dst
+        model: x
         ui: unified
   claude:
     engines:
@@ -441,24 +467,24 @@ describe("routing and preflight", () => {
     writeFileSync(join(configDir, ".idnma.yml"), NETWORK);
   });
 
-  test("unified on grok is refused before any effect", async () => {
+  test("unified codex engine with an embedded flag is refused before any effect", async () => {
     const { deps, touched } = countingRunDeps();
-    const error = await runAgent({ agent: "grok", ui: "unified", passthrough: [] }, deps).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(UsageError);
-    expect((error as Error).message).toContain("grok");
+    const error = await runAgent({ agent: "codex", engine: "unified", passthrough: [] }, deps).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConfigError);
+    expect((error as Error).message).toContain("--config");
     expect(touched).toEqual({ probeReads: 0, tmuxTargets: 0, tags: 0, whichCalls: 0, execs: [] });
     expect(listLiveEntries()).toEqual([]);
     expect(existsSync(controlSocketPath())).toBe(false);
   });
 
-  test("ui unified on grok in the engine is a config error", async () => {
+  test("unified dst engine with a model is refused before any effect", async () => {
     const { deps, touched } = countingRunDeps();
-    const error = await runAgent({ agent: "grok", engine: "unified", passthrough: [] }, deps).catch((caught: unknown) => caught);
+    const error = await runAgent({ agent: "dst", engine: "unified", passthrough: [] }, deps).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ConfigError);
-    expect((error as Error).message).toContain("ui: unified ne vaut que pour claude et agy");
-    expect((error as Error).message).toContain("grok");
+    expect((error as Error).message).toContain("dst ne prend pas de modèle");
     expect(touched).toEqual({ probeReads: 0, tmuxTargets: 0, tags: 0, whichCalls: 0, execs: [] });
     expect(listLiveEntries()).toEqual([]);
+    expect(existsSync(controlSocketPath())).toBe(false);
   });
 
   test("--native forces the native path", async () => {
@@ -483,6 +509,18 @@ describe("routing and preflight", () => {
     }
     expect(touched.execs).toEqual([]);
     nothingLeftBehind();
+  });
+});
+
+describe("pre-screen messages", () => {
+  test("missing adapter messages name the install command", () => {
+    expect(missingAdapterMessage("codex")).toContain("bun add -g @agentclientprotocol/codex-acp@2.5.0");
+    expect(missingAdapterMessage("pi")).toContain("bun add -g pi-acp@0.0.34");
+    expect(missingAdapterMessage("dst")).toContain("dsh --profile acp");
+    expect(missingAgentMessage("codex")).toContain("CODEX_PATH");
+    expect(missingAgentMessage("pi")).toContain("pi-acp le lance");
+    expect(notConnectedMessage("opencode")).toContain("opencode auth login");
+    expect(notConnectedMessage("codex")).toContain("codex login");
   });
 });
 
@@ -1176,6 +1214,216 @@ describe("agent death", () => {
     expect(session.exits).toEqual([1]);
     expect(contentsOf(zeus)).toHaveLength(2);
     expect(contentsOf(zeus)[1]).toContain("message non livré");
+    nothingLeftBehind();
+  });
+});
+
+describe("harness profiles", () => {
+  const ARGV = {
+    opencode: ["acp"],
+    codex: [],
+    grok: ["agent", "--no-leader", "stdio"],
+    pi: [],
+    dst: ["--profile", "acp"],
+  } as const;
+
+  test.each(["opencode", "codex", "grok", "pi", "dst"] as const)("%s opens the unified screen and plays a turn", async (harness) => {
+    const grandchild = join(workDir, `grandchild-${harness}.pid`);
+    grandchildFiles.push(grandchild);
+    const session = await boot({ harness, scenario: { configOptions: fixtureOptions(harness), turn: { updates: [agentChunk("pong")] }, spawnGrandchild: grandchild } });
+    expect(adapterArgs(session.adapter)).toEqual([...ARGV[harness]]);
+    session.screen.fire("submit", "ping");
+    await waitFor(() => session.state().thread.some((item) => item.kind === "agent" && item.text === "pong"), "the answer");
+    await waitFor(() => !session.state().turnActive, "the turn end");
+    await waitFor(() => existsSync(grandchild), "the grandchild pid");
+    session.screen.fire("quit");
+    expect(await session.running).toBe(0);
+    nothingLeftBehind();
+    expect(() => process.kill(Number(readFileSync(grandchild, "utf8")), 0)).toThrow();
+  });
+
+  test.each(["dst", "codex"] as const)("%s: IDNMA_DST_CONTROL_TOKEN is set for dst only, with the value of the control token", async (harness) => {
+    const session = await boot({ harness, scenario: { configOptions: fixtureOptions(harness) } });
+    await waitFor(() => existsSync(session.adapter.envDump), "the environment dump");
+    const env = JSON.parse(readFileSync(session.adapter.envDump, "utf8")) as Record<string, string>;
+    expect(env.IDNMA_CONTROL_TOKEN).toMatch(/^[0-9a-f]{32}$/);
+    if (harness === "dst") expect(env.IDNMA_DST_CONTROL_TOKEN).toBe(env.IDNMA_CONTROL_TOKEN);
+    else expect(env.IDNMA_DST_CONTROL_TOKEN).toBeUndefined();
+  });
+
+  test("codex hands its agent binary to the adapter", async () => {
+    const session = await boot({ harness: "codex", scenario: { configOptions: fixtureOptions("codex") } });
+    await waitFor(() => existsSync(session.adapter.envDump), "the environment dump");
+    const env = JSON.parse(readFileSync(session.adapter.envDump, "utf8")) as Record<string, string>;
+    expect(env.CODEX_PATH).toBe("/fake/bin/codex");
+  });
+
+  test("codex refuses before any effect when codex is not on the PATH", async () => {
+    const error = await runUnified({
+      agentKey: "codex",
+      engine: engineOf("codex"),
+      passthrough: [],
+      deps: { probe: ownPaneProbe(), which: (bin) => (bin === "codex-acp" ? "/fake/bin/codex-acp" : null), tagPane: () => {}, tmuxTarget: () => "t" },
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConfigError);
+    expect((error as Error).message).toBe(missingAgentMessage("codex"));
+    nothingLeftBehind();
+  });
+
+  test("a missing pi adapter names its install command, before the agent binary is looked at", async () => {
+    const error = await runUnified({
+      agentKey: "pi",
+      engine: engineOf("pi"),
+      passthrough: [],
+      deps: { probe: ownPaneProbe(), which: () => null, tagPane: () => {}, tmuxTarget: () => "t" },
+    }).catch((caught: unknown) => caught);
+    expect((error as Error).message).toBe(missingAdapterMessage("pi"));
+    nothingLeftBehind();
+  });
+
+  test("a harness outside the unified list is refused", async () => {
+    const error = await runUnified({
+      agentKey: "x",
+      engine: { harness: "bogus" as never, options: [], env: {} },
+      passthrough: [],
+      deps: { probe: ownPaneProbe(), which: () => "/fake/bin/x", tagPane: () => {}, tmuxTarget: () => "t" },
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConfigError);
+    nothingLeftBehind();
+  });
+
+  describe("auto-approve", () => {
+    const permissionTurn = (options: Json[], updates: Json[] = []): Json => ({
+      updates,
+      permission: { toolCall: { toolCallId: "t1", title: "bash ls", kind: "execute", status: "pending" }, options },
+      updatesAfterPermission: [agentChunk("done")],
+    });
+    const ONCE = { optionId: "once", kind: "allow_once", name: "Allow once" };
+    const ALWAYS = { optionId: "always", kind: "allow_always", name: "Always allow" };
+    const REJECT = { optionId: "reject", kind: "reject_once", name: "Reject" };
+
+    test("answers allow_once without a card, the tool row staying visible", async () => {
+      // L'ordre réel d'opencode : la ligne d'outil arrive avant la demande de permission.
+      const bashCall: Json = { sessionUpdate: "tool_call", toolCallId: "t1", title: "touch probe2.txt", kind: "execute", status: "pending" };
+      const session = await boot({ harness: "opencode", engine: { options: ["--auto"] }, scenario: { configOptions: fixtureOptions("opencode"), turn: permissionTurn([ONCE, ALWAYS, REJECT], [bashCall]) } });
+      session.screen.fire("submit", "go");
+      await waitFor(() => session.state().thread.some((item) => item.kind === "agent" && item.text === "done"), "the end of the turn");
+      await waitFor(() => !session.state().turnActive, "the turn end");
+      expect(permissionAnswers(session.adapter)).toEqual([{ outcome: { outcome: "selected", optionId: "once" } }]);
+      expect(session.screen.renders.some((render) => render.pending !== undefined)).toBe(false);
+      expect(session.state().thread).toContainEqual(expect.objectContaining({ kind: "tool", id: "t1", title: "touch probe2.txt" }));
+      expect(logsOf("unified-auto-approve").map(({ ts: _ts, event: _event, ...fields }) => fields)).toEqual([{ kind: "allow_once" }]);
+    });
+
+    test("shows the card when no allow_once choice exists", async () => {
+      const session = await boot({ harness: "opencode", engine: { options: ["--auto"] }, scenario: { configOptions: fixtureOptions("opencode"), turn: permissionTurn([ALWAYS, REJECT]) } });
+      session.screen.fire("submit", "go");
+      await waitFor(() => permissionPending(session), "the permission card");
+      expect(permissionAnswers(session.adapter)).toEqual([]);
+      expect(logsOf("unified-auto-approve")).toEqual([]);
+      session.screen.fire("refuse");
+      await waitFor(() => !session.state().turnActive, "the turn end");
+      expect(permissionAnswers(session.adapter)).toEqual([{ outcome: { outcome: "selected", optionId: "reject" } }]);
+    });
+
+    test("without --auto the card is shown even when allow_once exists", async () => {
+      const session = await boot({ harness: "opencode", scenario: { configOptions: fixtureOptions("opencode"), turn: permissionTurn([ONCE, ALWAYS, REJECT]) } });
+      session.screen.fire("submit", "go");
+      await waitFor(() => permissionPending(session), "the permission card");
+      expect(logsOf("unified-auto-approve")).toEqual([]);
+    });
+  });
+
+  describe("mode", () => {
+    async function agentEnvOf(session: Session): Promise<Record<string, string>> {
+      await waitFor(() => existsSync(session.adapter.envDump), "the environment dump");
+      return JSON.parse(readFileSync(session.adapter.envDump, "utf8")) as Record<string, string>;
+    }
+    const modeValue = (session: Session): string | undefined => session.state().options.find((candidate: ConfigOption) => candidate.category === "mode")?.currentValue;
+
+    test("codex peer mode follows the mode option", async () => {
+      const zeus = await startFakePeer("codex-zeus");
+      peers.push(zeus);
+      const session = await boot({ harness: "codex", scenario: { configOptions: fixtureOptions("codex") } });
+      const env = await agentEnvOf(session);
+      await controlRequest({ op: "send", to: "codex-zeus", body: "ping" }, env);
+      await waitFor(() => contentsOf(zeus).length === 1, "the first message");
+      expect(contentsOf(zeus)[0]).toContain('from-mode="prompting"');
+
+      session.screen.openOverlay("settings");
+      session.screen.setting = { category: "mode", value: "agent-full-access" };
+      session.screen.fire("confirm");
+      await waitFor(() => modeValue(session) === "agent-full-access", "the full access mode");
+      await controlRequest({ op: "send", to: "codex-zeus", body: "ping 2" }, env);
+      await waitFor(() => contentsOf(zeus).length === 2, "the second message");
+      expect(contentsOf(zeus)[1]).toContain('from-mode="bypass"');
+
+      session.screen.setting = { category: "mode", value: "agent" };
+      session.screen.fire("confirm");
+      await waitFor(() => modeValue(session) === "agent", "the agent mode");
+      await controlRequest({ op: "send", to: "codex-zeus", body: "ping 3" }, env);
+      await waitFor(() => contentsOf(zeus).length === 3, "the third message");
+      expect(contentsOf(zeus)[2]).toContain('from-mode="prompting"');
+    });
+
+    test("next mode skips agent-full-access on codex", async () => {
+      const session = await boot({ harness: "codex", scenario: { configOptions: fixtureOptions("codex") } });
+      expect(modeValue(session)).toBe("agent");
+      session.screen.fire("nextMode");
+      await waitFor(() => modeValue(session) === "read-only", "the read-only mode");
+      expect(requestsOf(session.adapter, "session/set_config_option").at(-1)).toMatchObject({ configId: "mode", value: "read-only" });
+    });
+
+    test("a fixed peer mode ignores the mode option", async () => {
+      const zeus = await startFakePeer("codex-zeus");
+      peers.push(zeus);
+      const session = await boot({ harness: "pi", scenario: { configOptions: fixtureOptions("pi") } });
+      await controlRequest({ op: "send", to: "codex-zeus", body: "ping" }, await agentEnvOf(session));
+      await waitFor(() => contentsOf(zeus).length === 1, "the message");
+      expect(contentsOf(zeus)[0]).toContain('from-mode="bypass"');
+    });
+  });
+
+  describe("opening announcements", () => {
+    const REPLAY_NOTICE = "The agent replayed nothing from this session.";
+
+    test("dst resume announces that nothing is replayed", async () => {
+      const session = await boot({
+        harness: "dst",
+        passthrough: ["-c"],
+        scenario: {
+          configOptions: fixtureOptions("dst"),
+          capabilities: { sessionCapabilities: { list: {}, resume: {} } },
+          listPages: [[{ sessionId: "s1", cwd: process.cwd(), updatedAt: "2026-11-14T10:00:00Z" }]],
+        },
+      });
+      expect(notices(session.state())).toContain("dst does not replay past exchanges: the agent keeps the context, the screen starts empty.");
+      expect(notices(session.state())).not.toContain(REPLAY_NOTICE);
+      expect(requestsOf(session.adapter, "session/resume")).toHaveLength(1);
+    });
+
+    test("a load that replays nothing keeps the generic notice", async () => {
+      const session = await boot({ harness: "grok", passthrough: ["-r", "s-old"], scenario: { configOptions: fixtureOptions("grok"), replay: [] } });
+      expect(notices(session.state())).toContain(REPLAY_NOTICE);
+    });
+
+    test("continue without a session list says so, with the harness label", async () => {
+      const session = await boot({ harness: "grok", passthrough: ["-c"], scenario: { configOptions: fixtureOptions("grok"), capabilities: {} } });
+      expect(notices(session.state())).toContain("No session list from Grok: new session.");
+      expect(notices(session.state())).not.toContain("No previous session in this folder: new session.");
+    });
+
+    test("a resume with neither load nor resume says so, with the harness label", async () => {
+      const session = await boot({ harness: "grok", passthrough: ["-r", "01a1"], scenario: { configOptions: fixtureOptions("grok"), capabilities: { sessionCapabilities: { list: {} } } } });
+      expect(notices(session.state())).toContain("Grok cannot resume a session: new session.");
+    });
+  });
+
+  test("a new harness that is not connected says so before the screen", async () => {
+    const failure = await bootFailing({ harness: "opencode", scenario: { configOptions: fixtureOptions("opencode"), authRequired: true } });
+    expect(failure.code).toBe(1);
+    expect(failure.screenOpened).toBe(false);
+    expect(failure.stderr).toContain(notConnectedMessage("opencode"));
     nothingLeftBehind();
   });
 });

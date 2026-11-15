@@ -1,0 +1,91 @@
+{
+  "_source": "Real session/new result of pi, captured 14/11/2026 (probe five/pi-session-new.json); sessionId replaced, values cut to four, _meta and models dropped.",
+  "sessionId": "fake-pi",
+  "configOptions": [
+    {
+      "type": "select",
+      "id": "model",
+      "category": "model",
+      "name": "Model",
+      "description": "Select the model for this session",
+      "currentValue": "ollama/deepseek-v4.1-flash:cloud",
+      "options": [
+        {
+          "value": "deepseek/deepseek-flash",
+          "name": "deepseek/DeepSeek V4.1 Flash",
+          "description": null
+        },
+        {
+          "value": "deepseek/deepseek-v4-pro",
+          "name": "deepseek/DeepSeek V4 Pro",
+          "description": null
+        },
+        {
+          "value": "google/deep-research-max-preview-04-2026",
+          "name": "google/Deep Research Max Preview (Apr-21-2026)",
+          "description": null
+        },
+        {
+          "value": "ollama/deepseek-v4.1-flash:cloud",
+          "name": "ollama/deepseek-v4.1-flash:cloud",
+          "description": null
+        }
+      ]
+    },
+    {
+      "type": "select",
+      "id": "thought_level",
+      "category": "thought_level",
+      "name": "Thinking",
+      "description": "Set the reasoning effort for this session",
+      "currentValue": "medium",
+      "options": [
+        {
+          "value": "off",
+          "name": "Thinking: off",
+          "description": null
+        },
+        {
+          "value": "minimal",
+          "name": "Thinking: minimal",
+          "description": null
+        },
+        {
+          "value": "low",
+          "name": "Thinking: low",
+          "description": null
+        },
+        {
+          "value": "medium",
+          "name": "Thinking: medium",
+          "description": null
+        }
+      ]
+    }
+  ],
+  "modes": {
+    "currentModeId": "medium",
+    "availableModes": [
+      {
+        "id": "off",
+        "name": "Thinking: off",
+        "description": null
+      },
+      {
+        "id": "minimal",
+        "name": "Thinking: minimal",
+        "description": null
+      },
+      {
+        "id": "low",
+        "name": "Thinking: low",
+        "description": null
+      },
+      {
+        "id": "medium",
+        "name": "Thinking: medium",
+        "description": null
+      }
+    ]
+  }
+}

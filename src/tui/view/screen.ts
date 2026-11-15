@@ -304,8 +304,8 @@ export function createScreen(options: ScreenOptions): Screen {
 
   function context(): Context {
     const overlay = overlays.kind();
-    // La palette occupe la rangée de saisie : c'est son texte qui compte, pas celui du textarea caché.
-    const typed = overlay === "palette" ? overlays.paletteText() : textarea.plainText;
+    // La palette et le filtre des réglages occupent la rangée de saisie : c'est leur texte qui compte, pas celui du textarea caché.
+    const typed = overlay === "palette" || overlay === "settings" ? overlays.typedText() : textarea.plainText;
     return {
       status: state ? headerParts(state).left.dot : "idle",
       turnActive: state?.turnActive ?? false,
@@ -328,7 +328,9 @@ export function createScreen(options: ScreenOptions): Screen {
     if (textarea.plainText === "") forgetRecall();
     const intent = intentOf(key, context());
     if (intent === "submit") forgetRecall();
-    if (key.ctrl && key.name === "c" && state?.exit === undefined) armCtrlC();
+    // Un ⌃C qui ne fait que fermer la palette ou les réglages n'arme pas le quit : refermer un panneau deux fois ne quitte pas la session.
+    const closesOverlay = intent === "clearInput" && (overlays.kind() === "palette" || overlays.kind() === "settings");
+    if (key.ctrl && key.name === "c" && state?.exit === undefined && !closesOverlay) armCtrlC();
     else disarmCtrlC();
     // Un ⏎ qui arrive pile après l'apparition d'une demande est de la frappe d'avance : on l'avale, la touche ne va pas non plus à la saisie.
     if (intent === "confirm" && state?.pending !== undefined && now() - pendingSince < CONFIRM_GUARD_MS) {
@@ -364,8 +366,8 @@ export function createScreen(options: ScreenOptions): Screen {
         recall(intent === "historyPrevious" ? -1 : 1);
         return;
       case "clearInput":
-        // ⌃C vide la saisie : avec la palette ouverte, c'est elle qui se ferme (son texte est perdu, le brouillon revient).
-        if (overlays.kind() === "palette") {
+        // ⌃C vide la saisie : avec la palette ou les réglages ouverts, c'est la surcouche qui se ferme (son texte est perdu, le brouillon revient).
+        if (overlays.kind() === "palette" || overlays.kind() === "settings") {
           overlays.close();
           return;
         }

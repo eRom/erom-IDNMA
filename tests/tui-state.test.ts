@@ -392,3 +392,50 @@ test("the agent exit cancels the tool rows still pending or in progress and leav
     ["d", "failed"],
   ]);
 });
+
+test("output deltas accumulate under an execute tool", () => {
+  const state = run([
+    ev({ type: "tool", id: "e", created: true, name: "Bash", kind: "execute", status: "in_progress" }),
+    ev({ type: "tool", id: "e", created: false, outputDelta: "ok-pi\n" }),
+    ev({ type: "tool", id: "e", created: false, outputDelta: "/x/idnma\n" }),
+  ]);
+  expect(tools(state)[0]?.output).toEqual(["ok-pi", "/x/idnma"]);
+  expect(tools(state)[0]?.meta).toBe("2 lines");
+});
+
+test("an output delta that stops mid-line is completed by the next one", () => {
+  const state = run([
+    ev({ type: "tool", id: "e", created: true, name: "Bash", kind: "execute" }),
+    ev({ type: "tool", id: "e", created: false, outputDelta: "par" }),
+    ev({ type: "tool", id: "e", created: false, outputDelta: "tial\nnext\n" }),
+  ]);
+  expect(tools(state)[0]?.output).toEqual(["partial", "next"]);
+});
+
+test("empty content does not reset accumulated output", () => {
+  const state = run([
+    ev({ type: "tool", id: "e", created: true, name: "Bash", kind: "execute", status: "in_progress" }),
+    ev({ type: "tool", id: "e", created: false, outputDelta: "ok-pi\n" }),
+    ev({ type: "tool", id: "e", created: false, outputDelta: "/x/idnma\n" }),
+    ev({ type: "tool", id: "e", created: false, content: [] }),
+  ]);
+  expect(tools(state)[0]?.output).toEqual(["ok-pi", "/x/idnma"]);
+  const final = run([ev({ type: "tool", id: "e", created: false, rawOutput: "final\n" })], state);
+  expect(tools(final)[0]?.output).toEqual(["final"]);
+  const deltaAfter = run([ev({ type: "tool", id: "e", created: false, outputDelta: "more\n" })], final);
+  expect(tools(deltaAfter)[0]?.output).toEqual(["final", "more"]);
+});
+
+test("an update carrying only an output delta is not a bare event", () => {
+  const created = run([ev({ type: "tool", id: "e", created: true, name: "Bash", kind: "execute" })]);
+  const state = run([ev({ type: "tool", id: "e", created: false, outputDelta: "x" })], created);
+  expect(tools(state)[0]?.output).toEqual(["x"]);
+});
+
+test("an output delta does not show lines under a tool that is not an execute tool", () => {
+  const state = run([
+    ev({ type: "tool", id: "r", created: true, name: "Read", kind: "read" }),
+    ev({ type: "tool", id: "r", created: false, outputDelta: "a\nb\n" }),
+  ]);
+  expect(tools(state)[0]?.output).toBeUndefined();
+});

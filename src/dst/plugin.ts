@@ -130,13 +130,47 @@ function readTuiVersion(): string | undefined {
   return undefined;
 }
 
+/** Contributeur du registre d'environnement de dsh : rend le jeton du canal de contrôle au shell du modèle. */
+function shellEnvContributor(token: string) {
+  return {
+    name: "idnma",
+    variables: { DSH_IDNMA_CONTROL_TOKEN: { description: "Jeton du canal de contrôle idnma (idnma peer send, idnma peer list)." } },
+    resolve: () => ({ DSH_IDNMA_CONTROL_TOKEN: token }),
+  };
+}
+
 export function apply(rawContext: unknown, config: BridgePluginConfig = {}): void {
   const env = config.env ?? process.env;
   const bridgePath = env.IDNMA_DST_BRIDGE;
   const bridgeToken = env.IDNMA_DST_BRIDGE_TOKEN;
-  if (!bridgePath || !bridgeToken) return;
-
   const ctx = rawContext as DshContext;
+  if (!bridgePath || !bridgeToken) {
+    // Écran unifié : le lanceur pose `IDNMA_DST_CONTROL_TOKEN` pour dst seul, et dsh le retire du shell du modèle
+    // (tout nom qui contient `TOKEN`). Sans pont, le plugin ne fait que lui rendre le jeton ; ni socket, ni
+    // écouteur, ni minuteur. Une variable dédiée : `IDNMA_CONTROL_TOKEN` appartient à tout agent idnma, et un dst
+    // lancé à la main depuis son shell ne doit pas hériter de son identité.
+    const token = env.IDNMA_DST_CONTROL_TOKEN;
+    if (token !== undefined && token !== "") {
+      ctx.effect(() => {
+        let unregister: unknown;
+        try {
+          unregister = ctx.shellEnv.register(shellEnvContributor(token));
+        } catch {
+          // Rien à rapporter sans pont : `idnma peer send` dira lui-même qu'il n'a pas de jeton.
+        }
+        return () => {
+          if (typeof unregister !== "function") return;
+          try {
+            unregister();
+          } catch {
+            // le contributeur part de toute façon avec le contexte
+          }
+        };
+      });
+    }
+    return;
+  }
+
   const pid = config.pid ?? process.pid;
   const serversFile = config.serversFile ?? join(homedir(), ".dsh-tui", "inject", "servers.json");
   const refreshMs = config.refreshMs ?? 2000;
@@ -507,11 +541,7 @@ export function apply(rawContext: unknown, config: BridgePluginConfig = {}): voi
 
     if (controlToken !== undefined && controlToken !== "") {
       try {
-        unregisterShellEnv = ctx.shellEnv.register({
-          name: "idnma",
-          variables: { DSH_IDNMA_CONTROL_TOKEN: { description: "Jeton du canal de contrôle idnma (idnma peer send, idnma peer list)." } },
-          resolve: () => ({ DSH_IDNMA_CONTROL_TOKEN: controlToken }),
-        });
+        unregisterShellEnv = ctx.shellEnv.register(shellEnvContributor(controlToken));
       } catch {
         registerFailed = true;
       }

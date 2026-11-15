@@ -7,6 +7,7 @@ import { procStart } from "../src/bus/proc.ts";
 import { registerPeer, type Registration } from "../src/bus/register.ts";
 import { removeEntry, writeEntry } from "../src/bus/registry.ts";
 import { controlDir } from "../src/paths.ts";
+import { UNIFIED_HARNESSES } from "../src/config/engine-rules.ts";
 import { GENERIC_SKILL, skillText } from "../src/install/skill.ts";
 import { TEAMMATE_END, TEAMMATE_START, TEAMMATE_TEXT } from "../src/install/teammate.ts";
 import { startControlServer, writeCodexPointer, type ControlCall, type ControlResponse } from "../src/understudy/control.ts";
@@ -424,6 +425,11 @@ describe("idnma CLI", () => {
     expect(result.stdout).toContain("dst");
     expect(result.stdout).toContain("/model");
     expect(result.stdout).toMatch(/Claude prend la place de ce process ; Codex, Grok, agy, opencode, dst et pi restent sous la doublure/);
+  });
+
+  childTest("run --help lists the unified harnesses from the same list as every other message", async () => {
+    const result = await cli(["run", "--help"]);
+    expect(result.stdout).toContain(`--unified / --native   écran unifié (${UNIFIED_HARNESSES.join(", ")}) ou TUI native`);
   });
 
   childTest("an unknown command exits 2 and prints the help", async () => {

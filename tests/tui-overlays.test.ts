@@ -4,6 +4,7 @@ import type { CommandInfo, ConfigOption, PermissionRequest, PlanEntry } from "..
 import type { Intent } from "../src/tui/keys.ts";
 import { type Action, initialState, reduce, type SessionState } from "../src/tui/state.ts";
 import { ACCENT, LABEL, SURFACE } from "../src/tui/theme.ts";
+import { filterSettings, settingsEntries } from "../src/tui/view/overlays.ts";
 import { createScreen } from "../src/tui/view/screen.ts";
 
 // ---- états ----
@@ -954,6 +955,302 @@ describe("settings panel", () => {
       expect(frame).toContain("Opus 9");
       expect(frame).not.toContain("\x1b");
     });
+  });
+});
+
+// ---- réglages : filtre à la frappe ----
+
+const LONG: ConfigOption[] = [
+  {
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue: "ollama-cloud/deepseek-v4.1-flash",
+    values: [
+      { value: "amd/GLM-5.3-Flash", name: "amd/GLM-5.3-Flash" },
+      { value: "ollama-cloud/deepseek-v4.1-flash", name: "ollama-cloud/deepseek-v4.1-flash" },
+      { value: "openrouter/deepseek/deepseek-v4-pro", name: "openrouter/deepseek/deepseek-v4-pro" },
+      { value: "deepseek/deepseek-flash", name: "deepseek/deepseek-flash" },
+    ],
+  },
+  {
+    id: "effort",
+    name: "Effort",
+    category: "thought_level",
+    currentValue: "default",
+    values: [
+      { value: "low", name: "low" },
+      { value: "high", name: "high" },
+      { value: "default", name: "default" },
+    ],
+  },
+];
+
+/** Les rangées du panneau, rognées : ni l'en-tête, ni le fil vide, ni la saisie, ni la ligne d'état. */
+function panelRows(frame: string): string[] {
+  return rowsOf(frame)
+    .slice(1, -1)
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && line !== "New session" && !line.startsWith("❯"));
+}
+
+async function openSettingsOn(mounted: Mounted, options: ConfigOption[] = LONG): Promise<void> {
+  await show(mounted, base(options));
+  mounted.screen.openOverlay("settings");
+  await mounted.renderOnce();
+}
+
+describe("settings filter", () => {
+  test("typing in the settings panel narrows the list, names that start with the text first", async () => {
+    await withScreen({}, async (mounted) => {
+      await openSettingsOn(mounted);
+      await mounted.mockInput.typeText("deeps");
+      const rows = panelRows(await frameOf(mounted));
+      expect(rows.filter((row) => row === "Model" || row === "Effort")).toEqual(["Model"]);
+      const names = rows.filter((row) => row.includes("deepseek")).map((row) => row.replace(/\s*✓$/, ""));
+      expect(names).toEqual(["deepseek/deepseek-flash", "ollama-cloud/deepseek-v4.1-flash", "openrouter/deepseek/deepseek-v4-pro"]);
+      expect(rows.some((row) => row.includes("GLM"))).toBe(false);
+      expect(mounted.screen.settingsChoice()).toEqual({ category: "model", value: "deepseek/deepseek-flash" });
+      expect(spanOf(mounted, "deepseek/deepseek-flash")?.bg).toEqual(hexInts(ACCENT.blue));
+    });
+  });
+
+  test("the match is case-insensitive and also reads the value", async () => {
+    await withScreen({}, async (mounted) => {
+      const renamed: ConfigOption[] = [{ id: "model", name: "Model", category: "model", currentValue: "a", values: [{ value: "claude-opus-5", name: "Opus" }, { value: "b", name: "Other" }] }];
+      await openSettingsOn(mounted, renamed);
+      await mounted.mockInput.typeText("CLAUDE");
+      expect(panelRows(await frameOf(mounted))).toEqual(["Model", "Opus"]);
+    });
+  });
+
+  test("a section title match shows the whole section", async () => {
+    await withScreen({}, async (mounted) => {
+      await openSettingsOn(mounted);
+      await mounted.mockInput.typeText("eff");
+      const rows = panelRows(await frameOf(mounted));
+      expect(rows.map((row) => row.replace(/\s*✓$/, ""))).toEqual(["Effort", "low", "high", "default"]);
+      expect(mounted.screen.settingsChoice()).toEqual({ category: "thought_level", value: "low" });
+    });
+  });
+
+  test("return applies the filtered selection and leaves the panel open", async () => {
+    await withScreen({}, async (mounted) => {
+      await openSettingsOn(mounted);
+      await mounted.mockInput.typeText("deeps");
+      mounted.mockInput.pressEnter();
+      await mounted.renderOnce();
+      expect(intentsOf(mounted)).toEqual(["confirm"]);
+      expect(mounted.screen.settingsChoice()).toEqual({ category: "model", value: "deepseek/deepseek-flash" });
+      expect(mounted.screen.overlay()).toBe("settings");
+    });
+  });
+
+  test("the arrows walk the filtered values only", async () => {
+    await withScreen({}, async (mounted) => {
+      await openSettingsOn(mounted);
+      await mounted.mockInput.typeText("deeps");
+      mounted.mockInput.pressArrow("down");
+      expect(mounted.screen.settingsChoice()).toEqual({ category: "model", value: "ollama-cloud/deepseek-v4.1-flash" });
+      mounted.mockInput.pressArrow("down");
+      mounted.mockInput.pressArrow("down");
+      expect(mounted.screen.settingsChoice()).toEqual({ category: "model", value: "openrouter/deepseek/deepseek-v4-pro" });
+    });
+  });
+
+  test("each keystroke sends the selection back to the first match", async () => {
+    await withScreen({}, async (mounted) => {
+      await openSettingsOn(mounted);
+      await mounted.mockInput.typeText("deeps");
+      mounted.mockInput.pressArrow("down");
+      mounted.mockInput.pressArrow("down");
+      await mounted.mockInput.typeText("e");
+      expect(mounted.screen.settingsChoice()).toEqual({ category: "model", value: "deepseek/deepseek-flash" });
+    });
+  });
+
+  test("clearing the filter brings every section back", async () => {
+    await withScreen({}, async (mounted) => {
+      await openSettingsOn(mounted);
+      await mounted.mockInput.typeText("deeps");
+      for (let step = 0; step < 5; step++) mounted.mockInput.pressBackspace();
+      const rows = panelRows(await frameOf(mounted));
+      expect(rows).toContain("Model");
+      expect(rows).toContain("Effort");
+      expect(rows.some((row) => row.includes("amd/GLM-5.3-Flash"))).toBe(true);
+    });
+  });
+
+  test("typing over the filter after an apply reaches another section", async () => {
+    await withScreen({}, async (mounted) => {
+      await openSettingsOn(mounted);
+      await mounted.mockInput.typeText("deeps");
+      mounted.mockInput.pressEnter();
+      for (let step = 0; step < 5; step++) mounted.mockInput.pressBackspace();
+      await mounted.mockInput.typeText("eff");
+      const rows = panelRows(await frameOf(mounted));
+      expect(rows[0]).toBe("Effort");
+      expect(rows).not.toContain("Model");
+    });
+  });
+
+  test("a filter without any match says so and offers no choice", async () => {
+    await withScreen({}, async (mounted) => {
+      await openSettingsOn(mounted);
+      await mounted.mockInput.typeText("zzz");
+      const frame = await frameOf(mounted);
+      expect(frame).toContain("No matching settings");
+      expect(mounted.screen.settingsChoice()).toBeUndefined();
+      mounted.mockInput.pressEnter();
+      expect(intentsOf(mounted)).toEqual(["confirm"]);
+    });
+  });
+
+  test("the filter is a bare input row: no slash, the status line invites to type", async () => {
+    await withScreen({}, async (mounted) => {
+      await openSettingsOn(mounted);
+      expect(rowsOf(await frameOf(mounted)).at(-1)).toContain("Type to filter");
+      expect(mounted.screen.paletteText()).toBeUndefined();
+      await mounted.mockInput.typeText("deeps");
+      const frame = await frameOf(mounted);
+      expect(rowsOf(frame).some((line) => line.includes("❯ deeps"))).toBe(true);
+      expect(mounted.screen.inputText()).toBe("");
+    });
+  });
+
+  test("ctrl+D with a filter typed does not quit, and still quits on an empty filter", async () => {
+    await withScreen({}, async (mounted) => {
+      await openSettingsOn(mounted);
+      await mounted.mockInput.typeText("deeps");
+      mounted.mockInput.pressKey("d", { ctrl: true });
+      expect(intentsOf(mounted)).not.toContain("quit");
+      for (let step = 0; step < 5; step++) mounted.mockInput.pressBackspace();
+      mounted.mockInput.pressKey("d", { ctrl: true });
+      expect(intentsOf(mounted)).toContain("quit");
+    });
+  });
+
+  test("closing the panel hands the keyboard back to the message box, which kept its draft", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base(LONG));
+      await mounted.mockInput.typeText("draft");
+      mounted.screen.openOverlay("settings");
+      await mounted.mockInput.typeText("deeps");
+      mounted.screen.closeOverlay();
+      await mounted.mockInput.typeText("!");
+      expect(mounted.screen.inputText()).toBe("draft!");
+      // La saisie filtrée ne reste pas : rouvrir les réglages repart d'un filtre vide.
+      mounted.screen.openOverlay("settings");
+      expect(panelRows(await frameOf(mounted))).toContain("Effort");
+    });
+  });
+
+  test("ctrl+c closes the panel, drops the filter and brings the draft back without quitting", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base(LONG));
+      mounted.screen.setInput("draft");
+      mounted.screen.openOverlay("settings");
+      await mounted.mockInput.typeText("deeps");
+      mounted.mockInput.pressCtrlC();
+      await mounted.renderOnce();
+      expect(mounted.screen.overlay()).toBeUndefined();
+      expect(intentsOf(mounted)).toEqual([]);
+      expect(mounted.screen.inputText()).toBe("draft");
+      mounted.screen.openOverlay("settings");
+      expect(panelRows(await frameOf(mounted))).toContain("Effort");
+    });
+  });
+
+  test("a permission arriving while a filter is typed in the panel closes it, shows the card and hands the input row back", async () => {
+    await withScreen({}, async (mounted) => {
+      await show(mounted, base(LONG));
+      mounted.screen.setInput("draft");
+      mounted.screen.openOverlay("settings");
+      await mounted.mockInput.typeText("deeps");
+      expect(mounted.screen.paletteText()).toBeUndefined();
+      const frame = await show(mounted, waitingOnBash(permission(), LONG));
+      expect(mounted.screen.overlay()).toBeUndefined();
+      expect(frame).toContain("Allow this command?");
+      expect(rowsOf(frame).some((line) => line.includes("❯ deeps"))).toBe(false);
+      expect(frame).not.toContain("Type to filter");
+      expect(mounted.screen.inputText()).toBe("draft");
+      expect(intentsOf(mounted)).toEqual([]);
+    });
+  });
+
+  test("a ctrl+c that closes the panel does not arm the quit: the next one is a first ctrl+c again", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await show(mounted, base(LONG));
+      mounted.screen.openOverlay("settings");
+      mounted.mockInput.pressCtrlC();
+      expect(mounted.screen.overlay()).toBeUndefined();
+      expect(intentsOf(mounted)).toEqual([]);
+      clock += 100;
+      mounted.mockInput.pressCtrlC();
+      expect(intentsOf(mounted)).toEqual(["clearInput"]);
+      clock += 100;
+      mounted.mockInput.pressCtrlC();
+      expect(intentsOf(mounted)).toEqual(["clearInput", "quit"]);
+    });
+  });
+
+  test("a ctrl+c that closes the palette does not arm the quit either", async () => {
+    let clock = 10_000;
+    await withScreen({ now: () => clock }, async (mounted) => {
+      await openPalette(mounted);
+      mounted.mockInput.pressCtrlC();
+      expect(mounted.screen.overlay()).toBeUndefined();
+      clock += 100;
+      mounted.mockInput.pressCtrlC();
+      expect(intentsOf(mounted)).toEqual(["clearInput"]);
+    });
+  });
+
+  test("the filter keeps a long catalogue inside the 18-row window", async () => {
+    await withScreen({ height: 40 }, async (mounted) => {
+      const many: ConfigOption[] = [
+        { id: "model", name: "Model", category: "model", currentValue: "m0", values: Array.from({ length: 300 }, (_, index) => ({ value: `m${index}`, name: `provider/model-${index}` })) },
+        { id: "effort", name: "Effort", category: "thought_level", currentValue: "low", values: [{ value: "low", name: "low" }] },
+      ];
+      await openSettingsOn(mounted, many);
+      expect(panelRows(await frameOf(mounted)).length).toBeLessThanOrEqual(18);
+      await mounted.mockInput.typeText("model-29");
+      const rows = panelRows(await frameOf(mounted));
+      expect(rows).toHaveLength(12);
+      expect(rows[1]).toContain("provider/model-29");
+    });
+  });
+});
+
+describe("filterSettings", () => {
+  const entries = settingsEntries(LONG);
+
+  test("an empty filter keeps every entry", () => {
+    expect(filterSettings(entries, "")).toEqual(entries);
+  });
+
+  test("a section without a match disappears, title included", () => {
+    const kept = filterSettings(entries, "deeps");
+    expect(kept.some((entry) => entry.kind === "title" && entry.label === "Effort")).toBe(false);
+    expect(kept.some((entry) => entry.kind === "value" && entry.category === "thought_level")).toBe(false);
+  });
+
+  test("every kept value belongs to a kept title, in section order", () => {
+    for (const text of ["", "e", "eff", "low", "deeps", "MODEL"]) {
+      let title: string | undefined;
+      let previous = -1;
+      for (const entry of filterSettings(entries, text)) {
+        if (entry.kind === "title") {
+          title = entry.label;
+          const index = ["Model", "Effort", "Mode"].indexOf(entry.label);
+          expect(index).toBeGreaterThan(previous);
+          previous = index;
+        } else {
+          expect(title).toBeDefined();
+        }
+      }
+    }
   });
 });
 

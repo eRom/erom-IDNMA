@@ -1,0 +1,60 @@
+{
+  "_source": "Real session/new result of grok, captured 14/11/2026 (probe five/grok-session-new.json); sessionId replaced, values cut to four, _meta and models dropped.",
+  "sessionId": "fake-grok",
+  "configOptions": [
+    {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "grok-4.7",
+      "options": [
+        {
+          "value": "grok-4.7",
+          "name": "Grok 4.7"
+        },
+        {
+          "value": "grok-4.7-build-fast",
+          "name": "Grok 4.7 Fast"
+        },
+        {
+          "value": "grok-4.6",
+          "name": "Grok 4.6"
+        },
+        {
+          "value": "grok-4.5",
+          "name": "Grok 4.5"
+        }
+      ]
+    },
+    {
+      "id": "reasoning_effort",
+      "name": "Reasoning Effort",
+      "category": "thought_level",
+      "type": "select",
+      "currentValue": "high",
+      "options": [
+        {
+          "value": "xhigh",
+          "name": "Extra High",
+          "description": "Maximum reasoning for the hardest tasks."
+        },
+        {
+          "value": "high",
+          "name": "High",
+          "description": "Thorough reasoning and quality. Recommended."
+        },
+        {
+          "value": "medium",
+          "name": "Medium",
+          "description": "Strong quality with a faster turnaround."
+        },
+        {
+          "value": "low",
+          "name": "Low",
+          "description": "Fastest responses. Best for simple tasks."
+        }
+      ]
+    }
+  ]
+}

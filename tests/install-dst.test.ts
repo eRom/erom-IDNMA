@@ -29,7 +29,7 @@ afterEach(() => {
 /** Ligne de début attendue pour une variante (`""`, `" eol-added"`, `" created"`, `" empty-list:<base64>"`). */
 const startLine = (variant: string): string => `${DST_PATCH_START}${variant}${START_SUFFIX}`;
 const bodyFor = (pluginPath: string): string =>
-  `- insert:\n    - id: idnma-bridge\n      name: ${JSON.stringify(pluginPath)}\n      disabled: !!js '!process.env.IDNMA_DST_BRIDGE'\n`;
+  `- insert:\n    - id: idnma-bridge\n      name: ${JSON.stringify(pluginPath)}\n      disabled: !!js '!process.env.IDNMA_DST_BRIDGE && !process.env.IDNMA_DST_CONTROL_TOKEN'\n`;
 const blockFor = (variant: string, pluginPath: string = PLUGIN): string => `${startLine(variant)}\n${bodyFor(pluginPath)}${DST_PATCH_END}\n`;
 const TEAMMATE_CREATED_BLOCK = `${TEAMMATE_START_CREATED}\n${TEAMMATE_TEXT}\n${TEAMMATE_END}\n`;
 const modeOf = (path: string): number => statSync(path).mode & 0o777;
@@ -181,6 +181,22 @@ describe("installDstPatch / uninstallDstPatch", () => {
     expect(readFileSync(patchPath).equals(readFileSync(FIXTURE))).toBe(true);
   });
 
+  test("a block written by an older idnma is rewritten with the new disabled expression, then uninstalls cleanly", () => {
+    const oldBody = bodyFor(PLUGIN).replace(" && !process.env.IDNMA_DST_CONTROL_TOKEN", "");
+    expect(oldBody).not.toBe(bodyFor(PLUGIN));
+    const before = "# tête\n";
+    writeFileSync(patchPath, `${before}${startLine("")}\n${oldBody}${DST_PATCH_END}\n`);
+
+    expect(installDstPatch(patchPath, PLUGIN)).toBe("updated");
+    const text = readFileSync(patchPath, "utf8");
+    expect(text).toBe(`${before}${blockFor("", PLUGIN)}`);
+    expect(countOf(text, DST_PATCH_START)).toBe(1);
+    expect(reparse(patchPath).toJS()).toEqual([{ insert: [{ id: "idnma-bridge", name: PLUGIN, disabled: "!process.env.IDNMA_DST_BRIDGE && !process.env.IDNMA_DST_CONTROL_TOKEN" }] }]);
+
+    expect(uninstallDstPatch(patchPath)).toBe("removed");
+    expect(readFileSync(patchPath, "utf8")).toBe(before);
+  });
+
   test("keeps the content that follows the block, on install update and uninstall", () => {
     const before = "# tête\n";
     const after = "- id: apres\n  disabled: true\n";
@@ -202,7 +218,7 @@ describe("installDstPatch / uninstallDstPatch", () => {
     const doc = reparse(patchPath);
     expect(doc.errors).toEqual([]);
     expect(doc.warnings).toEqual([]);
-    expect(doc.toJS()).toEqual([{ insert: [{ id: "idnma-bridge", name: PLUGIN, disabled: "!process.env.IDNMA_DST_BRIDGE" }] }]);
+    expect(doc.toJS()).toEqual([{ insert: [{ id: "idnma-bridge", name: PLUGIN, disabled: "!process.env.IDNMA_DST_BRIDGE && !process.env.IDNMA_DST_CONTROL_TOKEN" }] }]);
     const disabled = doc.getIn([0, "insert", 0, "disabled"], true) as Scalar;
     expect(disabled.tag).toBe("tag:yaml.org,2002:js");
   });
@@ -212,7 +228,7 @@ describe("installDstPatch / uninstallDstPatch", () => {
     writeFileSync(patchPath, readFileSync(FIXTURE));
 
     expect(installDstPatch(patchPath, accented)).toBe("installed");
-    expect(reparse(patchPath).toJS()).toEqual([{ insert: [{ id: "idnma-bridge", name: accented, disabled: "!process.env.IDNMA_DST_BRIDGE" }] }]);
+    expect(reparse(patchPath).toJS()).toEqual([{ insert: [{ id: "idnma-bridge", name: accented, disabled: "!process.env.IDNMA_DST_BRIDGE && !process.env.IDNMA_DST_CONTROL_TOKEN" }] }]);
     expect(dstPluginState(dir, accented)).toEqual({ kind: "installed" });
     expect(installDstPatch(patchPath, accented)).toBe("unchanged");
 
